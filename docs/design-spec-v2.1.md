@@ -14,7 +14,8 @@ docs/design-spec-v2.md に追加する章。ユーザーの使用感確認後の
 | 強度なしのP・K | `str:'N'`。●は無彩色の `--str-n: #858585`。中の文字との比は5.20:1。パッドの右ブロックに4段目を足し、［●P 強度なし｜●K 強度なし］を置く |
 | パッドの高さ | 368pxのままでは不可能（横8列×44px＝352px＞内幅348px）。414pxにする（上限420以内）。360×740で上端は y=326 |
 | ヘルプ | 「〇に？」の線画アイコン（見た目22px、線1.5px、`--fg-muted`）、タップ領域44×44、`aria-label="凡例を開く"`。詳細・編集の上部バーの［凡例］を置き換える |
-| ロゴ | 「看板と●」: -12°に傾けた1本のネオン管の枠（左下に電極の切れ目）の中に、アプリ固有の記号 ●P を置く。枠の色はネオン段階の最上段と同じ赤橙 `#FF5A2E` |
+| レベルメーター | キャラ選択のタイルの下端に、10個の目盛りのうち段階の数だけ点灯するメーターを置く（1.7）。色の差だけに頼らず、隣の段階を数で見分けるため（D-015） |
+| ロゴ | 「看板と●●」: -12°に傾けた1本のネオン管の枠（左下に電極の切れ目）の中に、重なる2つの●（●P＝中の黄、●K＝弱の水色）を置く。枠の色はネオン段階の最上段と同じ赤橙 `#FF5A2E`。初版の「枠＋●P」は駐車場の標識に見えるとの指摘（T-015 B-Med4）で改めた（D-015） |
 | データの版 | 新しいトークン（move）と値（str N）を足すため、`schemaVersion` を2に上げる。版1のデータは変換なしでそのまま有効（読み込みと取り込みは1と2を受け付け、書き出しは2）。版3以上は拒否（D-013） |
 
 ## 1. 記録数に応じたネオンの段階
@@ -82,6 +83,15 @@ v2.0の2.6を次のとおり改める。付けてよい場所に「ネオン段�
 
 app.jsに `export function charTile(c, n)`（homeScreenと同じタイルを返す）を切り出し、homeScreenとcheck.htmlの両方から使う。check.htmlに「ネオンの段階」の節を足し、`.grid` を2つ並べる。(a) 全段階の下限: RYUで 0、1、2、3、5、8、12、18、28、45、70件。(b) 代表値: 0、1、3、6、10、20、40、80件。KIMBERLYの80件も入れて幅を確認する。各段階の `.wm` を `--bg` の上に1行ずつ置く。自動判定: `data-lv` が期待値と一致する、`.cell-en` のtext-shadowが2層以下で各層のぼかしが8px以下かつアルファが0.8以下、`.cell::before` のbox-shadowのぼかしが0、`.cell-en` と `.cell-n` の色と `::before` の背景の比が4.5以上（相対輝度で計算）、隣り合う段階で `.cell-en` のcolorかtext-shadowが異なる、`filter` がnone。
 
+### 1.7 レベルメーター（T-015 B-Med2、D-015）
+
+色の段階だけだと、隣り合う段階（例: 段階5と6）を色で見分けにくい。タイルの下端に、段階を数で示すメーターを足す。
+
+- DOM: `charTile` が `<span class="cell-lv" aria-hidden="true">` に `<i>` を10個入れる（先頭から段階の数だけ `class="on"`）。読み上げは変えない（`aria-label` は「リュウ 3件」のまま）。
+- CSS: `.cell-lv { position:absolute; left:14px; right:12px; bottom:4px; height:3px; display:flex; gap:2px; }`、`.cell-lv i { flex:1; background:var(--line-strong); }`、`.cell-lv i.on { background:var(--nc); }`。塗りだけで、影・グラデーション・アニメーションは使わない。点灯の色は英字と同じ `--nc`（押下中の段階0〜2は `--lit`）。消灯は `--line-strong`（点灯との比は 段階1で6.26）。0件は全て消灯の目盛りだけが出る。
+- タイルの寸法: メーターの場所を空けるため、`.cell` の中身を上詰めにする（`align-content:start; padding:5px 12px 0 14px; row-gap:2px`）。高さ54pxは変えない。英字（上端5px〜25px）、件数（27px〜41px）、メーター（47px〜50px）。
+- check.html: 目盛りが10個、点灯の数が段階と一致、点灯の色が英字と同じ、消灯の色が違う、影・filterなし、件数と重ならない。
+
 ## 2. 前ステ・バクステ
 
 - データ（core.js）: `MOVE_IDS = ['FWD_STEP','BACK_STEP']`、`MOVE_NAMES = { FWD_STEP:'前ステ', BACK_STEP:'バクステ' }`。`isValidToken` に `case 'move': onlyKeys(t,['type','id']) && MOVE_IDS.includes(t.id)` を足す。`tokenLabel` は `MOVE_NAMES[token.id]`（矢印表記でも数字表記でも同じ）。`applyPadInput` に `case 'move'` を足す（idを検証して `insertAt`。ペンディングは破棄。システム技と同じ扱い）。`describeRow` は変更不要（行動トークンなので▶でつながり、CH・PCが付く）。直近8件にも自動で入る。
@@ -121,7 +131,7 @@ app.jsに `export function charTile(c, n)`（homeScreenと同じタイルを返�
 :root { --pad-h: 414px; }
 ```
 
-合計の高さは 1＋5＋44＋4＋46＋4＋46＋4＋44＋4＋4＋202＋6 ＝ 414px。キーはすべて44×44以上（360pxで、強度なしのキーは96×46、バクステ・前ステは68×46）。強度なしのキーの中身は灰色の●30pxと「強度なし」。`aria-label` は「P 強度なし」「K 強度なし」。押したら `act({type:'button', key, str:'N'})`。トーストの位置の `calc(368px…)` を `var(--pad-h)` に置き換える。`@media (max-height:560px)` で通常の流れに置く処理はそのまま。
+合計の高さは 1＋5＋44＋4＋46＋4＋46＋4＋44＋4＋4＋202＋6 ＝ 414px。キーはすべて44×44以上（360pxで、強度なしのキーは96×46、バクステ・前ステは68×46）。強度なしのキーの中身は灰色の●30pxと「強度なし」。`aria-label` は「P 強度なし」「K 強度なし」。押したら `act({type:'button', key, str:'N'})`。トーストの位置の `calc(368px…)` を `var(--pad-h)` に置き換える。`@media (max-height:640px)`（初版は560px。高さ640px級の端末でも、パッドの上に入力欄が残らないようにするため T-015 で引き上げた）で、パッドをコマンド列の下の通常の流れに置く。トーストをパッドの上に出す処理は `min-height:641px`。
 - 368pxに収まらない理由: 方向パッド3列＋強度なしを足すとボタンが5列になり、360pxでの内幅348pxに8列×44px＝352pxが入らない。縦も、直近8件と［完了］の段、プリセット2段、システム行はどれも外せない。
 - チップのポップオーバー: 強度の行は［弱●］［中●］［強●］［●（灰）］（必殺技は続けて［OD］）。灰色の選択肢は●だけで `aria-label="強度なし"`。5択のときは `.opt` のpaddingを左右4pxにする。
 
@@ -144,7 +154,12 @@ app.jsに `export function charTile(c, n)`（homeScreenと同じタイルを返�
 
 ## 5. ブランドロゴとアプリアイコン
 
-採用案は「看板と●」。-12°に傾けた1本の管で看板の枠を描き、左下に電極の切れ目を残し、中にアプリ固有の●Pを置く。意味は、看板（記録の量で点灯する名前）とボタン（コマンドの記法）というアプリの2つの柱。枠の色はネオン段階の最上段のにじみと縁の色 `#FF5A2E` で、「記録をためた看板が点ききった姿」を表す。SF6のロゴ、「6」、Capcomの書体は使わない。VectorDrawableへ変換しやすいよう、パス2本と円1つで描き、管の芯を内側の細い線で描く（にじみに頼らない）。不採用: 一筆の入力（改行キーに見える問題を繰り返す）、つなぎ（●▶が再生アイコンに見える）。
+採用案は「看板と●●」。-12°に傾けた1本の管で看板の枠を描き、左下に電極の切れ目を残し、中にアプリ固有の重なる2つの●（●Pと●K）を置く。意味は、看板（記録の量で点灯する名前）とボタン（コマンドの記法）というアプリの2つの柱。枠の色はネオン段階の最上段のにじみと縁の色 `#FF5A2E` で、「記録をためた看板が点ききった姿」を表す。●の形・色・重なり方は、アプリの中のボタンと同じ（ODの●2つの重なりと同系。重なりは直径の約24%）。SF6のロゴ、「6」、Capcomの書体は使わない。VectorDrawableへ変換しやすいよう、パス（管・P・K）と円（●の本体・縁取り）だけで描き、管の芯を内側の細い線で描く（にじみに頼らない）。不採用: 一筆の入力（改行キーに見える問題を繰り返す）、つなぎ（●▶が再生アイコンに見える）。初版の「枠＋●P」は、青い角丸の枠に白いPで「駐車場」の標識に見えるとの指摘（T-015のB-Med4）があり、●を2つの強度色にして改めた。
+
+- 枠: 外側の寸法を横長にして（中心線の高さ180、上辺の長さ292）、中の●を大きく取る。4隅の中心線は (91,346)、(129,166)、(421,166)、(383,346)、傾きは約11.9°（-12°とみなす）。管の太さ28。外接矩形の中心は (256,256)。最も遠い角 (421,166) は中心から188.1で、線の半分14を足して202.1 < 205（maskableの安全円内）。切れ目は下辺の x=147〜225。
+- ●: 直径120（半径60）。左の●P＝`--str-m` #F0D870、中心 (210,256)。右の●K＝`--str-l` #8FD3F0、中心 (302,256)。重なりは28。●Kを手前に置き、周りを地の色の半径63の円で縁取って（3px）●Pと分ける。P・Kの線は `--ink` #0E0F11、太さ13、線端は四角、角は尖らせる。形は `#i-dot-p` `#i-dot-k` を3.33倍にしたもの。
+- 色の比（手計算を自動計算で再確認済み）: 管とbg = 6.17、●P（黄）とbg = 13.48、●K（水色）とbg = 11.64、文字（ink）と●P = 13.48、文字と●K = 11.64。
+- 出力は `icon.svg`、`icon-192.png`、`icon-512.png`。APKの旧端末用 mipmap は、`icon.svg` を各密度（48・72・96・144・192）で直接書き出し、`_round` は円形に切る。
 
 `app/icon.svg`（512×512。filterはPNG書き出し用の例外）:
 
@@ -152,42 +167,46 @@ app.jsに `export function charTile(c, n)`（homeScreenと同じタイルを返�
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <filter id="halo" filterUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><feGaussianBlur stdDeviation="12"/></filter>
-    <path id="tube" d="M170 361H114L158 151H398L354 361H238" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="tube" d="M147 346H91L129 166H421L383 346H225" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </defs>
   <rect width="512" height="512" fill="#0E0F11"/>
   <use href="#tube" stroke="#FF5A2E" stroke-width="28" opacity=".6" filter="url(#halo)"/>
   <use href="#tube" stroke="#FF5A2E" stroke-width="28"/>
   <use href="#tube" stroke="#FFC4A0" stroke-width="9"/>
-  <circle cx="256" cy="256" r="64" fill="#F0D870"/>
-  <path d="M238.2 288V224H259.6A17.8 17.8 0 0 1 259.6 259.6H238.2" fill="none" stroke="#0E0F11" stroke-width="14.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <circle cx="210" cy="256" r="60" fill="#F0D870"/>
+  <path d="M193.33 286V226h20a16.67 16.67 0 0 1 0 33.33h-20" fill="none" stroke="#0E0F11" stroke-width="13" stroke-linecap="square" stroke-linejoin="miter"/>
+  <circle cx="302" cy="256" r="63" fill="#0E0F11"/>
+  <circle cx="302" cy="256" r="60" fill="#8FD3F0"/>
+  <path d="M282 226v60M322 226L285.33 259.33M297 249.33L323.67 286" fill="none" stroke="#0E0F11" stroke-width="13" stroke-linecap="square" stroke-linejoin="miter"/>
 </svg>
 ```
-
-枠の中心線の4隅は (114,361)、(158,151)、(398,151)、(354,361) で、傾きは約11.8°（-12°とみなす）。外接矩形の中心は (256,256)。最も遠い角 (398,151) は中心から176.6で、線の半分14を足して190.6 < 205（maskableの安全円内）。色の比: 管とbg = 6.17、●（中）とbg = 13.48、Pと●の比 = 13.48。出力は `icon.svg`、`icon-192.png`、`icon-512.png`。座標は計算しただけで、描画は未確認。PNGを書き出す前に目視で確認し、傾きや切れ目が不自然なら座標を調整する。
 
 Androidのアダプティブアイコンの前景（`apk/.../drawable-v24/ic_launcher_foreground.xml`）は、今と同じ配置（`translateX/Y=12.8`、`scale=0.161`）で中身を次のパスに置き換える（にじみは省く）。
 
 ```xml
-<path android:pathData="M170,361H114L158,151H398L354,361H238" android:strokeColor="#FF5A2E" android:strokeWidth="28" android:strokeLineCap="round" android:strokeLineJoin="round"/>
-<path android:pathData="M170,361H114L158,151H398L354,361H238" android:strokeColor="#FFC4A0" android:strokeWidth="9" android:strokeLineCap="round" android:strokeLineJoin="round"/>
-<path android:fillColor="#F0D870" android:pathData="M256,256m-64,0a64,64 0,1 1,128 0a64,64 0,1 1,-128 0"/>
-<path android:pathData="M238.2,288V224H259.6A17.8,17.8 0,0 1,259.6 259.6H238.2" android:strokeColor="#0E0F11" android:strokeWidth="14.2" android:strokeLineCap="square" android:strokeLineJoin="miter"/>
+<path android:pathData="M147,346H91L129,166H421L383,346H225" android:strokeColor="#FF5A2E" android:strokeWidth="28" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+<path android:pathData="M147,346H91L129,166H421L383,346H225" android:strokeColor="#FFC4A0" android:strokeWidth="9" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+<path android:fillColor="#F0D870" android:pathData="M210,256m-60,0a60,60 0,1 1,120 0a60,60 0,1 1,-120 0"/>
+<path android:pathData="M193.33,286V226h20a16.67,16.67 0,0 1,0 33.33h-20" android:strokeColor="#0E0F11" android:strokeWidth="13" android:strokeLineCap="square" android:strokeLineJoin="miter"/>
+<path android:fillColor="#0E0F11" android:pathData="M302,256m-63,0a63,63 0,1 1,126 0a63,63 0,1 1,-126 0"/>
+<path android:fillColor="#8FD3F0" android:pathData="M302,256m-60,0a60,60 0,1 1,120 0a60,60 0,1 1,-120 0"/>
+<path android:pathData="M282,226v60M322,226L285.33,259.33M297,249.33L323.67,286" android:strokeColor="#0E0F11" android:strokeWidth="13" android:strokeLineCap="square" android:strokeLineJoin="miter"/>
 ```
 
-mipmapのPNGは `icon-512.png` から作り直す。アプリ内の使い方: スプライトに `<symbol id="i-logo" viewBox="100 137 312 238">`（上の管2本、円、Pと同じ中身。Pのstrokeは `var(--ink)`。CSSではにじみを付けない）を追加し、キャラ選択の上部バーに `<h1 class="solo"><svg class="logo" aria-hidden="true"><use href="#i-logo"/></svg>SF6戦略メモ</h1>`、`.logo { width:26px; height:20px; vertical-align:-3px; margin-right:var(--s2); }`。名前の文字はシステムフォントの17px／700のまま（Tilt Neonのサブセットにかなと漢字がなく、名前が2つの書体に割れるため併記しない）。ロゴは動かさない。`sw.js` の `CACHE` を上げる。
+アプリ内の使い方: スプライトに `<symbol id="i-logo" viewBox="77 152 358 208">`（上の管2本、●2つと縁取り、P・K。P・Kと縁取りは `var(--ink)`。CSSではにじみを付けない）を置く。キャラ選択の上部バーに `<h1 class="solo"><svg class="logo" aria-hidden="true"><use href="#i-logo"/></svg>SF6戦略メモ</h1>`、`.logo { width:34px; height:20px; vertical-align:-3px; margin-right:var(--s2); }`。名前の文字はシステムフォントの17px／700のまま（Tilt Neonのサブセットにかなと漢字がなく、名前が2つの書体に割れるため併記しない）。ロゴは動かさない。48pxに縮めても、傾いた枠と、黄と水色の重なる●の2つが判別できる（目視確認済み）。`sw.js` の `CACHE` はデプロイ時に置き換わる（D-014）。
 
 ## 6. 影響の整理
 
 | 対象 | 変更 |
 | --- | --- |
 | core.js | `NEON_STEPS`、`neonLevel`、`MOVE_IDS`、`MOVE_NAMES`、isValidToken（move、N）、confirmButton（N）、applyPadInput（`move`）、strengthChoices（N）、`STR_NAMES.N`、tokenLabel（move）、`SCHEMA_VERSION=2`（版1も受け付ける） |
-| app.js | renderRow・chipNodes（`STR_CLASS.N`、`sys-mv`、Nはバッジなし）、buildPad（`.steps`、`.nkey`×2）、openChipMenu（N）、homeScreenと`charTile`（カナを外す、`data-lv`）、最近使ったキャラ（`data-lv`）、listScreenのh1、詳細・編集のhelpボタン、設定の［凡例を見る］、legendTableの行、ロゴ |
+| app.js | renderRow（`canTap`）・chipNodes（`STR_CLASS.N`、`sys-mv`、Nはバッジなし）、buildPad（`.steps`、`.nkey`×2）、openChipMenu（N）、homeScreenと`charTile`（カナを外す、`data-lv`、レベルメーター）、最近使ったキャラ（`data-lv`）、listScreenのh1、詳細・編集のhelpボタン、設定の［凡例を見る］、legendTableの行、ロゴ |
 | index.html | `i-help`、`i-logo` |
-| styles.css | `--str-n`、`--pad-h`、ネオン段階の節、`.sys-mv`、`.band-mv`、`.cell`の2行のグリッド、`.lower`／`.dirs`／`.btns`の4段、`.steps`、`.nkey`、`.help`、`.logo`。`.kn` と `.cell-name` は削除。トーストの位置を `var(--pad-h)` に |
+| styles.css | `--str-n`、`--pad-h`、`--line-field`（入力欄・選択肢の枠 #6B727C。地との比3.95・surfaceとの比3.63・keyとの比3.16で、すべて3:1以上。T-015 B-Low5）、`.cell-lv`（1.7）、ネオン段階の節、`.sys-mv`、`.band-mv`、`.cell`の2行のグリッド、`.lower`／`.dirs`／`.btns`の4段、`.steps`、`.nkey`、`.help`、`.logo`。`.kn` と `.cell-name` は削除。トーストの位置を `var(--pad-h)` に |
 | CLAUDE.mdのトークン節 | `--str-n` #858585、`--pad-h` 414px、ネオン段階の1行（閾値、正本はdesign-spec-v2.1の1章）、発光の行に「静的な発光テキストは35個まで」 |
 | e2e | パッドの高さ414・上端 y≥326（今は368・372）。`.cell` を `hasText:'リュウ'` で当てている箇所は `.cell[aria-label^="リュウ"]` に変える。点灯タイルの期待値（段階に応じた板・文字の色）を更新。凡例ボタンは `[aria-label="凡例を開く"]` で当てる |
 | check.html | ALLとSYSMIXに、move（2種）、`str:'N'` の通常技と必殺技を足す。構造の判定（`.sys-mv` のborderTopStyleがdashed、`.dot.str-n` の色が rgb(133,133,133)、L寸法の `.sys-mv` と `.str-n` に発光がない）。1.6の段階の節 |
-| アイコン | icon.svgとPNG 2つ、ic_launcher_foreground.xmlとmipmap、`sw.js` のCACHE |
+| アイコン | icon.svgとPNG 2つ、ic_launcher_foreground.xmlとmipmap（`sw.js` のCACHEはデプロイ時に置換。D-014） |
 
 ## 7. 受け入れの観点
 
@@ -199,7 +218,7 @@ mipmapのPNGは `icon-512.png` から作り直す。アプリ内の使い方: �
 6. パッド: 360×740で高さ414、上端 y≥326、全キーが44×44以上、横スクロールなし、システム行ののぞきは今のまま。パッドを開いたとき `.cmd` の下端と `#f-sec` の上端がパッドの上端より上にある。トーストがパッドの上に出る。
 7. ヘルプ: 詳細と編集の上部バーに［凡例］の文字がなく、44×44の `button[aria-label="凡例を開く"]` がある。押すと凡例が開き、閉じるとフォーカスがこのボタンに戻る。
 8. 性能: 32キャラ×70件（全員が段階10）で、CPUを4倍に落とし、360×600でキャラ選択をスクロールしたとき55fps以上。満たさなければ1.5の後退策をとる。
-9. アイコン: 48dpに縮小して、傾いた枠と●が判別できる。本体がmaskableの安全円（半径205）に収まる。公式ロゴを連想させない。VectorDrawableにfilterがない。
+9. アイコン: 48dpに縮小して、傾いた枠と、重なる2つの●（黄と水色）が判別できる。本体がmaskableの安全円（半径205）に収まる。公式ロゴを連想させない。VectorDrawableにfilterがない。
 10. データ: 版1のデータ（move・Nを含まない）がそのまま読み込めて保存できる。版3以上は拒否。moveとNを含む文書の書き出し→取り込みの往復が一致する。
 11. デザイン品質: 紫・青紫・グラデーション・すりガラス・明滅のループがない。発光は、記録の量・DR・ODのどれかの意味を持つ場所にだけある。
 
@@ -211,7 +230,7 @@ mipmapのPNGは `icon-512.png` から作り直す。アプリ内の使い方: �
 | 段階の色の軸 | 暖白→電球色→琥珀→赤橙 |
 | 閾値 | 1/2/3/5/8/12/18/28/45/70 |
 | 0件のキャラの一覧の上部バーの英字 | 消灯（muted）にする（今は常に点灯なので振る舞いが変わる） |
-| ロゴの中の文字 | Pを残す |
+| ロゴの中の文字 | 初版はPを残す案。T-015で、●P・●Kの重なりに変更（D-015） |
 | ワードマーク | ロゴマーク＋和文「SF6戦略メモ」。Tilt Neonの併記はしない |
 | Android 13のテーマアイコン（monochrome） | 今回は足さない |
 | 前ステ・バクステのテキスト取り込みの別名（66・44など） | 書き出しと同じ語だけを受け付ける（テキスト取り込みはPhase 2） |

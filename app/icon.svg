@@ -1,13 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <!-- design-spec-v2.1 5章「看板と●」。傾けた1本のネオン管の枠（左下に電極の切れ目）＋●P。にじみのfilterはPNG書き出し用の例外（アプリの画面ではfilterを使わない） -->
+  <!-- design-spec-v2.1 5章「看板と●」。傾けた1本のネオン管の枠（左下に電極の切れ目）＋重なる2つの●（●P 中＝黄、●K 弱＝水色。アプリのボタンと同じ形・色・重なり）。にじみのfilterはPNG書き出し用の例外（アプリの画面ではfilterを使わない） -->
   <defs>
     <filter id="halo" filterUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><feGaussianBlur stdDeviation="12"/></filter>
-    <path id="tube" d="M170 361H114L158 151H398L354 361H238" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="tube" d="M147 346H91L129 166H421L383 346H225" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </defs>
   <rect width="512" height="512" fill="#0E0F11"/>
   <use href="#tube" stroke="#FF5A2E" stroke-width="28" opacity=".6" filter="url(#halo)"/>
   <use href="#tube" stroke="#FF5A2E" stroke-width="28"/>
   <use href="#tube" stroke="#FFC4A0" stroke-width="9"/>
-  <circle cx="256" cy="256" r="64" fill="#F0D870"/>
-  <path d="M238.2 288V224H259.6A17.8 17.8 0 0 1 259.6 259.6H238.2" fill="none" stroke="#0E0F11" stroke-width="14.2" stroke-linecap="square" stroke-linejoin="miter"/>
+  <circle cx="210" cy="256" r="60" fill="#F0D870"/>
+  <path d="M193.33 286V226h20a16.67 16.67 0 0 1 0 33.33h-20" fill="none" stroke="#0E0F11" stroke-width="13" stroke-linecap="square" stroke-linejoin="miter"/>
+  <circle cx="302" cy="256" r="63" fill="#0E0F11"/>
+  <circle cx="302" cy="256" r="60" fill="#8FD3F0"/>
+  <path d="M282 226v60M322 226L285.33 259.33M297 249.33L323.67 286" fill="none" stroke="#0E0F11" stroke-width="13" stroke-linecap="square" stroke-linejoin="miter"/>
 </svg>

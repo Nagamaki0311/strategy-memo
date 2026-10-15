@@ -8,7 +8,7 @@
 - 権限は `INTERNET` を残してある（`androidScheme` のオリジン `https://localhost` の WebView で必要かを実機で未確認のため）。実機確認後に削除を検討する
 - オリジンは `https://localhost`（`capacitor.config.json` の `androidScheme`）。localStorage はこのオリジンに保存され、アプリを更新しても残る。アンインストールすると消える
 - minSdk 24（Android 7.0）、targetSdk 36。Java 21、Node 22、Android SDK `platforms;android-36` と `build-tools;36.0.0` が要る
-- アイコンは `app/icon.svg`（design-spec-v2.1 5章「看板と●」。傾けたネオン管の枠と●P）の図案。アダプティブアイコンの前景は `drawable-v24/ic_launcher_foreground.xml`（管の枠・●・Pの形のみ。VectorDrawableはにじみを表せないので省く。安全円に収めてある）、背景は `values/ic_launcher_background.xml`（`#0E0F11` の単色）。旧端末用の `mipmap-*/ic_launcher*.png` は `app/icon-512.png` の縮小（round は円形に切り抜き）。図案を変えたらこの3種を作り直す。スプラッシュ（Android 12 以降）は `#0E0F11` 地に同じ前景、それ以前は `capacitor.config.json` の `backgroundColor`（`#0E0F11`）
+- アイコンは `app/icon.svg`（design-spec-v2.1 5章「看板と●●」。傾けたネオン管の枠と重なる2つの●＝●P・●K）の図案。アダプティブアイコンの前景は `drawable-v24/ic_launcher_foreground.xml`（管の枠・●・Pの形のみ。VectorDrawableはにじみを表せないので省く。安全円に収めてある）、背景は `values/ic_launcher_background.xml`（`#0E0F11` の単色）。旧端末用の `mipmap-*/ic_launcher*.png` は `app/icon-512.png` の縮小（round は円形に切り抜き）。図案を変えたらこの3種を作り直す。スプラッシュ（Android 12 以降）は `#0E0F11` 地に同じ前景、それ以前は `capacitor.config.json` の `backgroundColor`（`#0E0F11`）
 
 ## ダウンロードリンク（GitHub Release）
 
