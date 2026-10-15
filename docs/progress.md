@@ -19,6 +19,22 @@
 
 ---
 
+## 2026-10-15 T-005・T-006: コアロジック（パッド入力・表示・検証・マージ）
+
+### 実施内容
+- app/core.jsに、パッド入力の状態遷移（`applyPadInput`）、トークン表示（`tokenLabel`、`describeRow`、`motionToArrows`）、文書の検証（`validateDoc`、`parseDocText`）、書き出しと取り込み（`exportDoc`、`mergeImport`）を実装した。区画ごとに `// ===== SECTION: 名称 =====` を置いた。
+- Reviewerの敵対的レビュー（Critical/Highなし、Medium5件、Low6件）を受けて修正した。取り消しが1つ前の状態へ戻る（M1）、マージ結果の検証（M3）、未知キーの拒否（M4）、idの文字種制限と理由への入力値埋め込み禁止（M5）、motion長・cursor・actionの検証（L1・L2・L4）。注記の向きは「直後」に統一した（M2、D-005）。
+
+### 結果
+- `npm test` は31テスト pass、fail 0、終了コード0（Managerが再実行）。検算用の9タップが「屈中K▶236強P▶CDR▶屈中K▶236強P」になることをテストで固定した（受け入れ基準7.3-1のロジック層）。
+- Managerが修正を再現スクリプトで確認した（M1の取り消し、M4の未知キー拒否、M5のid不正とreasonへの非埋め込み）。修正後の再レビューは行っていない。
+- 残る注意: ↓キーの選択表示はモーション選択後も残る（確定するトークンには入らない）。D-005の「↓の後にモーションを押すと↓は破棄」の見た目はT-010で決める。mergeImportは `{ok, doc, added, updated, unchanged}` または `{ok:false, reason}` を返す。T-012は結果の `ok` を確認する。画面にreasonを表示するときは `textContent` を使う。
+
+### 次回開始位置
+- T-007（デザイントークンの記録とコマンド列の描画。docs/design-spec.mdの2〜3章、CLAUDE.mdへのトークン節）。
+
+---
+
 ## 2026-10-15 T-003: 環境確認と土台
 
 ### 実施内容
