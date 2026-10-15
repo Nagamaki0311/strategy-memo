@@ -13,4 +13,161 @@
   --str-h: #F29A8E;
   --od: #9ED8A0;
   --scrim: rgba(0,0,0,.6);
+
+  --font: system-ui, "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
+  --t-xs: 12px/1.4;
+  --t-sm: 13px/1.4;
+  --t-md: 15px/1.5;
+  --t-lg: 17px/1.4;
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  --r-tag: 2px;
+  --r-chip: 6px;
+  --r-key: 8px;
+  --r-sheet: 12px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 var(--t-md) var(--font);
+  font-variant-numeric: tabular-nums;
+}
+h1, h2 { word-break: auto-phrase; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ===== コマンド列（design-spec 3章）===== */
+.row {
+  --dot: 34px; --arrow: 22px; --chip-h: 34px; --tag-h: 20px;
+  --conn-m: 10px; --conn-w: 8px; --conn-h: 10px;
+  --in: 2px; --ov: 8px; --fs: 15px; --num: 18px; --chip-px: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 6px;
+  column-gap: var(--conn-m);
+}
+.row.S {
+  --dot: 24px; --arrow: 15px; --chip-h: 24px; --tag-h: 16px;
+  --conn-m: 6px; --conn-w: 6px; --conn-h: 8px;
+  --in: 1px; --ov: 6px; --fs: 12px; --num: 14px; --chip-px: 7px;
+}
+.row.str-labels { row-gap: 10px; }
+
+/* 1つの技（注記＋技＋末尾の▶）は折り返さない。▶は行頭に来ない */
+.grp {
+  position: relative;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: calc(var(--in) * 2);
+  max-width: 100%;
+}
+.tag, .conn { flex: none; }
+/* 1技が行幅を超える異常に長い方向列のときだけ、技の内側で折り返す */
+.chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--in);
+  white-space: nowrap;
+}
+.chip > * { flex: none; }
+
+.dot {
+  position: relative;
+  display: inline-flex;
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+}
+.dot svg { width: 100%; height: 100%; }
+.str-l { color: var(--str-l); }
+.str-m { color: var(--str-m); }
+.str-h { color: var(--str-h); }
+.dot.od { color: var(--od); }
+.dot.od + .dot.od {
+  margin-left: calc(var(--ov) * -1);
+  outline: 2px solid var(--bg);
+}
+
+.arrow, .br, .cw { display: block; color: var(--fg); width: var(--arrow); height: var(--arrow); }
+.br { width: calc(var(--arrow) / 4); }
+.charge { display: inline-flex; align-items: center; }
+.conn { display: block; margin-left: var(--conn-m); color: var(--conn); width: var(--conn-w); height: var(--conn-h); }
+
+/* 素の文字（J、OD）と数字表記 */
+.ltr { font: 700 var(--fs)/1 var(--font); color: var(--fg); }
+.ltr.od { color: var(--od); margin-inline: var(--in); }
+.num { font: 700 var(--num)/1 var(--font); font-variant-numeric: tabular-nums; color: var(--fg); }
+
+/* システム技・SA */
+.sys {
+  box-sizing: border-box;
+  height: var(--chip-h);
+  padding: 0 var(--chip-px);
+  border: 2px solid var(--fg);
+  border-radius: var(--r-chip);
+  background: var(--key);
+  color: var(--fg);
+  font: 700 var(--fs)/1 var(--font);
+}
+
+/* 注記CH・PC */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: var(--tag-h);
+  padding: 0 var(--s1);
+  border-radius: var(--r-tag);
+  background: var(--line-strong);
+  color: var(--fg);
+  font: 700 12px/1 var(--font);
+}
+
+/* 強度の補助文字（設定オンで .str-labels を付ける） */
+.badge {
+  display: none;
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 15px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--fg);
+  font: 700 11px/15px var(--font);
+  text-align: center;
+}
+.str-labels .badge { display: block; }
+.str-labels .dot.has-str { margin-right: 7px; }
+
+/* 未認識（Phase 2）。生の文字列を「」で囲んで置く */
+.unk {
+  color: var(--fg-muted);
+  text-decoration: underline wavy;
+  word-break: break-all;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }
