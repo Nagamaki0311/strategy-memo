@@ -47,19 +47,23 @@ const DIRS = [1, 3, 4, 6, 7, 8, 9]; // 2（しゃがみ）と5（ニュートラ
 const KEYS = ['P', 'K'];
 
 // 仕様書の正規表現 ^(\[[1-9]\])?[1-9]{2,}$ は "[4]6" を弾くため、溜め入力は [d]d+ として許容する。
-export const isMotion = (m) => typeof m === 'string' && (m === '360' || /^(\[[1-9]\][1-9]+|[1-9]{2,})$/.test(m));
+export const MOTION_MAX = 20;
+export const isMotion = (m) =>
+  typeof m === 'string' && m.length <= MOTION_MAX && (m === '360' || /^(\[[1-9]\][1-9]+|[1-9]{2,})$/.test(m));
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+// 未知のキー（余分なフィールド）を持たないこと。__proto__ をown propertyに持つJSONもここで弾かれる。
+const onlyKeys = (o, keys) => Object.keys(o).every((k) => keys.includes(k));
 
 export function isValidToken(t) {
   if (!isObj(t)) return false;
   const btn = (strs) => KEYS.includes(t.key) && strs.includes(t.str);
   switch (t.type) {
-    case 'normal': return STANCES.includes(t.stance) && (t.dir === undefined || DIRS.includes(t.dir)) && btn(['L', 'M', 'H']);
-    case 'special': return isMotion(t.motion) && btn(['L', 'M', 'H', 'OD']) && (t.stance === undefined || t.stance === 'jump');
-    case 'system': return SYSTEM_IDS.includes(t.id);
-    case 'sa': return t.level === 1 || t.level === 2 || t.level === 3;
-    case 'note': return NOTE_IDS.includes(t.id);
+    case 'normal': return onlyKeys(t, ['type', 'stance', 'dir', 'key', 'str']) && STANCES.includes(t.stance) && (t.dir === undefined || DIRS.includes(t.dir)) && btn(['L', 'M', 'H']);
+    case 'special': return onlyKeys(t, ['type', 'motion', 'key', 'str', 'stance']) && isMotion(t.motion) && btn(['L', 'M', 'H', 'OD']) && (t.stance === undefined || t.stance === 'jump');
+    case 'system': return onlyKeys(t, ['type', 'id']) && SYSTEM_IDS.includes(t.id);
+    case 'sa': return onlyKeys(t, ['type', 'level']) && (t.level === 1 || t.level === 2 || t.level === 3);
+    case 'note': return onlyKeys(t, ['type', 'id']) && NOTE_IDS.includes(t.id);
     default: return false;
   }
 }
@@ -71,6 +75,7 @@ export function isValidToken(t) {
 //   | { type: 'button', key: 'P'|'K', str: 'L'|'M'|'H'|'OD' } | { type: 'system', id } | { type: 'sa', level }
 //   | { type: 'note', id } | { type: 'recent', token } | { type: 'undo' } | { type: 'cursor', index }
 export const NOTICE_NEED_MOTION = '先にモーションを選んでください';
+export const NOTICE_TOO_LONG = `方向は${MOTION_MAX}文字分までです`;
 
 export function initialPadState(tokens = []) {
   return { tokens, cursor: tokens.length, pending: { stance: 'stand', dirs: [] }, notice: null };
@@ -109,6 +114,7 @@ function confirmButton(state, { key, str }) {
 }
 
 export function applyPadInput(state, action) {
+  if (!isObj(action)) throw new Error('不正なactionです');
   const { pending } = state;
   const cleared = { ...state, notice: null };
   switch (action.type) {
@@ -121,9 +127,9 @@ export function applyPadInput(state, action) {
       if (action.type === 'preset' ? !PRESETS.includes(v) : !/^[1-9]$/.test(v)) throw new Error(`不正な入力: ${v}`);
       // 360 は連結できないので方向キーは置換になる
       const dirs = action.type === 'preset' || pending.dirs.at(-1) === '360' ? [v] : [...pending.dirs, v];
-      // モーション（2文字以上）になったら↓は破棄
-      const stance = pending.stance === 'crouch' && dirs.join('').length >= 2 ? 'stand' : pending.stance;
-      return { ...cleared, pending: { stance, dirs } };
+      if (dirs.join('').length > MOTION_MAX) return { ...state, notice: NOTICE_TOO_LONG };
+      // ↓は保持する（undoが直前のpendingへ戻れるように）。モーションの確定時にspecialは↓を持たない
+      return { ...cleared, pending: { ...pending, dirs } };
     }
     case 'button': return confirmButton(state, action);
     case 'system':
@@ -148,7 +154,10 @@ export function applyPadInput(state, action) {
         cursor: state.cursor - 1,
       };
     case 'cursor':
-      return { ...cleared, cursor: Math.max(0, Math.min(state.tokens.length, action.index)) };
+      if (!Number.isInteger(action.index) || action.index < 0 || action.index > state.tokens.length) {
+        throw new Error(`不正なカーソル位置: ${action.index}`);
+      }
+      return { ...cleared, cursor: action.index };
     default:
       throw new Error(`不正なaction: ${action.type}`);
   }
@@ -222,8 +231,11 @@ export function describeRow(tokens, notation = 'arrow') {
 
 // ===== SECTION: 文書の検証 =====
 // ponytail: 上限値は個人利用の目安。実データで足りなくなったら調整する。
-const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, id: 64, name: 50, title: 100, tag: 30, memo: 2000 };
+const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, name: 50, title: 100, tag: 30, memo: 2000 };
+const COMBO_KEYS = ['id', 'characterId', 'controlType', 'sectionId', 'title', 'position', 'tokens', 'memo', 'tags', 'favorite', 'createdAt', 'updatedAt'];
 const POSITIONS = ['any', 'corner', 'midscreen'];
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const isId = (v) => typeof v === 'string' && ID_RE.test(v);
 const isStr = (v, max, min = 0) => typeof v === 'string' && v.length >= min && v.length <= max;
 const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
 const isCharacter = (v) => CHARACTERS.some((c) => c.id === v);
@@ -239,25 +251,28 @@ function docProblem(doc) {
     if (!Array.isArray(doc[list])) return `${list}が配列ではありません`;
     if (doc[list].length > LIMITS[list]) return `${list}が多すぎます(上限${LIMITS[list]}件)`;
   }
+  if (!onlyKeys(doc, ['app', 'schemaVersion', 'sections', 'combos'])) return '文書に未対応の項目があります';
 
   const sectionChar = new Map();
   for (const [i, s] of doc.sections.entries()) {
+    if (isObj(s) && !onlyKeys(s, ['id', 'characterId', 'name', 'order', 'updatedAt'])) return `${i + 1}件目のsectionsに未対応の項目があります`;
     const bad = isObj(s) && [
-      ['id', isStr(s.id, LIMITS.id, 1)],
+      ['id', isId(s.id)],
       ['characterId', isCharacter(s.characterId)],
       ['name', isStr(s.name, LIMITS.name, 1)],
       ['order', Number.isSafeInteger(s.order) && s.order >= 0],
       ['updatedAt', isTime(s.updatedAt)],
     ].find(([, ok]) => !ok);
     if (!isObj(s) || bad) return `${i + 1}件目のsectionsの${bad ? bad[0] : '形式'}が不正です`;
-    if (sectionChar.has(s.id)) return `sectionsのidが重複しています(${s.id})`;
+    if (sectionChar.has(s.id)) return `sectionsのidが重複しています`;
     sectionChar.set(s.id, s.characterId);
   }
 
   const comboIds = new Set();
   for (const [i, c] of doc.combos.entries()) {
+    if (isObj(c) && !onlyKeys(c, COMBO_KEYS)) return `${i + 1}件目のcombosに未対応の項目があります`;
     const bad = isObj(c) && [
-      ['id', isStr(c.id, LIMITS.id, 1)],
+      ['id', isId(c.id)],
       ['characterId', isCharacter(c.characterId)],
       ['controlType', c.controlType === 'classic'],
       ['sectionId', sectionChar.has(c.sectionId) && sectionChar.get(c.sectionId) === c.characterId],
@@ -265,13 +280,13 @@ function docProblem(doc) {
       ['position', POSITIONS.includes(c.position)],
       ['tokens', Array.isArray(c.tokens) && c.tokens.length <= LIMITS.tokens && c.tokens.every(isValidToken)],
       ['memo', isStr(c.memo, LIMITS.memo)],
-      ['tags', Array.isArray(c.tags) && c.tags.length <= LIMITS.tags && c.tags.every((t) => isStr(t, LIMITS.tag))],
+      ['tags', Array.isArray(c.tags) && c.tags.length <= LIMITS.tags && c.tags.every((t) => isStr(t, LIMITS.tag, 1))],
       ['favorite', typeof c.favorite === 'boolean'],
       ['createdAt', isTime(c.createdAt)],
       ['updatedAt', isTime(c.updatedAt)],
     ].find(([, ok]) => !ok);
     if (!isObj(c) || bad) return `${i + 1}件目のcombosの${bad ? bad[0] : '形式'}が不正です`;
-    if (comboIds.has(c.id)) return `combosのidが重複しています(${c.id})`;
+    if (comboIds.has(c.id)) return `combosのidが重複しています`;
     comboIds.add(c.id);
   }
   return null;
@@ -302,7 +317,11 @@ export function exportDoc(state) {
 }
 
 // D-006: id一致は updatedAt の新しい方、同時刻は端末側。端末のみの記録は残す。入力は変更しない。
+// マージ結果も validateDoc に通し、参照整合が崩れる場合は { ok: false, reason } を返す。
+// 成功時は { ok: true, doc, added, updated, unchanged }（docは {sections, combos}）。
 export function mergeImport(local, incoming) {
+  const checked = validateDoc(incoming);
+  if (!checked.ok) return checked;
   const stats = { added: 0, updated: 0, unchanged: 0 };
   const mergeList = (mine, theirs) => {
     const out = structuredClone(mine);
@@ -326,5 +345,6 @@ export function mergeImport(local, incoming) {
     sections: mergeList(local.sections, incoming.sections),
     combos: mergeList(local.combos, incoming.combos),
   };
-  return { doc, ...stats };
+  const result = validateDoc(exportDoc(doc));
+  return result.ok ? { ok: true, doc, ...stats } : result;
 }

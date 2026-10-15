@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CHARACTERS, PRESETS, applyPadInput, initialPadState, isValidToken, tokenLabel, describeRow, motionToArrows,
+  CHARACTERS, PRESETS, NOTICE_TOO_LONG, applyPadInput, initialPadState, pendingMotion, isMotion, isValidToken, tokenLabel, describeRow, motionToArrows,
   validateDoc, parseDocText, exportDoc, mergeImport,
 } from '../app/core.js';
 
@@ -106,7 +106,11 @@ test('OD: モーションがあれば確定、なければ変更なしで通知'
 test('取り消し: pendingがあれば1段戻し、なければカーソル直前のトークンを削除', () => {
   let s = run([stance('crouch'), preset('236')]);
   s = applyPadInput(s, { type: 'undo' });
-  assert.deepEqual(s.pending, { stance: 'stand', dirs: [] }); // ↓はモーション選択時に破棄済み
+  assert.deepEqual(s.pending, { stance: 'crouch', dirs: [] }); // 直前のpendingへ戻る（M1）
+  s = applyPadInput(s, { type: 'undo' });
+  assert.deepEqual(s.pending, { stance: 'stand', dirs: [] });
+  s = run([stance('crouch'), dir(6), dir(3), { type: 'undo' }]);
+  assert.deepEqual(s.pending, { stance: 'crouch', dirs: ['6'] });
   s = run([dir(6), dir(3), { type: 'undo' }]);
   assert.deepEqual(s.pending.dirs, ['6']);
   s = run([stance('jump'), { type: 'undo' }]);
@@ -134,8 +138,32 @@ test('挿入カーソル位置への挿入とカーソルの移動', () => {
   s = applyPadInput(s, { type: 'undo' });
   assert.deepEqual(s.tokens.map((t) => t.str + t.key), ['LP', 'MP']);
   assert.equal(s.cursor, 1);
-  assert.equal(applyPadInput(s, { type: 'cursor', index: 99 }).cursor, 2);
-  assert.equal(applyPadInput(s, { type: 'cursor', index: -1 }).cursor, 0);
+  assert.equal(applyPadInput(s, { type: 'cursor', index: 2 }).cursor, 2);
+  assert.equal(applyPadInput(s, { type: 'cursor', index: 0 }).cursor, 0);
+  for (const index of [-1, 3, 1.5, NaN, '1', null, undefined]) {
+    assert.throws(() => applyPadInput(s, { type: 'cursor', index }), /不正なカーソル位置/, String(index));
+  }
+});
+
+test('crouch/jumpは方向キー入力でも保持され、確定時に反映される', () => {
+  const crouchMotion = run([stance('crouch'), dir(6), dir(3), btn('H', 'P')]);
+  assert.deepEqual(crouchMotion.tokens, [{ type: 'special', motion: '63', key: 'P', str: 'H' }]);
+  assert.deepEqual(run([stance('crouch'), dir(6), btn('H', 'P')]).tokens, [N('crouch', 'H', 'P', 6)]);
+  assert.deepEqual(run([stance('jump'), dir(6), btn('H', 'P')]).tokens, [N('jump', 'H', 'P', 6)]);
+  assert.deepEqual(run([stance('jump'), dir(2), btn('H', 'P')]).tokens, [N('jump', 'H', 'P')]);
+  assert.deepEqual(run([stance('jump'), dir(6), dir(3), btn('H', 'P')]).tokens,
+    [{ type: 'special', motion: '63', key: 'P', str: 'H', stance: 'jump' }]);
+});
+
+test('方向キーはモーション20文字までで、超える入力は無視して通知する', () => {
+  const s20 = run(Array.from({ length: 20 }, () => dir(6)));
+  assert.equal(pendingMotion(s20.pending).length, 20);
+  assert.equal(s20.notice, null);
+  const over = applyPadInput(s20, dir(6));
+  assert.equal(over.notice, NOTICE_TOO_LONG);
+  assert.deepEqual(over.pending, s20.pending);
+  const t = applyPadInput(s20, btn('H', 'P')).tokens[0];
+  assert.ok(isValidToken(t)); // 20文字ちょうどは保存できる
 });
 
 test('applyPadInputは入力のstateを変更しない', () => {
@@ -151,6 +179,9 @@ test('不正なactionは例外', () => {
   assert.throws(() => applyPadInput(initialPadState(), { type: 'preset', value: '41236' }));
   assert.throws(() => applyPadInput(initialPadState(), { type: 'nope' }));
   assert.throws(() => applyPadInput(initialPadState(), btn('L', 'X')));
+  for (const bad of [null, undefined, 5, 'undo', []]) {
+    assert.throws(() => applyPadInput(initialPadState(), bad), /不正なactionです/, String(bad));
+  }
 });
 
 test('motionToArrows と tokenLabel（arrow/numpad）', () => {
@@ -213,71 +244,199 @@ test('validateDocは正しい見本を通す', () => {
   assert.deepEqual(parseDocText(JSON.stringify(sampleDoc())), { ok: true, doc: sampleDoc() });
 });
 
-test('validateDocは不正な文書を例外なしで拒否し、日本語の理由を返す', () => {
+test('validateDocは不正な文書を例外なしで拒否し、意図した理由を返す', () => {
   const mut = (f) => { const d = sampleDoc(); f(d); return d; };
-  const cases = {
-    JSONの値がnull: null,
-    app不一致: mut((d) => { d.app = 'other'; }),
-    schemaVersion欠落: mut((d) => { delete d.schemaVersion; }),
-    schemaVersion非整数: mut((d) => { d.schemaVersion = 1.5; }),
-    schemaVersionが新しすぎる: mut((d) => { d.schemaVersion = 2; }),
-    未知のtoken型: mut((d) => { d.combos[0].tokens.push({ type: 'throw' }); }),
-    normalにOD: mut((d) => { d.combos[0].tokens[0].str = 'OD'; }),
-    dirが2: mut((d) => { d.combos[0].tokens.push(N('stand', 'L', 'P', 2)); }),
-    存在しないsectionId: mut((d) => { d.combos[0].sectionId = 'zzz'; }),
-    別キャラのセクション: mut((d) => { d.combos[0].sectionId = 's2'; }),
-    未知のキャラ: mut((d) => { d.combos[0].characterId = 'nobody'; }),
-    combos_id重複: mut((d) => { d.combos[1].id = 'c1'; }),
-    sections_id重複: mut((d) => { d.sections[1].id = 's1'; }),
-    specialのstanceがcrouch: mut((d) => { d.combos[0].tokens[1].stance = 'crouch'; }),
-    motion不正: mut((d) => { d.combos[0].tokens[1].motion = '2'; }),
-    positionが不正: mut((d) => { d.combos[0].position = 'left'; }),
-    controlTypeがmodern: mut((d) => { d.combos[0].controlType = 'modern'; }),
-    tagsが文字列配列でない: mut((d) => { d.combos[0].tags = [1]; }),
-    favoriteが真偽値でない: mut((d) => { d.combos[0].favorite = 'yes'; }),
-    titleが長すぎる: mut((d) => { d.combos[0].title = 'a'.repeat(101); }),
-    配列でない: [],
-  };
-  for (const [name, doc] of Object.entries(cases)) {
+  const badTokens = (...t) => mut((d) => { d.combos[0].tokens.push(...t); });
+  // [名前, 文書, reasonの部分一致]
+  const cases = [
+    ['JSONの値がnull', null, '文書がオブジェクト'],
+    ['配列', [], '文書がオブジェクト'],
+    ['app不一致', mut((d) => { d.app = 'other'; }), 'appが一致しません'],
+    ['schemaVersion欠落', mut((d) => { delete d.schemaVersion; }), 'schemaVersionがありません'],
+    ['schemaVersion非整数', mut((d) => { d.schemaVersion = 1.5; }), 'schemaVersionが不正'],
+    ['schemaVersion数値文字列', mut((d) => { d.schemaVersion = '1'; }), 'schemaVersionが不正'],
+    ['schemaVersionが新しすぎる', mut((d) => { d.schemaVersion = 2; }), '新しい版'],
+    ['sectionsが配列でない', mut((d) => { d.sections = {}; }), 'sectionsが配列ではありません'],
+    ['未知のtoken型', badTokens({ type: 'throw' }), '1件目のcombosのtokensが不正です'],
+    ['normalにOD', mut((d) => { d.combos[0].tokens[0].str = 'OD'; }), 'tokensが不正'],
+    ['dirが2', badTokens(N('stand', 'L', 'P', 2)), 'tokensが不正'],
+    ['dirが5', badTokens(N('stand', 'L', 'P', 5)), 'tokensが不正'],
+    ['dirが文字列', badTokens(N('stand', 'L', 'P', '4')), 'tokensが不正'],
+    ['dirがNaN', badTokens({ ...N('stand', 'L', 'P'), dir: NaN }), 'tokensが不正'],
+    ['dirがnull', badTokens({ ...N('stand', 'L', 'P'), dir: null }), 'tokensが不正'],
+    ['saのlevelが文字列', badTokens({ type: 'sa', level: '3' }), 'tokensが不正'],
+    ['saのlevelが4', badTokens({ type: 'sa', level: 4 }), 'tokensが不正'],
+    ['system idが未知', badTokens({ type: 'system', id: 'DR' }), 'tokensが不正'],
+    ['note idが未知', badTokens({ type: 'note', id: 'HIT' }), 'tokensが不正'],
+    ['specialのstanceがcrouch', mut((d) => { d.combos[0].tokens[1].stance = 'crouch'; }), 'tokensが不正'],
+    ['motion不正', mut((d) => { d.combos[0].tokens[1].motion = '2'; }), 'tokensが不正'],
+    ['tokenが配列', badTokens([]), 'tokensが不正'],
+    ['tokenにキー余り', badTokens({ ...N('stand', 'L', 'P'), extra: 1 }), 'tokensが不正'],
+    ['tokens201件', mut((d) => { d.combos[0].tokens = Array.from({ length: 201 }, () => N('stand', 'L', 'P')); }), 'tokensが不正'],
+    ['存在しないsectionId', mut((d) => { d.combos[0].sectionId = 'zzz'; }), 'sectionIdが不正'],
+    ['別キャラのセクション', mut((d) => { d.combos[0].sectionId = 's2'; }), 'sectionIdが不正'],
+    ['未知のキャラ', mut((d) => { d.combos[0].characterId = 'nobody'; }), 'characterIdが不正'],
+    ['sectionの未知のキャラ', mut((d) => { d.sections[0].characterId = 'nobody'; }), '1件目のsectionsのcharacterIdが不正'],
+    ['combos_id重複', mut((d) => { d.combos[1].id = 'c1'; }), 'combosのidが重複'],
+    ['sections_id重複', mut((d) => { d.sections[1].id = 's1'; }), 'sectionsのidが重複'],
+    ['positionが不正', mut((d) => { d.combos[0].position = 'left'; }), 'positionが不正'],
+    ['controlTypeがmodern', mut((d) => { d.combos[0].controlType = 'modern'; }), 'controlTypeが不正'],
+    ['tagsが文字列配列でない', mut((d) => { d.combos[0].tags = [1]; }), 'tagsが不正'],
+    ['tagsに空文字', mut((d) => { d.combos[0].tags = ['']; }), 'tagsが不正'],
+    ['tags21個', mut((d) => { d.combos[0].tags = Array.from({ length: 21 }, (_, i) => `t${i}`); }), 'tagsが不正'],
+    ['tagが31文字', mut((d) => { d.combos[0].tags = ['a'.repeat(31)]; }), 'tagsが不正'],
+    ['favoriteが真偽値でない', mut((d) => { d.combos[0].favorite = 'yes'; }), 'favoriteが不正'],
+    ['titleが101文字', mut((d) => { d.combos[0].title = 'a'.repeat(101); }), 'titleが不正'],
+    ['memoが2001文字', mut((d) => { d.combos[0].memo = 'a'.repeat(2001); }), 'memoが不正'],
+    ['memoが2000文字は有効なので別理由で落とす', mut((d) => { d.combos[0].memo = 'a'.repeat(2000); d.combos[0].createdAt = -1; }), 'createdAtが不正'],
+    ['updatedAtがNaN', mut((d) => { d.combos[0].updatedAt = NaN; }), 'updatedAtが不正'],
+    ['sectionのorderが負', mut((d) => { d.sections[0].order = -1; }), 'orderが不正'],
+    ['sectionのnameが空', mut((d) => { d.sections[0].name = ''; }), 'nameが不正'],
+    ['comboがnull', mut((d) => { d.combos[0] = null; }), '1件目のcombosの形式が不正'],
+    ['文書に未知のキー', mut((d) => { d.extra = 1; }), '文書に未対応の項目'],
+    ['sectionに未知のキー', mut((d) => { d.sections[1].extra = 1; }), '2件目のsectionsに未対応の項目'],
+    ['comboに未知のキー', mut((d) => { d.combos[1].extra = 1; }), '2件目のcombosに未対応の項目'],
+    ['idに空文字', mut((d) => { d.combos[1].id = ''; }), 'idが不正'],
+    ['idが65文字', mut((d) => { d.combos[1].id = 'a'.repeat(65); }), 'idが不正'],
+    ['idにHTML文字', mut((d) => { d.combos[1].id = '<img src=x onerror=alert(1)>'; }), 'idが不正'],
+    ['idに改行', mut((d) => { d.combos[1].id = 'c2\n'; }), 'idが不正'],
+    ['idが数値', mut((d) => { d.sections[0].id = 1; }), 'idが不正'],
+  ];
+  for (const [name, doc, expected] of cases) {
     const r = validateDoc(doc);
     assert.equal(r.ok, false, name);
-    assert.match(r.reason, /\S/, name);
+    assert.ok(r.reason.includes(expected), `${name}: ${r.reason}`);
     assert.ok(!r.reason.includes('\n'), name);
   }
-  assert.equal(validateDoc(cases.未知のtoken型).reason, '1件目のcombosのtokensが不正です');
   assert.equal(parseDocText('{oops').reason, 'JSONとして読めません');
-  assert.equal(parseDocText('').ok, false);
+  assert.equal(parseDocText('').reason, 'JSONとして読めません');
   assert.equal(parseDocText('5').ok, false);
-  assert.equal(parseDocText(JSON.stringify(cases.app不一致)).ok, false);
+  assert.equal(parseDocText(JSON.stringify(cases[2][1])).ok, false);
+});
+
+test('上限ちょうどの値は有効', () => {
+  const d = sampleDoc();
+  Object.assign(d.combos[0], {
+    title: 'a'.repeat(100), memo: 'a'.repeat(2000), tags: Array.from({ length: 20 }, () => 'a'.repeat(30)),
+    tokens: Array.from({ length: 200 }, () => N('stand', 'L', 'P')), id: 'A-z_9'.repeat(12) + 'abcd',
+  });
+  assert.equal(d.combos[0].id.length, 64);
+  assert.deepEqual(validateDoc(d), { ok: true });
+});
+
+test('reasonに入力の文字列値を埋め込まない（HTML文字・id）', () => {
+  const evil = '<script>alert(1)</script>';
+  const probes = [
+    (d) => { d.combos[0].id = evil; },
+    (d) => { d.sections[0].id = evil; },
+    (d) => { d.combos[0].sectionId = evil; },
+    (d) => { d.combos[0].characterId = evil; },
+    (d) => { d.app = evil; },
+    (d) => { d.combos[0].title = evil.repeat(10); },
+    (d) => { d.combos[0].tags = [evil.repeat(5)]; },
+    (d) => { d.extra = evil; },
+    (d) => { d.combos[0].tokens.push({ type: evil }); },
+    (d) => { d.schemaVersion = evil; },
+  ];
+  for (const f of probes) {
+    const d = sampleDoc();
+    f(d);
+    const r = validateDoc(d);
+    assert.equal(r.ok, false);
+    assert.ok(!r.reason.includes('<') && !r.reason.includes('script'), r.reason);
+  }
+  // 重複idの理由にもidの値を含めない
+  const dup = sampleDoc();
+  dup.combos[1].id = 'c1';
+  assert.ok(!validateDoc(dup).reason.includes('c1'));
+});
+
+test('プロトタイプ汚染・深いネストの未知フィールドは拒否される', () => {
+  const polluted = `{"app":"sf6-strategy-memo","schemaVersion":1,"sections":[],"combos":[],"__proto__":{"isAdmin":true}}`;
+  const r = parseDocText(polluted);
+  assert.equal(r.ok, false);
+  assert.equal(({}).isAdmin, undefined);
+  const inCombo = JSON.parse(JSON.stringify(sampleDoc()).replace('"favorite":false', '"favorite":false,"__proto__":{"x":1}'));
+  assert.equal(validateDoc(inCombo).ok, false);
+
+  let nest = '1';
+  for (let i = 0; i < 3000; i++) nest = `{"a":${nest}}`;
+  const text = JSON.stringify(sampleDoc()).replace('"memo":"メモ"', `"memo":"メモ","deep":${nest}`);
+  const deep = parseDocText(text);
+  assert.equal(deep.ok, false);
+  assert.match(deep.reason, /未対応の項目/);
+});
+
+test('isMotionの許可・拒否表', () => {
+  for (const m of ['[4]6', '[2]8', '360', '22', '236', '63214', '1'.repeat(20)]) assert.equal(isMotion(m), true, m);
+  for (const m of ['1', '[4]', '0', '[0]6', '3600', ' 236', '236\n', '', null, undefined, 236, '1'.repeat(21), '[4]6\n']) {
+    assert.equal(isMotion(m), false, String(m));
+  }
 });
 
 test('mergeImport: 追加・更新・同時刻は端末側・端末のみは残る', () => {
   const local = sampleState();
+  local.combos.push({ ...structuredClone(local.combos[0]), id: 'c9', title: '端末のみ' });
   const incoming = sampleDoc();
   incoming.combos[0].title = '取り込み側(同時刻)'; // 同時刻 -> 端末側
   incoming.combos[1].title = '取り込み側(新しい)';
   incoming.combos[1].updatedAt = T0 + 1; // 更新
   incoming.combos.push({ ...structuredClone(incoming.combos[0]), id: 'c3' }); // 追加
-  incoming.sections = incoming.sections.slice(0, 1); // s2 は端末のみ
-  incoming.sections[0].name = '古い'; incoming.sections[0].updatedAt = T0 - 1;
+  incoming.sections[0].name = '古い'; incoming.sections[0].updatedAt = T0 - 1; // 端末が新しい
   const lSnap = structuredClone(local);
   const iSnap = structuredClone(incoming);
   const r = mergeImport(local, incoming);
+  assert.equal(r.ok, true);
   assert.deepEqual(local, lSnap);
   assert.deepEqual(incoming, iSnap);
-  assert.deepEqual({ a: r.added, u: r.updated, n: r.unchanged }, { a: 1, u: 1, n: 2 }); // n: s1(古い) と c1(同時刻)
+  assert.deepEqual({ a: r.added, u: r.updated, n: r.unchanged }, { a: 1, u: 1, n: 3 }); // n: s1(古い)・s2(同時刻)・c1(同時刻)
   assert.equal(r.doc.combos.find((c) => c.id === 'c1').title, '基本');
   assert.equal(r.doc.combos.find((c) => c.id === 'c2').title, '取り込み側(新しい)');
-  assert.deepEqual(r.doc.combos.map((c) => c.id), ['c1', 'c2', 'c3']);
-  assert.deepEqual(r.doc.sections, lSnap.sections); // s1は端末が新しい、s2は端末のみ
+  assert.equal(r.doc.combos.find((c) => c.id === 'c9').title, '端末のみ');
+  assert.deepEqual(r.doc.combos.map((c) => c.id), ['c1', 'c2', 'c9', 'c3']);
+  assert.deepEqual(r.doc.sections, lSnap.sections);
   r.doc.combos[0].tokens.pop(); // 結果は入力とメモリを共有しない
   assert.deepEqual(local, lSnap);
   assert.deepEqual(validateDoc(exportDoc(r.doc)), { ok: true });
 });
 
+test('mergeImport: マージ結果が参照整合を崩す場合は ok:false で拒否する（M3）', () => {
+  // 再現1: 同じidのセクションが取り込み側で別キャラに変わり、端末側のコンボが別キャラのセクションを指す
+  const local = sampleState();
+  const inc1 = sampleDoc();
+  inc1.sections[0].characterId = 'luke';
+  inc1.sections[0].updatedAt = T0 + 1;
+  inc1.combos[0].characterId = 'luke'; // 取り込み側の文書単体は整合している
+  inc1.combos[0].updatedAt = T0 - 1; // コンボは端末側が残る -> ryuのコンボがlukeのセクションを指す
+  assert.deepEqual(validateDoc(inc1), { ok: true });
+  const r1 = mergeImport(local, inc1);
+  assert.equal(r1.ok, false);
+  assert.match(r1.reason, /sectionIdが不正/);
+  // 再現2: 取り込み側の新しいコンボが、端末側では別キャラのセクションを指す
+  const inc2 = sampleDoc();
+  inc2.sections[0].characterId = 'luke'; // 同時刻なので端末側(ryu)が残る
+  inc2.combos[0].characterId = 'luke';
+  inc2.combos[0].updatedAt = T0 + 1; // コンボだけ更新される
+  assert.deepEqual(validateDoc(inc2), { ok: true });
+  const r2 = mergeImport(local, inc2);
+  assert.equal(r2.ok, false);
+  assert.match(r2.reason, /sectionIdが不正/);
+  // 入力は変更されない
+  assert.deepEqual(local, sampleState());
+});
+
+test('mergeImport: 不正な取り込み文書は拒否する', () => {
+  const inc = sampleDoc();
+  inc.combos[0].extra = 1;
+  const r = mergeImport(sampleState(), inc);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /未対応の項目/);
+});
+
 test('往復: mergeImport(空, exportDoc(state)) は state と一致する', () => {
   const state = sampleState();
   const r = mergeImport({ sections: [], combos: [] }, JSON.parse(JSON.stringify(exportDoc(state))));
+  assert.equal(r.ok, true);
   assert.deepEqual(r.doc, state);
   assert.deepEqual({ a: r.added, u: r.updated, n: r.unchanged }, { a: 4, u: 0, n: 0 });
   const again = mergeImport(r.doc, exportDoc(state));
