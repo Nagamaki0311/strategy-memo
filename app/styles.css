@@ -205,7 +205,7 @@ a { color: inherit; }
 .btn:active { background: var(--line-strong); }
 .btn.primary:active { background: var(--fg-muted); }
 .btn:disabled { opacity: .4; cursor: default; }
-.top-action { min-height: 36px; padding: 0 var(--s3); }
+.top-action { padding: 0 var(--s3); }
 .icon-btn {
   box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; height: 44px;
   padding: 0; border: 0; border-radius: var(--r-key); background: none; color: var(--fg); cursor: pointer;
@@ -226,7 +226,7 @@ a { color: inherit; }
 
 /* 一覧: セクション見出しの帯と記録の行 */
 .sec-head {
-  position: sticky; top: calc(48px + env(safe-area-inset-top)); z-index: 2; box-sizing: border-box; display: flex; align-items: center;
+  position: sticky; top: calc(48px + env(safe-area-inset-top) + var(--banner-h, 0px)); z-index: 2; box-sizing: border-box; display: flex; align-items: center;
   height: 44px; background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .sec-head.reorder { padding-left: var(--s4); gap: var(--s2); }
@@ -250,7 +250,9 @@ a { color: inherit; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
 /* エラー表示（その場に出す。消えない。色相は使わず左の実線と⚠で示す） */
-.err { display: flex; gap: var(--s3); margin: var(--s4); padding: var(--s3) var(--s4); background: var(--key); border-left: 4px solid var(--fg); }
+/* エラー帯は上部バーの下に張り付け、スクロール位置に関係なく見える */
+.banners { position: sticky; top: calc(48px + env(safe-area-inset-top)); z-index: 3; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s4); background: var(--bg); }
+.err { display: flex; gap: var(--s3); padding: var(--s3) var(--s4); background: var(--key); border-left: 4px solid var(--fg); }
 .err .ic { margin-top: 1px; }
 .err h2 { margin: 0; font: 700 var(--t-md) var(--font); }
 .err p { margin: var(--s1) 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }

@@ -1,6 +1,6 @@
 import {
   CHARACTERS, SECTION_PRESETS, SECTION_NAME_MAX, describeRow, motionToArrows, parseDocText, exportDoc,
-  sectionsOf, addSection, renameSection, moveSection, deleteSection,
+  sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime,
 } from './core.js';
 
 // ===== SECTION: コマンド列の描画 =====
@@ -145,11 +145,11 @@ const KEYS = { data: 'sf6memo.data', settings: 'sf6memo.settings', drafts: 'sf6m
 let data = { sections: [], combos: [] };
 let settings;
 let loadError = null; // 非nullなら読み取り専用（既存の値を上書きしない）
-let saveError = null; // 直近の保存失敗。次のデータ保存が成功するまで画面に出し続ける
+let saveError = null; // 直近のデータ保存の失敗（Error、{ invalid }、{ conflict }）。次のデータ保存が成功するまで画面に出し続ける
+let lastSeen = null; // sf6memo.data を最後に読んだ・書いた文字列。他タブの書き込みの検出に使う
 let persisted = false;
 
 const DEFAULT_SETTINGS = () => ({ notation: 'arrow', strengthLabels: false, recentCharacters: [], lastExportAt: null, lastChangeAt: null, collapsed: {} });
-const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
 
 // settings は端末ごとの表示設定。壊れていても既定値で起動し、必要なフィールドだけ型を確かめて取り込む。
 function sanitizeSettings(raw) {
@@ -168,67 +168,95 @@ function sanitizeSettings(raw) {
   return out;
 }
 
-function loadAll() {
-  let dataText = null;
-  let settingsRaw = null;
+// sf6memo.data を読み直して data / loadError / lastSeen を更新する（起動時と他タブの変更の検知時）
+function loadData() {
+  loadError = null;
+  data = { sections: [], combos: [] };
   try {
-    dataText = localStorage.getItem(KEYS.data);
-    const st = localStorage.getItem(KEYS.settings);
-    if (st !== null) settingsRaw = JSON.parse(st);
-  } catch (e) {
-    if (e instanceof SyntaxError) settingsRaw = null; // settings の JSON 破損は既定値で続行
-    else loadError = 'ブラウザの保存領域にアクセスできません';
+    lastSeen = localStorage.getItem(KEYS.data);
+  } catch {
+    lastSeen = null;
+    loadError = 'ブラウザの保存領域にアクセスできません';
+    return;
   }
-  settings = sanitizeSettings(settingsRaw);
-  if (loadError || dataText === null) return;
-  const r = parseDocText(dataText);
+  if (lastSeen === null) return;
+  const r = parseDocText(lastSeen);
   if (r.ok) data = { sections: r.doc.sections, combos: r.doc.combos };
   else loadError = r.reason;
 }
 
+function loadSettings() {
+  let raw = null;
+  try {
+    const st = localStorage.getItem(KEYS.settings);
+    if (st !== null) raw = JSON.parse(st);
+  } catch { /* 読めない・壊れている settings は既定値で続行する（dataは別キーで検証する） */ }
+  settings = sanitizeSettings(raw);
+}
+
+// 成功なら null、失敗なら例外を返す。永続化の要求は、データの初回保存成功時だけ行う。
 function write(key, value) {
   try {
     localStorage.setItem(key, value);
   } catch (e) {
-    saveError = e;
-    return false;
+    return e;
   }
-  if (!persisted) { // 初回の保存成功時に永続化を要求する
+  if (key === KEYS.data && !persisted) {
     persisted = true;
     navigator.storage?.persist?.()?.catch(() => {});
   }
-  return true;
+  return null;
 }
+// settings の保存失敗は握りつぶす（メモリ上の値は保つ。画面のエラーはデータの失敗だけに出す）
 const saveSettings = () => write(KEYS.settings, JSON.stringify(settings));
 
-// 変更を確定してメモリに反映し、保存する。保存に失敗してもメモリ上の状態は保つ（saveError を画面に出す）。
+// 変更を確定してメモリに反映し、保存する。成功したら true。
+// - 検証に通らない state は書かず、メモリも変えない。
+// - 他タブが書いていた場合は上書きせず、他タブの内容を読み直す（変更は破棄）。
+// - 保存だけ失敗した場合はメモリ上の状態を保つ。いずれの失敗も saveError を画面に出す。
 function commit(next) {
   if (loadError) return false;
   dismissToast(); // 取り消しの対象は直前の1操作だけにする
-  data = next;
   saveError = null;
-  if (!write(KEYS.data, JSON.stringify(exportDoc(data)))) return false;
+  const check = validateDoc(exportDoc(next));
+  if (!check.ok) { saveError = { invalid: check.reason }; return false; }
+  let current;
+  try { current = localStorage.getItem(KEYS.data); } catch { current = lastSeen; }
+  if (current !== lastSeen) {
+    loadData();
+    saveError = { conflict: true };
+    return false;
+  }
+  data = next;
+  const text = JSON.stringify(exportDoc(data));
+  saveError = write(KEYS.data, text);
+  if (saveError) return false;
+  lastSeen = text;
   settings.lastChangeAt = Date.now(); // D-006: 書き出し案内の判定用
-  return saveSettings();
+  saveSettings();
+  return true;
 }
 
 const isQuota = (e) => e?.name === 'QuotaExceededError' || e?.code === 22;
 function errorBox(title, body) {
   return at(h('div', 'err', svgIcon('i-warn'), h('div', '', h('h2', '', title), h('p', '', body))), { role: 'alert' });
 }
+// 画面の上部バーの下に張り付ける（スクロール位置に関係なく見える）。理由はすべて textContent で入れる。
 function banners() {
   const out = [];
   if (loadError) out.push(errorBox('保存データを読み込めませんでした（データは変更していません）', `${loadError}。読み取り専用で開いています。`));
-  if (saveError) {
+  if (saveError?.conflict) out.push(errorBox('保存しませんでした', '他のタブで変更されたため、最新の内容を読み込み直しました。もう一度操作してください。'));
+  else if (saveError?.invalid) out.push(errorBox('保存できませんでした', `この変更は保存できないデータになるため、行いませんでした（${saveError.invalid}）。`));
+  else if (saveError) {
     out.push(errorBox('保存できませんでした', isQuota(saveError)
       ? '端末の保存領域がいっぱいです。入力内容はこの画面に残っています。'
       : 'ブラウザが保存を許可していません。変更はこの画面にだけ残っています。'));
   }
-  return out;
+  return out.length ? [h('div', 'banners', ...out)] : [];
 }
 
 // ===== SECTION: トースト =====
-// role="status" の #toast に1件だけ入れる。フォーカスかマウスのホバー中は時間を止める（タッチのホバーは無視）。
+// role="status" の #toast に1件だけ入れる。キーボードのフォーカスかマウスのホバー中は時間を止める（タッチのホバーは無視）。
 let toastTimer = null;
 function dismissToast() {
   clearTimeout(toastTimer);
@@ -252,7 +280,7 @@ function showToast(msg, { label, onAction, ms = 6000 } = {}) {
   };
   box.addEventListener('pointerenter', (e) => { hover = e.pointerType === 'mouse'; sync(); });
   box.addEventListener('pointerleave', () => { hover = false; sync(); });
-  box.addEventListener('focusin', () => { focus = true; sync(); });
+  box.addEventListener('focusin', (e) => { focus = e.target.matches(':focus-visible'); sync(); }); // キーボード操作のときだけ。タップ後の自動フォーカスで消えなくならないように
   box.addEventListener('focusout', () => { focus = false; sync(); });
   document.getElementById('toast').append(box);
   sync();
@@ -305,7 +333,8 @@ function openSheet(opener) {
       box.classList.add('closing');
       setTimeout(() => scrim.remove(), 150);
       sheet.then?.();
-      if (!activeSheet) { // 開いた要素へフォーカスを戻す（再描画で消えていれば画面の見出しへ）
+      const a = document.activeElement;
+      if (!activeSheet && (!a || a === document.body || scrim.contains(a))) { // 操作側がフォーカスを置かなければ、開いた要素へ戻す（消えていれば画面の見出しへ）
         (key && byFk(key) || document.querySelector('.screen h1'))?.focus({ preventScroll: true });
       }
     },
@@ -314,10 +343,13 @@ function openSheet(opener) {
   scrim.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { sheet.close(); return; }
     if (e.key !== 'Tab') return;
-    const f = [...box.querySelectorAll(FOCUSABLE)];
-    if (!f.length) { e.preventDefault(); return; }
-    if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f.at(-1).focus(); }
-    else if (!e.shiftKey && document.activeElement === f.at(-1)) { e.preventDefault(); f[0].focus(); }
+    // Tab停止位置を自前で巡回する。ラジオは1グループ1停止（選択中、なければ先頭）なので、素のDOM順では端を判定できない
+    const stops = [...box.querySelectorAll(FOCUSABLE)].filter((el) => el.type !== 'radio'
+      || (box.querySelector(`input[name="${el.name}"]:checked`) ?? box.querySelector(`input[name="${el.name}"]`)) === el);
+    e.preventDefault();
+    if (!stops.length) return;
+    const i = stops.indexOf(document.activeElement);
+    stops[e.shiftKey ? (i <= 0 ? stops.length - 1 : i - 1) : (i + 1) % stops.length].focus();
   });
   activeSheet = sheet;
   return sheet;
@@ -327,14 +359,15 @@ function openSheet(opener) {
 const now = () => Date.now();
 
 // 変更を確定して再描画する。undo があれば取り消しトーストを出す（元の state へ戻す）。
-function mutate(next, message, focus) {
-  const prev = data;
+// 保存に失敗した操作には取り消しを出さない（エラー表示が出る）。削除の直後は［元に戻す］へフォーカスを移す。
+function mutate(next, message, focus, undoFocus) {
   if (loadError) return;
-  commit(next);
-  if (message) {
-    showToast(message, { label: '元に戻す', onAction: () => { commit(prev); render({ keepScroll: true }); } });
-  }
+  const prev = data;
+  const ok = commit(next);
+  const undo = ok && message;
+  if (undo) showToast(message, { label: '元に戻す', onAction: () => { commit(prev); render({ keepScroll: true, focus: undoFocus }); } });
   render({ keepScroll: true, focus });
+  if (undo) document.querySelector('.toast-act')?.focus();
 }
 
 function moveBy(s, delta, focus) {
@@ -350,7 +383,7 @@ function removeSection(s, moveToId) {
   if (!r.ok) return; // 画面側で防いでいる（移動先未選択・他にセクションなし）
   const n = data.combos.filter((c) => c.sectionId === s.id).length;
   const dest = data.sections.find((x) => x.id === moveToId)?.name;
-  mutate(r.state, n ? `「${s.name}」を削除し、${n}件を「${dest}」へ移動しました` : `「${s.name}」を削除しました`);
+  mutate(r.state, n ? `「${s.name}」を削除し、${n}件を「${dest}」へ移動しました` : `「${s.name}」を削除しました`, undefined, [`fold:${s.id}`]);
 }
 
 function nameForm(sh, { title, value = '', submit, onSubmit }) {
@@ -359,6 +392,7 @@ function nameForm(sh, { title, value = '', submit, onSubmit }) {
   });
   input.value = value;
   const err = at(h('p', 'field-err'), { id: 'sheet-name-err', role: 'alert' });
+  input.addEventListener('input', () => { input.removeAttribute('aria-invalid'); err.textContent = ''; });
   const form = at(h('form', 'sheet-body', at(h('label', 'field-label', 'セクション名'), { for: 'sheet-name' }), input, err), { id: 'sheet-form', novalidate: '' });
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -379,7 +413,10 @@ function candidateButtons(cid, onPick) {
   const have = new Set(sectionsOf(data, cid).map((s) => s.name));
   return h('div', 'chips', ...SECTION_PRESETS.filter((p) => !have.has(p)).map((p) => btn('', p, () => onPick(p))));
 }
-const addNamed = (cid, name) => mutate(addSection(data, cid, name, now()));
+function addNamed(cid, name) {
+  const next = addSection(data, cid, name, now());
+  mutate(next, null, [`fold:${next.sections.at(-1).id}`]);
+}
 
 function addSectionSheet(opener, cid) {
   const sh = openSheet(opener);
@@ -434,11 +471,11 @@ function sectionMenu(opener, s) {
 // ===== SECTION: 画面 =====
 const POS = { any: 'どこでも', corner: '画面端', midscreen: '画面中央' };
 
-function shell({ title, back, right = [], main, bottom }) {
+function shell({ title, back, right = [], notices = [], main, bottom }) {
   const bar = h('header', 'topbar');
   if (back) bar.append(iconBtn('i-chev', back.label, () => goBack(back.to), {}, 180));
   bar.append(at(h('h1', back ? '' : 'solo', title), { tabindex: '-1' }), ...right);
-  return h('div', 'screen', bar, h('main', 'main', ...main), ...(bottom ? [bottom] : []));
+  return h('div', 'screen', bar, ...notices, h('main', 'main', ...main), ...(bottom ? [bottom] : []));
 }
 
 function homeScreen() {
@@ -453,7 +490,7 @@ function homeScreen() {
   const bottom = h('footer', 'bottombar recent', ...(recent.length
     ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'btn', charName(id)), { href: `#/c/${id}` }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
     : [h('p', 'hint', 'キャラクターを選ぶと記録を始められます')]));
-  return shell({ title: 'SF6戦略メモ', right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], main: [...banners(), grid], bottom });
+  return shell({ title: 'SF6戦略メモ', right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], notices: banners(), main: [grid], bottom });
 }
 
 function recordRow(c) {
@@ -496,7 +533,7 @@ function listScreen({ cid }) {
   const canEdit = !loadError;
   const reorder = canEdit && ui.reorder === cid && secs.length > 0;
   const collapsedMap = settings.collapsed[cid] ?? {};
-  const main = [...banners()];
+  const main = [];
   const addHere = (s) => `#/c/${cid}/new?s=${s.id}`;
 
   if (!secs.length) {
@@ -536,9 +573,10 @@ function listScreen({ cid }) {
       (() => { const b = btn('', [svgIcon('i-plus'), 'セクション'], () => addSectionSheet(b, cid), { 'data-fk': 'add-section' }); return b; })(),
       addRecord);
   }
-  return shell({ title: name, back: { label: 'キャラクター選択に戻る', to: '#/' }, main, bottom });
+  return shell({ title: name, back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
 }
 
+// ponytail: 実装前の仮画面。詳細は T-010、編集・新規作成は T-011、設定は T-012 で置き換える（置き換えたらこの関数と SCREENS の呼び出しを削除する）。
 function placeholder({ title, backLabel, to, lines }) {
   return shell({
     title, back: { label: backLabel, to },
@@ -604,10 +642,12 @@ function render({ keepScroll = false, focus, dir = null } = {}) {
   const screen = SCREENS[route.name](route);
   if (dir) screen.classList.add(`enter-${dir}`);
   appRoot.replaceChildren(screen);
+  // 見出しの帯（sticky）をエラー帯の下に置くため、帯の高さを渡す
+  screen.style.setProperty('--banner-h', `${screen.querySelector('.banners')?.offsetHeight ?? 0}px`);
   window.scrollTo(0, keepScroll ? y : (dir === 'back' ? scrollPos.get(location.hash) ?? 0 : 0));
   const target = (focus ?? []).map(byFk).find((t) => t && !t.disabled);
   if (target) target.focus({ preventScroll: true });
-  else if (!keepScroll) screen.querySelector('h1').focus({ preventScroll: true });
+  else if (!keepScroll || focus) screen.querySelector('h1').focus({ preventScroll: true });
 }
 
 function navigate() {
@@ -630,13 +670,24 @@ function navigate() {
 
 function start() {
   appRoot = document.getElementById('app');
-  loadAll();
+  loadSettings();
+  loadData();
   history.scrollRestoration = 'manual';
   if (Number.isInteger(history.state?.n)) navN = history.state.n;
   else history.replaceState({ n: 0 }, '');
   if (history.state?.sheet) history.back(); // リロードで残った開きっぱなしのシート分の履歴を戻す
   addEventListener('hashchange', navigate);
-  addEventListener('popstate', (e) => { if (activeSheet && !e.state?.sheet) activeSheet.dispose(); });
+  addEventListener('popstate', (e) => {
+    if (activeSheet && !e.state?.sheet) activeSheet.dispose();
+    else if (!activeSheet && e.state?.sheet) history.back(); // 進む操作で戻ってきた、開いていないシートの履歴は飛ばす
+  });
+  // 他タブがデータを書いたら読み直して描画する（開いているシートは古い内容を前提にしているので閉じる）
+  addEventListener('storage', (e) => {
+    if (e.storageArea !== localStorage || (e.key !== KEYS.data && e.key !== null)) return;
+    loadData();
+    activeSheet?.close();
+    render({ keepScroll: true });
+  });
   navigate();
 }
 

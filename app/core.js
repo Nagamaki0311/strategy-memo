@@ -237,7 +237,7 @@ const POSITIONS = ['any', 'corner', 'midscreen'];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const isId = (v) => typeof v === 'string' && ID_RE.test(v);
 const isStr = (v, max, min = 0) => typeof v === 'string' && v.length >= min && v.length <= max;
-const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
+export const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
 const isCharacter = (v) => CHARACTERS.some((c) => c.id === v);
 
 function docProblem(doc) {
@@ -315,7 +315,8 @@ export function parseDocText(text) {
 // 不正な引数は例外、削除だけは UI が理由を表示できるよう { ok, state | reason } を返す。now はエポックミリ秒。
 export const SECTION_PRESETS = ['通常', 'カウンター', 'パニッシュカウンター', 'インパクト壁やられ', 'スタン', '画面端', '起き攻め'];
 export const SECTION_NAME_MAX = LIMITS.name;
-export const newId = () => crypto.randomUUID(); // 36文字の英数字とハイフンで、ID_RE を満たす
+// 128ビットの乱数の16進32文字（ID_RE を満たす）。randomUUID は secure context 限定なので使わない
+export const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
 
 export const sectionsOf = (state, characterId) =>
   state.sections.filter((s) => s.characterId === characterId).sort((a, b) => a.order - b.order);

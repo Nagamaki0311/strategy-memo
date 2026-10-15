@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CHARACTERS, PRESETS, NOTICE_TOO_LONG, applyPadInput, initialPadState, pendingMotion, isMotion, isValidToken, tokenLabel, describeRow, motionToArrows,
   validateDoc, parseDocText, exportDoc, mergeImport,
-  SECTION_PRESETS, addSection, renameSection, moveSection, deleteSection, sectionsOf,
+  SECTION_PRESETS, newId, isTime, addSection, renameSection, moveSection, deleteSection, sectionsOf,
 } from '../app/core.js';
 
 // requirements.md 4.5 のスラッグ順
@@ -549,4 +549,26 @@ test('方向5のラベルは「ニュートラル」、数字表記は「5」の
   const t = { type: 'special', motion: '2565', key: 'P', str: 'H' };
   assert.equal(tokenLabel(t), '↓ニュートラル→ニュートラル 強P');
   assert.equal(tokenLabel(t, 'numpad'), '2565 強P');
+});
+
+test('newId: 32桁の16進でid規則を満たし、衝突しない', () => {
+  const ids = Array.from({ length: 2000 }, newId);
+  assert.ok(ids.every((id) => /^[0-9a-f]{32}$/.test(id) && ID_OK.test(id)));
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test('isTime: 0以上の安全な整数だけ', () => {
+  for (const v of [0, 1, T0]) assert.equal(isTime(v), true);
+  for (const v of [-1, 1.5, NaN, '1', null, undefined, Number.MAX_SAFE_INTEGER + 1]) assert.equal(isTime(v), false);
+});
+
+test('セクションは1000件まで: 1001個目を足した state は validateDoc を通らない（commit が保存を拒否する根拠）', () => {
+  let st = { sections: [], combos: [] };
+  for (let i = 0; i < 1000; i++) st = addSection(st, 'ryu', `s${i}`, T0);
+  valid(st);
+  const over = addSection(st, 'ryu', 'もう1つ', T0);
+  assert.equal(over.sections.length, 1001);
+  const r = validateDoc(exportDoc(over));
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /sectionsが多すぎます/);
 });
