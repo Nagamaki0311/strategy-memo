@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- app/icon.svg（design-spec-v2 7章）の矢印と●。にじみはVectorDrawableで表せないため省く。
+<!-- app/icon.svg（design-spec-v2.1 5章「看板と●」）の管・●・P。にじみはVectorDrawableで表せないため省く。
      512の図案を安全円（全体108dpのうち中央66dp、半径205単位）に合わせて scale 0.161 で置く -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -11,36 +11,26 @@
         android:translateY="12.8"
         android:scaleX="0.161"
         android:scaleY="0.161">
-        <group
-            android:translateX="-5"
-            android:translateY="27">
-            <path
-                android:pathData="M128,120V236Q128,300 192,300H276"
-                android:strokeColor="#FFF4DE"
-                android:strokeWidth="40"
-                android:strokeLineCap="round"
-                android:strokeLineJoin="round" />
-            <path
-                android:pathData="M232,256L276,300L232,344"
-                android:strokeColor="#FFF4DE"
-                android:strokeWidth="40"
-                android:strokeLineCap="round"
-                android:strokeLineJoin="round" />
-            <path
-                android:fillColor="#F0D870"
-                android:pathData="M356,300m-58,0a58,58 0,1 1,116 0a58,58 0,1 1,-116 0" />
-            <group
-                android:translateX="298"
-                android:translateY="242"
-                android:scaleX="3.222"
-                android:scaleY="3.222">
-                <path
-                    android:pathData="M13,27V9h6a5,5 0,0 1,0 10h-6"
-                    android:strokeColor="#0E0F11"
-                    android:strokeWidth="4"
-                    android:strokeLineCap="square"
-                    android:strokeLineJoin="miter" />
-            </group>
-        </group>
+        <path
+            android:pathData="M170,361H114L158,151H398L354,361H238"
+            android:strokeColor="#FF5A2E"
+            android:strokeWidth="28"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M170,361H114L158,151H398L354,361H238"
+            android:strokeColor="#FFC4A0"
+            android:strokeWidth="9"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillColor="#F0D870"
+            android:pathData="M256,256m-64,0a64,64 0,1 1,128 0a64,64 0,1 1,-128 0" />
+        <path
+            android:pathData="M238.2,288V224H259.6A17.8,17.8 0,0 1,259.6 259.6H238.2"
+            android:strokeColor="#0E0F11"
+            android:strokeWidth="14.2"
+            android:strokeLineCap="square"
+            android:strokeLineJoin="miter" />
     </group>
 </vector>

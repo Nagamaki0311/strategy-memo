@@ -1,7 +1,8 @@
 // App Shell のプリキャッシュ（D-002）。オフライン起動のためだけのService Worker。APK（Capacitor）には登録しない（app.js）。
-// ponytail: ファイル一覧と版数 CACHE はデプロイごとに手で上げる。上げ忘れると、利用者の端末は古い版のまま動く（手動更新の限界）。
-// 必要になったらビルド時にファイルのハッシュを埋め込む。app/ にファイルを足したら FILES にも足す。
-const CACHE = 'sf6memo-v1';
+// 版数 CACHE: 配信（.github/workflows/pages.yml）が、sw.js 以外の app/ の内容ハッシュで `sf6memo-<8桁>` に置き換える（コミットはしない）。
+// app/ のどれかが変われば版数が必ず変わるので、手で上げる必要はない。リポジトリ内の値（sf6memo-dev）はローカル開発用で、更新の検証には使えない。
+// ponytail: ファイル一覧 FILES は手で保つ。app/ にファイルを足したら FILES にも足す（tests/e2e.mjs 19b が不一致を検出する）。
+const CACHE = 'sf6memo-dev';
 const FILES = ['index.html', 'app.js', 'core.js', 'styles.css', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 // cache: 'reload' で、HTTPキャッシュ（GitHub Pagesは10分）の古い版を新しい版のキャッシュへ入れない。

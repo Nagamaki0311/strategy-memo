@@ -35,13 +35,21 @@ export const CHARACTERS = [
   { id: 'arjun', en: 'ARJUN', name: 'アルジュン' },
 ];
 
+// ===== SECTION: ネオンの段階 =====
+// 記録数に応じたキャラ選択の看板の点灯段階（design-spec-v2.1 1.1）。0件が0、70件以上が10。
+export const NEON_STEPS = [1, 2, 3, 5, 8, 12, 18, 28, 45, 70];
+export const neonLevel = (n) => NEON_STEPS.filter((t) => n >= t).length;
+
 // ===== SECTION: トークン定義 =====
 // トークンの種別は `type` で持つ（D-004）。dir は数値（1,3,4,6,7,8,9）、motion は文字列。
 export const APP_ID = 'sf6-strategy-memo';
-export const SCHEMA_VERSION = 1;
+// D-013: 版2 = move・str:'N' を足した版。読み込みは版1と2（版1は変換なしでそのまま有効）、書き出しは常に最新版。
+export const SCHEMA_VERSION = 2;
 export const PRESETS = ['236', '214', '623', '22', '63214', '[4]6', '[2]8', '360'];
 export const SYSTEM_IDS = ['RAW_DR', 'CDR', 'DI', 'PARRY', 'REVERSAL'];
 export const NOTE_IDS = ['CH', 'PC'];
+export const MOVE_IDS = ['FWD_STEP', 'BACK_STEP'];
+export const MOVE_NAMES = { FWD_STEP: '前ステ', BACK_STEP: 'バクステ' };
 const STANCES = ['stand', 'crouch', 'jump'];
 const DIRS = [1, 3, 4, 6, 7, 8, 9]; // 2（しゃがみ）と5（ニュートラル）はdirに持たない
 const KEYS = ['P', 'K'];
@@ -59,11 +67,12 @@ export function isValidToken(t) {
   if (!isObj(t)) return false;
   const btn = (strs) => KEYS.includes(t.key) && strs.includes(t.str);
   switch (t.type) {
-    case 'normal': return onlyKeys(t, ['type', 'stance', 'dir', 'key', 'str']) && STANCES.includes(t.stance) && (t.dir === undefined || DIRS.includes(t.dir)) && btn(['L', 'M', 'H']);
-    case 'special': return onlyKeys(t, ['type', 'motion', 'key', 'str', 'stance']) && isMotion(t.motion) && btn(['L', 'M', 'H', 'OD']) && (t.stance === undefined || t.stance === 'jump');
+    case 'normal': return onlyKeys(t, ['type', 'stance', 'dir', 'key', 'str']) && STANCES.includes(t.stance) && (t.dir === undefined || DIRS.includes(t.dir)) && btn(['L', 'M', 'H', 'N']);
+    case 'special': return onlyKeys(t, ['type', 'motion', 'key', 'str', 'stance']) && isMotion(t.motion) && btn(['L', 'M', 'H', 'N', 'OD']) && (t.stance === undefined || t.stance === 'jump');
     case 'system': return onlyKeys(t, ['type', 'id']) && SYSTEM_IDS.includes(t.id);
     case 'sa': return onlyKeys(t, ['type', 'level']) && (t.level === 1 || t.level === 2 || t.level === 3);
     case 'note': return onlyKeys(t, ['type', 'id']) && NOTE_IDS.includes(t.id);
+    case 'move': return onlyKeys(t, ['type', 'id']) && MOVE_IDS.includes(t.id);
     default: return false;
   }
 }
@@ -72,7 +81,7 @@ export function isValidToken(t) {
 // state: { tokens, cursor, pending: { stance, dirs }, notice }
 // pending.dirs は押した順の入力（プリセット1個、または方向の数字）。motion は dirs.join('') で得る。
 // action: { type: 'stance', value } | { type: 'preset', value } | { type: 'dir', value: 1-9 }
-//   | { type: 'button', key: 'P'|'K', str: 'L'|'M'|'H'|'OD' } | { type: 'system', id } | { type: 'sa', level }
+//   | { type: 'button', key: 'P'|'K', str: 'L'|'M'|'H'|'N'|'OD' } | { type: 'system', id } | { type: 'sa', level } | { type: 'move', id }
 //   | { type: 'note', id } | { type: 'recent', token } | { type: 'undo' } | { type: 'cursor', index }
 //   | { type: 'strength', index, value } | { type: 'remove', index }   （列のチップの強度変更・削除。index はトークン列の位置）
 export const NOTICE_NEED_MOTION = '先にモーションを選んでください';
@@ -97,7 +106,7 @@ function insertAt(state, token) {
 function confirmButton(state, { key, str }) {
   const { stance } = state.pending;
   const motion = pendingMotion(state.pending);
-  if (!KEYS.includes(key) || !['L', 'M', 'H', 'OD'].includes(str)) throw new Error(`不正なボタン: ${key}${str}`);
+  if (!KEYS.includes(key) || !['L', 'M', 'H', 'N', 'OD'].includes(str)) throw new Error(`不正なボタン: ${key}${str}`);
   if (str === 'OD' && !isMotion(motion)) return { ...state, notice: NOTICE_NEED_MOTION };
   if (isMotion(motion)) {
     return insertAt(state, { type: 'special', motion, key, str, ...(stance === 'jump' && { stance }) });
@@ -118,11 +127,11 @@ function checkIndex(state, index) {
   if (!Number.isInteger(index) || index < 0 || index >= state.tokens.length) throw new Error(`不正なトークン位置: ${index}`);
 }
 
-// 強度の選択肢（チップのポップオーバー）: 通常技=弱中強、必殺技=+OD、SA=1〜3、システム技・注記は強度なし
+// 強度の選択肢（チップのポップオーバー）: 通常技=弱中強＋強度なし(N)、必殺技=+OD、SA=1〜3、システム技・注記・移動は強度なし
 export function strengthChoices(token) {
   switch (token.type) {
-    case 'normal': return ['L', 'M', 'H'];
-    case 'special': return ['L', 'M', 'H', 'OD'];
+    case 'normal': return ['L', 'M', 'H', 'N'];
+    case 'special': return ['L', 'M', 'H', 'N', 'OD'];
     case 'sa': return [1, 2, 3];
     default: return [];
   }
@@ -162,6 +171,9 @@ export function applyPadInput(state, action) {
     case 'note':
       if (!NOTE_IDS.includes(action.id)) throw new Error(`不正な注記: ${action.id}`);
       return insertAt(state, { type: 'note', id: action.id });
+    case 'move':
+      if (!MOVE_IDS.includes(action.id)) throw new Error(`不正な移動: ${action.id}`);
+      return insertAt(state, { type: 'move', id: action.id });
     case 'recent':
       if (!isValidToken(action.token)) throw new Error('不正なトークン');
       return insertAt(state, structuredClone(action.token));
@@ -200,7 +212,7 @@ const ARROWS = { 1: '↙', 2: '↓', 3: '↘', 4: '←', 5: 'ニュートラル'
 export const MOTION_NAMES = { 236: '波動', 214: '竜巻', 623: '昇龍', 22: '下下', '[4]6': '溜め横', '[2]8': '溜め縦', 360: '一回転' };
 const DIR_NAMES = { 1: '左下', 3: '右下', 4: '引き', 6: '前', 7: '左上', 8: '上', 9: '右上' };
 const STANCE_NAMES = { stand: '立ち', crouch: '屈', jump: 'ジャンプ' };
-const STR_NAMES = { L: '弱', M: '中', H: '強' };
+const STR_NAMES = { L: '弱', M: '中', H: '強', N: '' }; // N=強度の指定なし（D-013）
 const SYSTEM_NAMES = { RAW_DR: '生ラッシュ', CDR: 'CDR', DI: 'DI', PARRY: 'DP', REVERSAL: 'Dリバ' };
 
 // "236" -> [{dir:'2',arrow:'↓',charge:false}, ...]、"[4]6" の4は charge:true、"360" は dir:'360' の1要素
@@ -237,6 +249,7 @@ export function tokenLabel(token, notation = 'arrow') {
     case 'system': return SYSTEM_NAMES[token.id];
     case 'sa': return `SA${token.level}`;
     case 'note': return token.id;
+    case 'move': return MOVE_NAMES[token.id];
     default: throw new Error(`不正なトークン: ${token.type}`);
   }
 }
@@ -269,7 +282,10 @@ const POSITIONS = ['any', 'corner', 'midscreen'];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const isId = (v) => typeof v === 'string' && ID_RE.test(v);
 const isStr = (v, max, min = 0) => typeof v === 'string' && v.length >= min && v.length <= max;
-export const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
+// 上限は Date の最大値（8.64e15）。これを超えると new Date(t) が Invalid Date になり、dateText・hhmm が NaN になる
+export const TIME_MAX = 8.64e15;
+export const isTime = (v) => Number.isSafeInteger(v) && v >= 0 && v <= TIME_MAX;
+const isName = (v, max) => isStr(v, max, 1) && v.trim() !== ''; // 空白のみは不可
 export const DAMAGE_MAX = 99999;
 // damage は任意（D-012）。キーがあるときだけ 0〜99999 の整数。未入力はキー自体を持たない。
 export const isDamage = (v) => Number.isInteger(v) && v >= 0 && v <= DAMAGE_MAX;
@@ -281,7 +297,7 @@ function docProblem(doc) {
   const v = doc.schemaVersion;
   if (v === undefined) return 'schemaVersionがありません';
   if (!Number.isInteger(v) || v < 1) return 'schemaVersionが不正です';
-  if (v > SCHEMA_VERSION) return `新しい版(schemaVersion ${v})のデータです。アプリを更新してください`;
+  if (v > SCHEMA_VERSION) return `新しい版(schemaVersion ${v})のデータです。アプリを更新してください`; // 版1・2は受け付ける（版1は変換なしで有効）
   for (const list of ['sections', 'combos']) {
     if (!Array.isArray(doc[list])) return `${list}が配列ではありません`;
     if (doc[list].length > LIMITS[list]) return `${list}が多すぎます(上限${LIMITS[list]}件)`;
@@ -294,7 +310,7 @@ function docProblem(doc) {
     const bad = isObj(s) && [
       ['id', isId(s.id)],
       ['characterId', isCharacter(s.characterId)],
-      ['name', isStr(s.name, LIMITS.name, 1)],
+      ['name', isName(s.name, LIMITS.name)],
       ['order', Number.isSafeInteger(s.order) && s.order >= 0],
       ['updatedAt', isTime(s.updatedAt)],
     ].find(([, ok]) => !ok);
@@ -315,10 +331,10 @@ function docProblem(doc) {
       ['position', POSITIONS.includes(c.position)],
       ['tokens', Array.isArray(c.tokens) && c.tokens.length <= LIMITS.tokens && c.tokens.every(isValidToken)],
       ['memo', isStr(c.memo, LIMITS.memo)],
-      ['tags', Array.isArray(c.tags) && c.tags.length <= LIMITS.tags && c.tags.every((t) => isStr(t, LIMITS.tag, 1))],
+      ['tags', Array.isArray(c.tags) && c.tags.length <= LIMITS.tags && c.tags.every((t) => isName(t, LIMITS.tag))],
       ['favorite', typeof c.favorite === 'boolean'],
       ['createdAt', isTime(c.createdAt)],
-      ['updatedAt', isTime(c.updatedAt)],
+      ['updatedAt', isTime(c.updatedAt) && c.updatedAt >= c.createdAt],
       ['damage', !Object.hasOwn(c, 'damage') || isDamage(c.damage)],
     ].find(([, ok]) => !ok);
     if (!isObj(c) || bad) return `${i + 1}件目のcombosの${bad ? bad[0] : '形式'}が不正です`;
@@ -414,7 +430,7 @@ export function deleteSection(state, sectionId, moveToId, now) {
     ok: true,
     state: {
       sections: repack(state.sections.filter((s) => s.id !== sectionId), ids, now),
-      combos: hasItems ? state.combos.map((c) => (c.sectionId === sectionId ? { ...c, sectionId: moveToId, updatedAt: now } : c)) : state.combos,
+      combos: hasItems ? state.combos.map((c) => (c.sectionId === sectionId ? { ...c, sectionId: moveToId, updatedAt: Math.max(now, c.createdAt) } : c)) : state.combos,
     },
   };
 }
@@ -461,20 +477,21 @@ export function duplicateCombo(combo, now) {
   };
 }
 
-// localStorage の下書き（外部由来の値）を、編集画面に使える形へ整える。形が違う項目は捨てる。
-export function sanitizeDraft(raw) {
-  if (!isObj(raw)) return null;
-  const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+// localStorage の下書き（外部由来の値）を、編集画面に使える形へ整える。
+// 主項目の tokens が配列でなければ壊れた下書きとして捨てる（null）。ほかの項目は、形が違えば fresh（新規または保存済みの値）を使う。
+export function sanitizeDraft(raw, fresh = { sectionId: null, title: '', position: 'any', memo: '', tags: [] }) {
+  if (!isObj(raw) || !Array.isArray(raw.tokens)) return null;
+  const str = (v, max, d) => (typeof v === 'string' ? v.slice(0, max) : d);
   return {
-    sectionId: typeof raw.sectionId === 'string' ? raw.sectionId : null,
-    title: str(raw.title, LIMITS.title),
-    position: POSITIONS.includes(raw.position) ? raw.position : 'any',
-    tokens: Array.isArray(raw.tokens) ? raw.tokens.filter(isValidToken).slice(0, LIMITS.tokens) : [],
-    memo: str(raw.memo, LIMITS.memo),
+    sectionId: typeof raw.sectionId === 'string' ? raw.sectionId : fresh.sectionId,
+    title: str(raw.title, LIMITS.title, fresh.title),
+    position: POSITIONS.includes(raw.position) ? raw.position : fresh.position,
+    tokens: raw.tokens.filter(isValidToken).slice(0, LIMITS.tokens),
+    memo: str(raw.memo, LIMITS.memo, fresh.memo),
     ...(isDamage(raw.damage) && { damage: raw.damage }),
     tags: Array.isArray(raw.tags)
-      ? raw.tags.filter((t) => typeof t === 'string' && t.length >= 1).map((t) => t.slice(0, LIMITS.tag)).slice(0, LIMITS.tags)
-      : [],
+      ? raw.tags.filter((t) => typeof t === 'string' && t.trim() !== '').map((t) => t.slice(0, LIMITS.tag)).slice(0, LIMITS.tags)
+      : fresh.tags,
     savedAt: isTime(raw.savedAt) ? raw.savedAt : null,
   };
 }
@@ -487,12 +504,11 @@ export function exportDoc(state) {
 
 // D-006: id一致は updatedAt の新しい方、同時刻は端末側。端末のみの記録は残す。入力は変更しない。
 // マージ結果も validateDoc に通し、参照整合が崩れる場合は { ok: false, reason } を返す。
-// 成功時は { ok: true, doc, added, updated, unchanged }（docは {sections, combos}）。
+// 成功時は { ok: true, doc, sections: { added, updated, unchanged }, combos: { added, updated, unchanged } }（docは {sections, combos}）。
 export function mergeImport(local, incoming) {
   const checked = validateDoc(incoming);
   if (!checked.ok) return checked;
-  const stats = { added: 0, updated: 0, unchanged: 0 };
-  const mergeList = (mine, theirs) => {
+  const mergeList = (mine, theirs, stats) => {
     const out = structuredClone(mine);
     const pos = new Map(out.map((x, i) => [x.id, i]));
     for (const item of theirs) {
@@ -510,12 +526,14 @@ export function mergeImport(local, incoming) {
     }
     return out;
   };
+  const sections = { added: 0, updated: 0, unchanged: 0 };
+  const combos = { added: 0, updated: 0, unchanged: 0 };
   const doc = {
-    sections: mergeList(local.sections, incoming.sections),
-    combos: mergeList(local.combos, incoming.combos),
+    sections: mergeList(local.sections, incoming.sections, sections),
+    combos: mergeList(local.combos, incoming.combos, combos),
   };
   const result = validateDoc(exportDoc(doc));
-  return result.ok ? { ok: true, doc, ...stats } : result;
+  return result.ok ? { ok: true, doc, sections, combos } : result;
 }
 
 // ===== SECTION: 書き出しの案内 =====

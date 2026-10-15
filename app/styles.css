@@ -18,6 +18,7 @@
   --str-l: #8FD3F0;
   --str-m: #F0D870;
   --str-h: #F29A8E;
+  --str-n: #858585; /* 強度の指定なし。無彩色（D-013） */
   --od: #FF7410;
   --dr: #4DF27C;
   --di: #A3A9B2;
@@ -60,6 +61,7 @@
   --dur-screen: 160ms;
   --dur-sheet: 200ms;
   --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --pad-h: 414px; /* パッドの高さ（design-spec-v2.1 3章）。トーストの位置もこれに合わせる */
 }
 
 body {
@@ -138,6 +140,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .str-l { color: var(--str-l); }
 .str-m { color: var(--str-m); }
 .str-h { color: var(--str-h); }
+.str-n { color: var(--str-n); }
 .dot.od { color: var(--od); }
 .dot.od + .dot.od {
   margin-left: calc(var(--ov) * -1);
@@ -168,6 +171,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
   font: 700 var(--fs)/1 var(--font);
 }
 .sys-sa { border-color: var(--fg); background: var(--key); }
+.sys-mv { border-style: dashed; border-color: var(--fg-muted); } /* 前ステ・バクステ: 破線の枠で塗りなし＝待ち・移動 */
 .sys-dr { border-color: var(--dr); color: var(--dr); }
 .sys-dr .rush { width: 12px; height: 12px; }
 .row.S .sys-dr .rush { width: 9px; height: 9px; }
@@ -242,9 +246,10 @@ a { color: inherit; }
 /* overflow:hidden が上下の発光（8px）を切らないよう、縦に余白を持たせる */
 .topbar h1 { flex: 1; min-width: 0; margin: 0; padding: 10px var(--s1); font: 700 var(--t-lg) var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar h1.solo { padding-left: var(--s2); }
-/* 一覧の上部バー: 英字のワードマーク（点灯した看板）＋カナ */
-.wm { margin-right: var(--s2); font: 400 var(--sign-m) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--lit); text-shadow: var(--tx-lit); }
-.kn { font: 400 var(--t-sm) var(--font); color: var(--fg-muted); }
+/* 一覧の上部バー: 英字のワードマーク（記録数の段階で点灯する看板。色は「ネオンの段階」節）。読み上げ名のカナは .sr-only */
+.wm { margin-right: var(--s2); font: 400 var(--sign-m) var(--font-sign); font-synthesis: none; letter-spacing: .04em; }
+/* キャラ選択の上部バーのロゴ（design-spec-v2.1 5章）。動かさない */
+.logo { width: 26px; height: 20px; vertical-align: -3px; margin-right: var(--s2); }
 .bottombar {
   position: sticky; bottom: 0; z-index: 3; box-sizing: border-box; display: flex; align-items: center; gap: var(--s2);
   min-height: calc(56px + env(safe-area-inset-bottom)); padding: 0 var(--s4) env(safe-area-inset-bottom);
@@ -257,11 +262,11 @@ a { color: inherit; }
 /* 最近使ったキャラ: 斜めの板に点灯した英字。板は ::before だけを傾ける */
 .rc {
   position: relative; isolation: isolate; flex: 1; min-width: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: center; height: 44px;
-  color: var(--lit); text-decoration: none; white-space: nowrap; -webkit-tap-highlight-color: transparent;
+  text-decoration: none; white-space: nowrap; -webkit-tap-highlight-color: transparent;
 }
 .rc::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--key); transform: skewX(var(--skew)); }
 .rc:active::before { background: var(--line); }
-.rc-en { font: 400 var(--sign-s) var(--font-sign); font-synthesis: none; letter-spacing: .04em; text-shadow: var(--tx-lit); }
+.rc-en { font: 400 var(--sign-s) var(--font-sign); font-synthesis: none; letter-spacing: .04em; }
 .hint { margin: 0; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 
 /* ボタン: 主ボタンは塗り反転、副ボタンは key 塗りと1pxの枠。色相は使わない */
@@ -282,28 +287,46 @@ a { color: inherit; }
 }
 .icon-btn:active { background: var(--line-strong); }
 .icon-btn:disabled { opacity: .3; cursor: default; }
+.help { color: var(--fg-muted); }
+.help:active { color: var(--fg); }
 
 /* キャラクター選択（design-spec-v2 5.1）。斜めの板の3列。隣の板との平行な3pxの隙間が路地。overflow-x:clip は傾いた板のはみ出しを切る */
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px 0; overflow-x: clip; }
 .cell {
-  position: relative; isolation: isolate; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: end;
+  position: relative; isolation: isolate; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 20px 14px; row-gap: 4px; align-content: center;
   height: 54px; padding: 6px 12px 6px 14px; text-decoration: none; -webkit-tap-highlight-color: transparent;
 }
 .cell::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--surface); transform: skewX(var(--skew)); }
-.cell.lit::before { background: var(--key); }
-.cell:active::before { background: var(--line); }
 .cell:focus-visible { outline-offset: -3px; }
-/* 英字: 消灯は muted、点灯（記録あり）と押下中は lit＋発光。押下は即時（トランジションなし）。余白は text-shadow を overflow:hidden で切らないため */
+/* 英字の色・発光・板は「ネオンの段階」節。余白は text-shadow を overflow:hidden で切らないため */
 .cell-en {
-  grid-column: 1 / -1; min-width: 0; margin: -8px; padding: 8px; overflow: hidden; white-space: nowrap;
-  font: 400 var(--sign-l) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--fg-muted);
+  grid-row: 1; grid-column: 1; min-width: 0; margin: -8px; padding: 8px; overflow: hidden; white-space: nowrap;
+  font: 400 var(--sign-l) var(--font-sign); font-synthesis: none; letter-spacing: .04em;
 }
 /* .long は、20pxだと英字が1列に収まらない幅（KIMBERLY 93.5pxに対し、列の内幅は (幅-6)/3-26 なので367px未満）でだけ16pxにする。360px未満は全員16px（320pxで実測: 20pxだと6名が溢れる） */
 @media (max-width: 366px) { .cell.long .cell-en { font-size: 16px; } }
 @media (max-width: 359px) { .cell-en { font-size: 16px; } }
-.cell.lit .cell-en, .cell:active .cell-en { color: var(--lit); text-shadow: var(--tx-lit); }
-.cell-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--t-xs) var(--font); color: var(--fg-muted); }
-.cell-n { padding-left: var(--s1); font: 700 var(--t-xs) var(--font); color: var(--lit); }
+.cell-n { grid-row: 2; justify-self: end; font: 700 12px/14px var(--font); }
+
+/* ネオンの段階（design-spec-v2.1 1章。記録数 → neonLevel → data-lv）。色・発光・板・縁はここだけに書く。
+   0件は消灯。1〜10は暖白 → 電球色 → 琥珀 → 赤橙の1本の軸。縁は0ぼかしのinset。影の値は動かさない（上限は design-spec-v2 2.6・v2.1 1.5）。
+   押下は段階0〜2だけ英字を点灯色にする（3以上は自分の色のまま。板だけ --line）。押下は即時（トランジションなし） */
+[data-lv] { --nc: var(--fg-muted); --ns: none; --nb: var(--surface); --nw: 0px; --ne: transparent; }
+[data-lv="1"] { --nc: #E9E1D3; --ns: 0 0 1px rgb(233 225 211 / .5), 0 0 3px rgb(255 226 186 / .18); --nb: var(--key); }
+[data-lv="2"] { --nc: #F5EDE0; --ns: 0 0 1px rgb(245 237 224 / .6), 0 0 4px rgb(255 214 160 / .24); --nb: var(--key); }
+[data-lv="3"] { --nc: var(--lit); --ns: 0 0 1px rgb(255 244 222 / .8), 0 0 6px rgb(255 196 120 / .32); --nb: var(--key); }
+[data-lv="4"] { --nc: #FFEBCB; --ns: 0 0 1px rgb(255 235 203 / .8), 0 0 6px rgb(255 182 100 / .36); --nb: #26231F; --nw: 1px; --ne: rgb(255 182 100 / .22); }
+[data-lv="5"] { --nc: #FFE0B0; --ns: 0 0 1.5px rgb(255 224 176 / .8), 0 0 7px rgb(255 166 84 / .40); --nb: #26231F; --nw: 1px; --ne: rgb(255 166 84 / .30); }
+[data-lv="6"] { --nc: #FFD496; --ns: 0 0 1.5px rgb(255 212 150 / .8), 0 0 7px rgb(255 150 72 / .43); --nb: #26231F; --nw: 1px; --ne: rgb(255 150 72 / .38); }
+[data-lv="7"] { --nc: #FFC680; --ns: 0 0 1.5px rgb(255 198 128 / .8), 0 0 8px rgb(255 134 64 / .45); --nb: #2B231D; --nw: 1px; --ne: rgb(255 134 64 / .46); }
+[data-lv="8"] { --nc: #FFB872; --ns: 0 0 2px rgb(255 184 114 / .8), 0 0 8px rgb(255 118 56 / .47); --nb: #2B231D; --nw: 1px; --ne: rgb(255 118 56 / .55); }
+[data-lv="9"] { --nc: #FFAA6A; --ns: 0 0 2px rgb(255 170 106 / .8), 0 0 8px rgb(255 104 50 / .50); --nb: #2B231D; --nw: 2px; --ne: rgb(255 104 50 / .66); }
+[data-lv="10"] { --nc: #FF9C66; --ns: 0 0 2px rgb(255 156 102 / .8), 0 0 8px rgb(255 90 46 / .50); --nb: #2B231D; --nw: 2px; --ne: rgb(255 90 46 / .80); }
+.cell-en, .wm, .rc-en { color: var(--nc); text-shadow: var(--ns); }
+.cell-n { color: var(--nc); }
+.cell::before { background: var(--nb); box-shadow: inset 0 0 0 var(--nw) var(--ne); }
+.cell:active::before { background: var(--line); }
+.cell:active:is([data-lv="0"], [data-lv="1"], [data-lv="2"]) { --nc: var(--lit); --ns: var(--tx-lit); }
 /* 起動時の点灯: 最初の描画で1回だけ（.boot は app.js が先頭6件に付ける）。opacity だけを動かす */
 .cell.boot .cell-en { animation: flick 480ms linear var(--d, 0ms) backwards; }
 @keyframes flick { 0% { opacity: 0; } 20% { opacity: 1; } 30% { opacity: .3; } 45% { opacity: 1; } 55% { opacity: .6; } 70%, 100% { opacity: 1; } }
@@ -442,6 +465,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .pop-row { display: flex; gap: var(--s1); }
 .pop-row + .pop-row { margin-top: var(--s1); }
 .opt { flex: 1; padding: 0 var(--s2); }
+.pop-row:has(> .opt:nth-child(5)) > .opt { padding: 0 4px; }
 .opt[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--fg); }
 .opt .dot { --dot: 22px; }
 .opt .ltr.od { --fs: 15px; }
@@ -461,7 +485,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .diag-c { display: flex; flex-direction: column; align-items: center; }
 .diag-n { font: var(--t-xs) var(--font); color: var(--fg-muted); }
 
-/* ===== パッド（design-spec 4章。高さ368px＋下の安全領域） ===== */
+/* ===== パッド（design-spec 4章、v2.1 3章。高さ414px＝--pad-h） ===== */
 .pad {
   flex: none; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 5px 6px calc(6px + env(safe-area-inset-bottom));
   background: var(--surface); border-top: 1px solid var(--line); touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -482,6 +506,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .band-di { --band: var(--di); }
 .band-dp { --band: var(--dp-line); }
 .band-sa { --band: var(--fg); }
+.band-mv::before { height: 0; background: none; border-top: 2px dashed var(--fg-muted); border-radius: 0; } /* 前ステ・バクステの帯は破線 */
 .pad :focus-visible { outline-offset: -3px; }
 .recent-keys, .sys-keys { display: flex; gap: 4px; height: 44px; overflow-x: auto; scrollbar-width: none; }
 .recent-keys { scroll-snap-type: x proximity; }
@@ -498,20 +523,23 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .pk-arrows { display: flex; align-items: center; gap: 1px; height: 14px; --arrow: 13px; --in: 1px; --br-sw: 4; --num: 14px; }
 .pk-name { min-height: 14px; font: 12px/1.2 var(--font); color: var(--fg-muted); }
 .sys-keys .key { flex: none; flex-direction: row; min-width: 44px; padding: 0 6px; }
-.lower { display: grid; grid-template-columns: 140px 1fr; column-gap: 12px; height: 156px; margin-top: 4px; }
-.dirs { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 48px); gap: 6px 4px; }
+.lower { display: grid; grid-template-columns: 140px 1fr; column-gap: 12px; height: 202px; margin-top: 4px; }
+.dirs { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(4, 46px); gap: 6px 4px; }
+.steps { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .dkey .ltr { --fs: 14px; color: var(--fg-muted); }
-.btns { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 48px); gap: 6px 4px; min-width: 0; }
+.btns { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 46px); gap: 6px 4px; min-width: 0; }
 .stance { grid-column: 1 / 4; display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 4px; min-width: 0; }
 .undo-t { font-size: 12px; }
-.bkey .dot { --dot: 30px; }
+.bkey .dot, .nkey .dot { --dot: 30px; }
+.nkey { grid-column: span 2; flex-direction: row; gap: 6px; }
+.nkey-t { font: 400 12px/1.2 var(--font); color: var(--fg-muted); }
 .okey { gap: 1px; --ov: 8px; --fs: 13px; }
 .okey .dots { display: flex; }
 .okey .dot { --dot: 20px; }
 
 /* トーストはパッドの上に出す（パッドが流れの中に戻る低い画面では既定の位置） */
 @media (min-height: 561px) {
-  body:has(.screen.edit .pad:not([hidden])) #toast { bottom: calc(368px + env(safe-area-inset-bottom) + var(--s4)); }
+  body:has(.screen.edit .pad:not([hidden])) #toast { bottom: calc(var(--pad-h) + env(safe-area-inset-bottom) + var(--s4)); }
 }
 /* 横持ちなど高さが足りないときは、パッドを縦flexから外してコマンド列の下に通常の流れで置く */
 @media (max-height: 560px) {

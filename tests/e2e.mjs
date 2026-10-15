@@ -12,7 +12,8 @@
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
 import { chromium } from '/opt/node-tools/node_modules/playwright/index.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, readdirSync, existsSync, statSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, statSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,7 +29,7 @@ const N = (stance, str, key) => ({ type: 'normal', stance, key, str });
 const SP = (motion, str, key) => ({ type: 'special', motion, key, str });
 const combo = (id, sectionId, title, tokens, extra = {}) => ({
   id, characterId: 'ryu', controlType: 'classic', sectionId, title, position: 'any', tokens, memo: '', tags: [], favorite: false,
-  createdAt: T0 + Number(id.slice(1)), updatedAt: T0, ...extra,
+  createdAt: T0 - 1000 + Number(id.slice(1)), updatedAt: T0, ...extra, // createdAt <= updatedAt（validateDoc）。idの数字で作成順を表す
 });
 const LONG = Array.from({ length: 12 }, () => [N('crouch', 'M', 'K'), SP('236', 'H', 'P')]).flat();
 const seedState = () => ({
@@ -44,7 +45,7 @@ const failures = [];
 let checks = 0;
 // 想定外の例外（待機のタイムアウトなど）でも、それまでの不合格を表示してから終了コード1で終わる
 process.on('uncaughtException', (e) => {
-  console.log(`e2e: 中断 ${String(e.message).split('\n')[0]}\n${failures.map((f) => `FAIL ${f}`).join('\n')}`);
+  console.log(`e2e: 中断 ${String(e.message).split('\n')[0]} @ ${String(e.stack).split('\n').find((l) => l.includes('e2e.mjs'))}\n${failures.map((f) => `FAIL ${f}`).join('\n')}`);
   process.exit(1);
 });
 async function check(name, fn) {
@@ -88,21 +89,27 @@ const gotoHash = async (page, h) => { await page.evaluate((x) => { location.hash
 // 機内モードは context.setOffline(true) に加えて、サーバー側で接続を切って再現する（setOffline は Service Worker の fetch を止めないため。
 // キャッシュに無いファイルがあっても、setOffline だけではネットワークから取れてしまい、検出できない）。
 // prefix='/strategy-memo/' で、GitHub Pagesのプロジェクトサイトと同じサブパス配信を再現する。
+// 版数 CACHE はデプロイ時に pages.yml が app/ の内容ハッシュへ置き換える（リポジトリ内の値はローカル開発用）。ここでは形式と、置き換えの仕組みを検査する（19b）
+const CACHE_RE = /^sf6memo-[A-Za-z0-9]+$/;
+const cacheOf = (dir) => readFileSync(path.join(dir, 'sw.js'), 'utf8').match(/^const CACHE = '([^']*)'/m)[1];
 const SW_APP = path.resolve(process.env.SW_APP ?? new URL('../app', import.meta.url).pathname);
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 async function serveApp(dir, prefix = '/') {
   const root = path.resolve(dir) + path.sep;
-  // sw: sw.js の本文を書き換える（版数の変更用）。down: 真のあいだは接続を切る（機内モード）。切られたあとに来た要求は downHits に残る
-  const s = { misses: [], downHits: [], down: false, sw: (t) => t };
+  // sw・appjs: sw.js・app.js の本文を書き換える（版数の変更・デプロイの再現用）。down: 真のあいだは接続を切る（機内モード）。切られたあとに来た要求は downHits に残る
+  // 配信には GitHub Pages と同じ Cache-Control: max-age=600 を付ける（HTTPキャッシュの古い版を新しい版のキャッシュへ入れないことの検査用）
+  const s = { misses: [], downHits: [], down: false, sw: (t) => t, appjs: (t) => t };
   s.server = createServer((req, res) => {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (s.down) { s.downHits.push(p); req.socket.destroy(); return; }
+    // ブラウザ自身のSW更新確認（/sw.js）は切断中でも飛んでくる。アプリが取りに行った要求だけを downHits に残す
+    if (s.down) { if (!p.endsWith('/sw.js')) s.downHits.push(p); req.socket.destroy(); return; }
     const rel = p.startsWith(prefix) ? p.slice(prefix.length) || 'index.html' : null;
     const file = rel === null ? null : path.join(dir, rel.endsWith('/') ? `${rel}index.html` : rel);
     if (!file || !file.startsWith(root) || !existsSync(file) || statSync(file).isDirectory()) { s.misses.push(p); res.writeHead(404); res.end(); return; }
     let body = readFileSync(file);
     if (rel === 'sw.js') body = s.sw(body.toString());
-    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+    if (rel === 'app.js') body = s.appjs(body.toString());
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'max-age=600' });
     res.end(body);
   });
   await new Promise((ok) => s.server.listen(0, ok));
@@ -169,7 +176,7 @@ for (const width of [360, 430]) {
       assert.deepEqual(srv.downHits, []);
     });
     // 機内モードで、セクション追加 -> 記録の作成・保存 -> 閲覧
-    await page.locator('.cell', { hasText: 'リュウ' }).click();
+    await page.locator('.cell[aria-label^="リュウ"]').click();
     await page.locator('.empty .chips .btn', { hasText: /^通常$/ }).click();
     await page.getByRole('link', { name: '記録', exact: true }).click();
     await page.waitForSelector('.pad');
@@ -219,6 +226,46 @@ for (const width of [360, 430]) {
       ]);
       for (const [src, px] of [['icon-192.png', 192], ['icon-512.png', 512]]) assert.deepEqual(await pngSize(`${root.origin()}${src}`), [200, 'PNG', px, px], src);
       assert.equal((await fetch(`${root.origin()}icon.svg`)).status, 200);
+    });
+    await check(`${tag} 19b sw.js の CACHE は sf6memo-英数字 の形（配信時に内容ハッシュへ置き換わる。リポジトリ内の値はローカル開発用）`, async () => {
+      assert.match(cacheOf(SW_APP), CACHE_RE);
+    });
+    await check(`${tag} 19b 配信時の版数: pages.yml の置き換えコマンドで CACHE が app/ の内容ハッシュ（sf6memo-8桁）になり、sw.js 以外を変えると変わり、変えなければ変わらない`, async () => {
+      // pages.yml の run をそのまま、app/ のコピー（cwd 直下に app/）に対して実行する
+      const stamp = readFileSync(new URL('../.github/workflows/pages.yml', import.meta.url), 'utf8').match(/- name: SWの版数[^\n]*\n\s+run: \|\n((?: {10}[^\n]*\n)+)/)[1].replace(/^ {10}/gm, '');
+      const work = mkdtempSync(path.join(tmpdir(), 'sf6-stamp-'));
+      try {
+        cpSync(SW_APP, path.join(work, 'app'), { recursive: true });
+        const run = () => { execFileSync('bash', ['-e', '-c', stamp], { cwd: work }); return cacheOf(path.join(work, 'app')); };
+        const v1 = run();
+        assert.match(v1, /^sf6memo-[0-9a-f]{8}$/);
+        assert.equal(run(), v1, '内容が同じなら同じ版数（sw.js 自身の書き換えは版数に入らない）');
+        for (const f of readdirSync(path.join(work, 'app')).filter((x) => x !== 'sw.js')) {
+          const before = readFileSync(path.join(work, 'app', f));
+          writeFileSync(path.join(work, 'app', f), Buffer.concat([before, Buffer.from('\n')]));
+          assert.notEqual(run(), v1, `${f} を変えたのに版数が変わらない`);
+          writeFileSync(path.join(work, 'app', f), before);
+          assert.equal(run(), v1, `${f} を戻したら版数も戻る`);
+        }
+        // sw.js のコメントなど CACHE 以外を変えても、版数は内容ハッシュのまま（sw.js 自身は入力に含めない）
+        writeFileSync(path.join(work, 'app', 'sw.js'), `${readFileSync(path.join(work, 'app', 'sw.js'), 'utf8')}// x\n`);
+        assert.equal(run(), v1);
+      } finally {
+        rmSync(work, { recursive: true });
+      }
+    });
+    await check(`${tag} 19b アイコンのPNGは新しい図案（背景・●・管の芯の3点の色。192と512）`, async () => {
+      const px = (src, pts) => page.evaluate(async ([u, pts]) => {
+        const img = new Image(); img.src = u; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+        return pts.map(([x, y]) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3));
+      }, [`${root.origin()}${src}`, pts]);
+      const want = [[14, 15, 17], [240, 216, 112], [255, 196, 160]]; // #0E0F11 地、#F0D870 の●（Pの上）、#FFC4A0 の管の芯（上辺の中央）
+      for (const [src, k] of [['icon-512.png', 1], ['icon-192.png', 0.375]]) {
+        const got = await px(src, [[10 * k, 10 * k], [256 * k, 200 * k], [276 * k, 151 * k]].map(([x, y]) => [Math.round(x), Math.round(y)]));
+        got.forEach((c, i) => assert.ok(c.every((v, j) => Math.abs(v - want[i][j]) <= 12), `${src} 点${i} ${c} != ${want[i]}`));
+      }
     });
     await check(`${tag} 19b sw.js の FILES が、配信する app/ のファイル（sw.js・ライセンス文書を除く）と一致し、すべて取得できる`, async () => {
       const files = [...readFileSync(path.join(SW_APP, 'sw.js'), 'utf8').match(/const FILES = \[(.*)\]/)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
@@ -273,30 +320,38 @@ for (const width of [360, 430]) {
       await (await caches.open('sf6memo-v0')).put('/x', new Response('old'));
       await (await caches.open('other-app-v1')).put('/x', new Response('other'));
     });
-    await page.reload(); // 旧版（v1）に制御されたタブ
+    await page.reload(); // 現行版に制御されたタブ
     const v1 = (await cacheKeys(page)).filter((k) => k.startsWith('sf6memo-') && k !== 'sf6memo-v0');
-    root.sw = (t) => t.replace(/const CACHE = '[^']*'/, "const CACHE = 'sf6memo-v2'");
+    // デプロイの再現: app.js が変わり（印を足す）、CACHE が変わる。サーバーは max-age=600 を付けているので、HTTPキャッシュの古い app.js を新しいキャッシュへ入れると印が無い
+    root.sw = (t) => t.replace(/const CACHE = '[^']*'/, "const CACHE = 'sf6memo-v3'");
+    root.appjs = (t) => `${t}\n// DEPLOY-2 MARKER\n`;
     await page.evaluate(async () => { await (await navigator.serviceWorker.ready).update(); });
-    await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state === 'installed');
+    await page.waitForFunction(async () => (await caches.keys()).includes('sf6memo-v3'), null, { timeout: 8000 }); // 新版のインストール（プリキャッシュ）が始まった
+    await page.waitForTimeout(1500); // skipWaiting があれば、この間に有効化されて旧キャッシュが消える
     await check(`${tag} 19d 更新: 新版はプリキャッシュして待機するだけ（skipWaitingなし）。旧版のキャッシュは残り、開いているタブは動き続ける`, async () => {
+      assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state), 'installed');
       assert.deepEqual(v1.length, 1);
-      assert.notEqual(v1[0], 'sf6memo-v2');
-      assert.deepEqual(await cacheKeys(page), ['other-app-v1', 'sf6memo-v0', v1[0], 'sf6memo-v2'].sort());
+      assert.equal(v1[0], cacheOf(SW_APP));
+      assert.deepEqual(await cacheKeys(page), ['other-app-v1', 'sf6memo-v0', v1[0], 'sf6memo-v3'].sort());
       assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.state), 'activated');
-      await page.locator('.cell', { hasText: 'ケン' }).click();
+      await page.locator('.cell[aria-label^="ケン"]').click();
       await page.waitForFunction(() => location.hash === '#/c/ken');
       assert.deepEqual(page.errors, []);
+    });
+    await check(`${tag} 19d 更新: 新しいキャッシュには、HTTPキャッシュ（max-age=600）の古い版でなく、サーバーの新しい app.js が入る（cache: 'reload'）`, async () => {
+      assert.equal(await page.evaluate(async () => (await (await (await caches.open('sf6memo-v3')).match('app.js')).text()).includes('DEPLOY-2 MARKER')), true);
     });
     await page.close(); // 開いているタブがなくなる
     const next = await page.context().newPage();
     await next.goto(root.origin());
     await check(`${tag} 19d 更新: タブを閉じたあと新版が有効になり、sf6memo- の旧キャッシュだけが消える（他アプリのキャッシュは残る）`, async () => {
-      await next.waitForFunction(async () => (await caches.keys()).includes('sf6memo-v2') && !(await caches.keys()).includes('sf6memo-v0'), null, { timeout: 8000 });
-      assert.deepEqual(await cacheKeys(next), ['other-app-v1', 'sf6memo-v2']);
+      await next.waitForFunction(async () => (await caches.keys()).includes('sf6memo-v3') && !(await caches.keys()).includes('sf6memo-v0'), null, { timeout: 8000 });
+      assert.deepEqual(await cacheKeys(next), ['other-app-v1', 'sf6memo-v3']);
       assert.equal(await next.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.scriptURL), `${root.origin()}sw.js`);
     });
     await next.context().close();
     root.sw = (t) => t;
+    root.appjs = (t) => t;
   }
 
   await root.close();
@@ -319,8 +374,8 @@ for (const width of [360, 430]) {
     });
     await shot(page, '01-home-first', width);
     for (const n of ['リュウ', '春麗', 'ケン', 'ガイル']) {
-      await page.locator('.cell', { hasText: n }).click();
-      await page.waitForFunction((t) => location.hash.startsWith('#/c/') && document.querySelector('.topbar h1')?.textContent.endsWith(t), n); // h1は「RYU」（装飾）＋カナ
+      await page.locator(`.cell[aria-label^="${n}"]`).click();
+      await page.waitForFunction((t) => location.hash.startsWith('#/c/') && document.querySelector('.topbar h1')?.textContent.endsWith(t), n); // h1は「RYU」（装飾）＋読み上げ名のカナ
       await page.getByRole('button', { name: 'キャラクター選択に戻る' }).click();
       await page.waitForSelector('.grid');
     }
@@ -350,11 +405,11 @@ for (const width of [360, 430]) {
     await page.getByRole('button', { name: 'セクション', exact: true }).click();
     await page.getByRole('button', { name: 'スタン' }).click();
     await page.waitForSelector('.err');
-    await check(`${tag} 2 保存失敗でその場にエラーが出て、メモリ上の状態は保たれる`, async () => {
+    await check(`${tag} 2 保存失敗でその場にエラーが出て、操作は巻き戻る（画面にもメモリにも残らない）`, async () => {
       const t = await page.locator('.err').innerText();
       assert.match(t, /保存できませんでした/);
-      assert.match(t, /保存領域がいっぱいです。入力内容はこの画面に残っています。/);
-      assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め', 'スタン']);
+      assert.match(t, /端末の保存領域がいっぱいです。変更は保存されませんでした。/);
+      assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め']);
       assert.equal(await page.locator('.err[role=alert]').count(), 1); // 読み上げられる
       assert.equal(await page.locator('#toast .toast').count(), 0); // 保存に失敗した操作に［元に戻す］は出さない
     });
@@ -365,7 +420,7 @@ for (const width of [360, 430]) {
     await check(`${tag} 2 保存に失敗した削除には［元に戻す］を出さず、エラーを出す`, async () => {
       assert.equal(await page.locator('#toast .toast').count(), 0);
       assert.equal(await page.locator('.err').count(), 1);
-      assert.deepEqual(await names(page), ['通常', '画面端', 'スタン']);
+      assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め']);
     });
     await page.reload();
     await check(`${tag} 2 再読み込み後にデータが変わっていない`, async () => {
@@ -384,7 +439,7 @@ for (const width of [360, 430]) {
       assert.match(t, /保存データを読み込めませんでした（データは変更していません）/);
       assert.match(t, /JSONとして読めません/);
       assert.match(t, /読み取り専用/);
-      await bad.locator('.cell', { hasText: 'リュウ' }).click();
+      await bad.locator('.cell[aria-label^="リュウ"]').click();
       await bad.waitForSelector('.topbar');
       assert.equal(await bad.locator('.bottombar').count(), 0); // 変更操作は出さない
       assert.equal(await bad.locator('.err').count(), 1);
@@ -623,7 +678,7 @@ for (const width of [360, 430]) {
       assert.equal(await fresh.evaluate(() => history.length), len); // 履歴を増やしていない
       await fresh.context().close();
     });
-    await check(`${tag} 4 ホームの件数表示`, async () => assert.match(await page.locator('.cell', { hasText: 'リュウ' }).innerText(), /3件/));
+    await check(`${tag} 4 ホームの件数表示`, async () => assert.match(await page.locator('.cell[aria-label^="リュウ"]').innerText(), /3件/));
     await check(`${tag} 4 ページエラーなし`, async () => assert.deepEqual(page.errors, []));
     await page.context().close();
   }
@@ -724,12 +779,12 @@ for (const width of [360, 430]) {
     await denied.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('denied', 'SecurityError'); }; });
     await denied.getByRole('button', { name: 'セクション', exact: true }).click();
     await denied.getByRole('button', { name: 'スタン', exact: true }).click();
-    await check(`${tag} 7 非quotaの保存失敗（SecurityError）は別の文言で、メモリは保たれる`, async () => {
+    await check(`${tag} 7 非quotaの保存失敗（SecurityError）は別の文言で、操作は巻き戻る`, async () => {
       await denied.waitForSelector('.err');
       const t = await denied.locator('.err').innerText();
-      assert.match(t, /ブラウザが保存を許可していません。変更はこの画面にだけ残っています。/);
+      assert.match(t, /ブラウザが保存を許可していません。変更は保存されませんでした。/);
       assert.doesNotMatch(t, /保存領域がいっぱい/);
-      assert.equal((await names(denied)).includes('スタン'), true);
+      assert.equal((await names(denied)).includes('スタン'), false);
     });
     await denied.context().close();
 
@@ -1231,7 +1286,7 @@ for (const width of [360, 430]) {
     await pop.waitFor();
     await check(`${tag} 14 ポップオーバー: 対応行・強度の行（OD付き）・挿入・削除、選択中チップに枠`, async () => {
       assert.match(await pop.locator('.pop-note').innerText(), /＝ 236（波動）/);
-      assert.deepEqual(await pop.locator('.pop-row').first().locator('button').allInnerTexts(), ['弱', '中', '強', 'OD']);
+      assert.deepEqual(await pop.locator('.pop-row').first().locator('button').allInnerTexts(), ['弱', '中', '強', '', 'OD']); // 空は灰色の●（強度なし。文字なし）
       assert.equal(await opt('強').getAttribute('aria-pressed'), 'true');
       assert.equal(await opt('この前に挿入').isVisible(), true);
       assert.equal(await opt('削除').isVisible(), true);
@@ -1329,7 +1384,7 @@ for (const width of [360, 430]) {
     await page.waitForFunction(() => location.hash === '#/c/ryu/r/c1');
     await check(`${tag} 14 編集の保存: updatedAtのみ更新し、セクション・位置・タグ・メモが反映される`, async () => {
       const c = (await stored(page)).combos.find((x) => x.id === 'c1');
-      assert.equal(c.createdAt, T0 + 1);
+      assert.equal(c.createdAt, T0 - 999);
       assert.ok(c.updatedAt > T0);
       assert.deepEqual([c.sectionId, c.position, c.tags, c.memo, c.title], ['s2', 'corner', ['基本', '練習用'], 'ここで\n改行', '基本コンボ']);
       assert.equal(c.tokens.length, 7);
@@ -1360,10 +1415,10 @@ for (const width of [360, 430]) {
   {
     const page = await newPage(width, seedState());
     await gotoHash(page, '#/c/ryu/new?s=s1');
-    await check(`${tag} 15 パッドの上端は y>=372、高さは368、横スクロールなし`, async () => {
+    await check(`${tag} 15 パッドの上端は y>=326、高さは414、横スクロールなし`, async () => {
       const b = await page.locator('.pad').boundingBox();
-      assert.ok(b.y >= 372, JSON.stringify(b));
-      assert.equal(b.height, 368);
+      assert.ok(b.y >= 326, JSON.stringify(b));
+      assert.equal(b.height, 414);
       assert.ok(await noHScroll(page));
       assert.equal(await page.evaluate(() => { const p = document.querySelector('.pad'); return p.scrollWidth <= p.clientWidth; }), true);
       assert.equal(await page.evaluate(() => document.querySelector('.screen.edit').scrollHeight <= innerHeight), true); // 画面自体はスクロールしない
@@ -1447,7 +1502,7 @@ for (const width of [360, 430]) {
       });
       assert.equal(r.padPos, 'static');
       assert.ok(Math.abs(r.padTop - (r.cmdBottom + await page.evaluate(() => scrollY))) < 2, JSON.stringify(r));
-      assert.ok(r.fieldsTop >= r.padTop + 368 - 1, JSON.stringify(r));
+      assert.ok(r.fieldsTop >= r.padTop + 414 - 1, JSON.stringify(r));
       await page.setViewportSize({ width, height: 740 });
     });
     await check(`${tag} 15 ページエラーなし`, async () => assert.deepEqual(page.errors, []));
@@ -1507,7 +1562,8 @@ for (const width of [360, 430]) {
       assert.equal(await page.locator('.d-title').innerText(), '基本コンボ');
       assert.deepEqual(await page.locator('.bottombar .btn').allInnerTexts(), ['その他…', '複製', '編集']);
       assert.equal(await page.locator('.bottombar .primary').innerText(), '編集');
-      assert.equal(await page.getByRole('button', { name: '凡例' }).count(), 1);
+      assert.equal(await page.locator('button[aria-label="凡例を開く"]').count(), 1);
+      assert.equal(await page.getByRole('button', { name: '凡例', exact: true }).count(), 0); // 文字の［凡例］はない（ヘルプマークに置き換え）
       assert.equal(await page.getByRole('button', { name: 'リュウの一覧に戻る' }).count(), 1);
       assert.ok(await noHScroll(page));
       const chipH = await page.$$eval('.d-cmd .chip', (els) => Math.max(...els.map((e) => e.getBoundingClientRect().height)));
@@ -1521,7 +1577,7 @@ for (const width of [360, 430]) {
     });
     await shot(page, '31-detail-popover', width);
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await page.waitForSelector('.sheet.tall');
     await check(`${tag} 16 凡例: 高さ90dvhのボトムシート、下端に固定の［閉じる］、全グループがある`, async () => {
       await page.waitForTimeout(300);
@@ -1544,7 +1600,7 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet', { state: 'detached' });
       assert.equal(await hash(page), '#/c/ryu/r/c1');
     });
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await page.getByRole('button', { name: '閉じる' }).click();
     await check(`${tag} 16 凡例の［閉じる］で閉じ、フォーカスは［凡例］へ戻る`, async () => {
       await page.waitForSelector('.sheet', { state: 'detached' });
@@ -1622,9 +1678,10 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.cmd .row');
       assert.equal(await hash(page), '#/c/ryu/r/c3/edit');
       assert.equal(await page.locator('.cmd .tag').count(), 1);
-      assert.equal(await page.getByRole('button', { name: '凡例' }).count(), 1);
+      assert.equal(await page.locator('button[aria-label="凡例を開く"]').count(), 1);
+      assert.equal(await page.getByRole('button', { name: '凡例', exact: true }).count(), 0);
     });
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await check(`${tag} 16 編集画面からも凡例を開ける`, async () => {
       await page.waitForSelector('.sheet.tall');
       await page.keyboard.press('Escape');
@@ -1687,7 +1744,7 @@ for (const width of [360, 430]) {
       assert.equal(await page.getByRole('link', { name: 'ダルシム', exact: true }).count(), 1); // 0件は件数なし
       assert.equal(await page.locator('.cell-n').first().innerText(), '4件');
     });
-    await check(`${tag} 17a 点灯と消灯の色: 点灯は板key・英字lit+発光、消灯は板surface・英字muted・発光なし`, async () => {
+    await check(`${tag} 17a 点灯と消灯の色（リュウ4件=段階3）: 点灯は板key・英字lit+発光、消灯（段階0）は板surface・英字muted・発光なし`, async () => {
       const f = (sel) => page.$eval(sel, (e) => { const b = getComputedStyle(e, '::before'); const t = getComputedStyle(e.querySelector('.cell-en')); return [b.backgroundColor, t.color, t.textShadow !== 'none']; });
       assert.deepEqual(await f('.cell.lit'), ['rgb(34, 37, 42)', 'rgb(255, 244, 222)', true]);
       assert.deepEqual(await f('.cell:not(.lit)'), ['rgb(23, 25, 28)', 'rgb(170, 166, 157)', false]);
@@ -1801,13 +1858,13 @@ for (const width of [360, 430]) {
       assert.deepEqual(r.slice(0, 6), ['9px', '1px', '4px', 'none', 'none', 'none']);
     });
     await gotoHash(page, '#/c/ryu/r/c9');
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await check(`${tag} 17a 凡例: システム技は種別ごとの行、L寸法の見た目、ODと注記の説明`, async () => {
       await page.waitForSelector('.sheet.tall');
       const t = await page.locator('.leg').innerText();
       for (const w of ['緑の枠と»', '角を切った銀の板', '紺の二重枠', '白い枠', '橙の●2つ（重ねて表示）', '斜めの小さな板']) assert.ok(t.includes(w), w);
       assert.equal(await page.locator('.leg .sys-dr').count(), 2);
-      assert.equal(await page.locator('.leg .row:not(.S) .sys').count(), 8); // CDR・生ラッシュ・DI・DP・Dリバ・SA1〜3
+      assert.equal(await page.locator('.leg .row:not(.S) .sys').count(), 10); // CDR・生ラッシュ・DI・DP・Dリバ・SA1〜3、前ステ・バクステ（D-013）
       assert.ok(await noHScroll(page));
       await page.keyboard.press('Escape');
       await page.waitForSelector('.sheet', { state: 'detached' });
@@ -1905,12 +1962,12 @@ for (const width of [360, 430]) {
       assert.equal(await page.locator('.pad-dock svg').count(), 1);
     });
     await page.locator('.pad-dock button').click();
-    await check(`${tag} 17b 格納バーの［▴ 技を入力］: パッドが戻り、フォーカスは section.pad。寸法は368・y>=372のまま`, async () => {
+    await check(`${tag} 17b 格納バーの［▴ 技を入力］: パッドが戻り、フォーカスは section.pad。寸法は414・y>=326のまま`, async () => {
       assert.equal(await padVisible(page), true);
       assert.equal(await dockVisible(page), false);
       assert.equal(await active(page), 'section#pad');
       const b = await page.locator('.pad').boundingBox();
-      assert.ok(b.y >= 372 && b.height === 368, JSON.stringify(b));
+      assert.ok(b.y >= 326 && b.height === 414, JSON.stringify(b));
       assert.equal(await page.locator('.cmd .pending').count(), 1);
     });
     await page.getByRole('button', { name: 'パッドを閉じて項目の入力へ' }).click();
@@ -2103,9 +2160,9 @@ for (const width of [360, 430]) {
       const original = await stored(page);
       const t0 = Date.now();
       const out = await downloadVia(page, () => page.getByRole('button', { name: 'JSONを書き出す' }).click());
-      await check(`${tag} 18a 書き出し: ファイル名・整形JSON・内容が保存データと一致・lastExportAt更新・トースト`, async () => {
+      await check(`${tag} 18a 書き出し: ファイル名・整形なしのJSON・内容が保存データと一致・lastExportAt更新・トースト`, async () => {
         assert.match(out.name, FILE_RE);
-        assert.ok(out.text.includes('\n  "sections"'), '整形されている');
+        assert.ok(!out.text.includes('\n'), '整形なし（取り込み上限との食い違いを小さくする）');
         assert.deepEqual(JSON.parse(out.text), original);
         await page.waitForSelector('#toast .toast');
         assert.deepEqual(await toast(page), ['書き出しました']);
@@ -2123,7 +2180,7 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet');
       await check(`${tag} 18a 取り込みの確認シート: 件数・注記・［やめる］［取り込む］`, async () => {
         const t = await sheetText(page);
-        assert.match(t, /^取り込みの確認 追加 6件 ／ 更新 0件 ／ 変更なし 0件 同じ記録は更新日時が新しい方を残します/);
+        assert.match(t, /^取り込みの確認 記録 追加 3件 ／ 更新 0件 ／ 変更なし 0件 セクション 追加 3件 ／ 更新 0件 ／ 変更なし 0件 同じ記録は更新日時が新しい方を残します/);
         assert.deepEqual(await page.locator('.sheet-foot .btn').allInnerTexts(), ['やめる', '取り込む']);
         assert.equal(await storedRaw(page), null); // 確認前は書かない
         assert.ok(await noHScroll(page));
@@ -2132,7 +2189,7 @@ for (const width of [360, 430]) {
       await page.getByRole('button', { name: '取り込む', exact: true }).click();
       await gone(page);
       await check(`${tag} 18a 取り込み後: トーストと、元のデータとの一致（sections・combos）`, async () => {
-        assert.deepEqual(await toast(page), ['取り込みました（追加6・更新0）']);
+        assert.deepEqual(await toast(page), ['取り込みました（記録 追加3・更新0、セクション 追加3・更新0）']);
         const now = await stored(page);
         assert.deepEqual(now.sections, original.sections);
         assert.deepEqual(now.combos, original.combos);
@@ -2183,7 +2240,7 @@ for (const width of [360, 430]) {
         await importFile(page, good);
         await page.waitForSelector('.sheet');
         assert.equal(await page.locator('.set-err .err').count(), 0);
-        assert.match(await sheetText(page), /追加 0件 ／ 更新 0件 ／ 変更なし 6件/);
+        assert.match(await sheetText(page), /記録 追加 0件 ／ 更新 0件 ／ 変更なし 3件 セクション 追加 0件 ／ 更新 0件 ／ 変更なし 3件/);
         assert.match(await sheetText(page), /追加・更新はありません/); // 0件でも確認シートは出す
         await page.getByRole('button', { name: '取り込む', exact: true }).click();
         await gone(page);
@@ -2213,7 +2270,7 @@ for (const width of [360, 430]) {
       });
       await importFile(page, incoming);
       await page.waitForSelector('.sheet');
-      await check(`${tag} 18c 確認シートの件数: 追加2・更新1・変更なし5`, async () => assert.match(await sheetText(page), /追加 2件 ／ 更新 1件 ／ 変更なし 5件/));
+      await check(`${tag} 18c 確認シートの件数は記録とセクションに分かれる（記録: 追加1・更新1・変更なし2、セクション: 追加1・変更なし3）`, async () => assert.match(await sheetText(page), /記録 追加 1件 ／ 更新 1件 ／ 変更なし 2件 セクション 追加 1件 ／ 更新 0件 ／ 変更なし 3件/));
       await page.getByRole('button', { name: 'やめる' }).click();
       await gone(page);
       await check(`${tag} 18c ［やめる］ではデータもトーストも変わらない`, async () => {
@@ -2224,13 +2281,13 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet');
       await page.getByRole('button', { name: '取り込む', exact: true }).click();
       await gone(page);
-      await check(`${tag} 18c 新しい方が残り、端末のみの記録も残る。トースト（追加2・更新1）`, async () => {
+      await check(`${tag} 18c 新しい方が残り、端末のみの記録も残る。トースト（記録 追加1・更新1、セクション 追加1・更新0）`, async () => {
         const d = await stored(page);
         const title = (id) => d.combos.find((c) => c.id === id)?.title;
         assert.deepEqual(['c1', 'c2', 'c3', 'c4', 'c5'].map(title), ['新しい方', '長いコンボ', '', '追加分', '端末のみ']);
         assert.equal(d.combos.find((c) => c.id === 'c1').updatedAt, T0 + 1000);
         assert.deepEqual(d.sections.map((s) => s.id), ['s1', 's2', 's3', 's4']);
-        assert.deepEqual(await toast(page), ['取り込みました（追加2・更新1）']);
+        assert.deepEqual(await toast(page), ['取り込みました（記録 追加1・更新1、セクション 追加1・更新0）']);
       });
       await check(`${tag} 18c ページエラーなし`, async () => assert.deepEqual(page.errors, []));
       await page.context().close();
@@ -2257,7 +2314,7 @@ for (const width of [360, 430]) {
         await numpadOnly('.preview', '一覧');
         await gotoHash(page, '#/c/ryu/r/c1');
         await numpadOnly('.d-cmd', '詳細');
-        await page.getByRole('button', { name: '凡例' }).click();
+        await page.locator('button[aria-label="凡例を開く"]').click();
         await numpadOnly('.sheet .leg .row', '凡例');
         await page.keyboard.press('Escape');
         await gone(page);
@@ -2411,6 +2468,8 @@ for (const width of [360, 430]) {
         const t = await page.locator('.banners').innerText();
         assert.match(t, /保存データを読み込めませんでした/);
         assert.match(t, /保存できませんでした/);
+        assert.match(t, /取り込みは保存されませんでした。保存領域を確認してください。/);
+        assert.doesNotMatch(t, /入力内容はこの画面に残っています/);
         assert.equal(await storedRaw(page), '{broken');
         assert.equal(await page.getByRole('button', { name: 'JSONを書き出す' }).count(), 0);
         assert.deepEqual(await toast(page), []);
@@ -2421,7 +2480,7 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet');
       await check(`${tag} 18f 確認シートに「置き換える」旨と件数が出る`, async () => {
         const t = await sheetText(page);
-        assert.match(t, /追加 6件 ／ 更新 0件 ／ 変更なし 0件/);
+        assert.match(t, /記録 追加 3件 ／ 更新 0件 ／ 変更なし 0件 セクション 追加 3件 ／ 更新 0件 ／ 変更なし 0件/);
         assert.match(t, /現在の保存データは読み込めないため、取り込んだ内容で置き換えます/);
       });
       await shot(page, '26-import-confirm-replace', width);
@@ -2501,6 +2560,721 @@ for (const width of [360, 430]) {
         assert.equal(await page.locator('.set-err .err').count(), 0);
       });
       await check(`${tag} 18g ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+  }
+
+  // 20. T-018（D-013）: パッドの4段・前ステ/バクステ・強度なし・ヘルプマーク・データ版2
+  {
+    const aria = (page, name) => page.getByRole('button', { name, exact: true });
+    const chipsOf = (page) => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')));
+    const draftTokens = async (page) => JSON.parse(await storedRaw(page, 'sf6memo.drafts'))['new:s1'].tokens;
+    const rowDom = (page, sel = '.cmd .row') => page.$eval(sel, (r) => {
+      const c = r.cloneNode(true);
+      c.querySelectorAll('.cursor, .pending, .to-end, .cmd-hint').forEach((x) => x.remove());
+      return c.outerHTML;
+    });
+
+    // 20a パッドの4段目（前ステ・バクステ、強度なし）と、パッドを開いたときの余白
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      const r = await page.evaluate(() => {
+        const box = (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, b: b.bottom, r: b.right }; };
+        const keys = (sel) => [...document.querySelectorAll(sel)];
+        return {
+          pad: box(document.querySelector('.pad')), dirs: box(document.querySelector('.dirs')), dk: keys('.dkey').map(box),
+          steps: keys('.steps .key').map((e) => ({ ...box(e), label: e.getAttribute('aria-label'), text: e.textContent.trim(), band: getComputedStyle(e, '::before').borderTopStyle, bandH: getComputedStyle(e, '::before').height })),
+          nk: keys('.nkey').map((e) => ({ ...box(e), label: e.getAttribute('aria-label'), text: e.textContent.trim(), dot: e.querySelector('.dot').getBoundingClientRect().width, col: getComputedStyle(e.querySelector('.dot')).color, tcol: getComputedStyle(e.querySelector('.nkey-t')).color })),
+          btns: keys('.btns .key').length, lower: box(document.querySelector('.lower')),
+          cmdBottom: document.querySelector('.cmd').getBoundingClientRect().bottom, secTop: document.querySelector('#f-sec').getBoundingClientRect().top,
+        };
+      });
+      await check(`${tag} 20a 方向パッドの真下に［バクステ｜前ステ］（aria-labelはバックステップ・前ステップ、44以上、下端の帯は破線）`, async () => {
+        assert.deepEqual(r.steps.map((s) => s.label), ['バックステップ', '前ステップ']);
+        assert.deepEqual(r.steps.map((s) => s.text), ['バクステ', '前ステ']);
+        for (const s of r.steps) {
+          assert.ok(s.w >= 44 && s.h >= 44, JSON.stringify(s));
+          assert.ok(s.y >= r.dk.at(-1).b && Math.abs(s.y - r.dk.at(-1).b - 6) < 1.5, JSON.stringify(s)); // 方向キーの真下（間隔6）
+          assert.equal(`${s.band} ${s.bandH}`, 'dashed 0px');
+        }
+        assert.ok(Math.abs(r.steps[0].x - r.dirs.x) < 1 && Math.abs(r.steps[1].r - r.dirs.r) < 1);
+        if (width === 360) assert.ok(r.steps.every((s) => Math.abs(s.w - 68) < 1 && s.h === 46), JSON.stringify(r.steps));
+      });
+      await check(`${tag} 20a 右の4段目に［●P 強度なし｜●K 強度なし］（灰色の●30px＋「強度なし」、44以上）`, async () => {
+        assert.deepEqual(r.nk.map((s) => s.label), ['P 強度なし', 'K 強度なし']);
+        for (const s of r.nk) {
+          assert.equal(s.text, '強度なし');
+          assert.ok(s.w >= 44 && s.h >= 44 && s.dot === 30, JSON.stringify(s));
+          assert.equal(s.col, 'rgb(133, 133, 133)');
+          assert.equal(s.tcol, 'rgb(170, 166, 157)');
+        }
+        if (width === 360) assert.ok(r.nk.every((s) => Math.abs(s.w - 96) < 1 && s.h === 46), JSON.stringify(r.nk));
+        assert.ok(Math.abs(r.nk[0].y - r.steps[0].y) < 1.5, '4段目は［バクステ｜前ステ］と同じ段');
+        assert.ok(r.nk[0].y > r.btns && r.nk[1].r <= r.pad.r, JSON.stringify(r.nk));
+        assert.equal(r.lower.h, 202);
+      });
+      await check(`${tag} 20a パッドを開いたとき、コマンド列の下端と #f-sec の上端がパッドの上端より上にある`, async () => {
+        assert.ok(r.cmdBottom <= r.pad.y && r.secTop <= r.pad.y, JSON.stringify([r.cmdBottom, r.secTop, r.pad.y]));
+      });
+      await check(`${tag} 20a トーストはパッドの上に出る（--pad-h を使う）`, async () => {
+        await aria(page, 'OD P').click(); // モーションなしのOD: 通知のトーストが出る
+        await page.waitForSelector('#toast .toast');
+        const pos = await page.evaluate(() => [document.querySelector('#toast .toast').getBoundingClientRect().bottom, document.querySelector('.pad').getBoundingClientRect().top]);
+        assert.ok(pos[0] <= pos[1] - 8, JSON.stringify(pos));
+      });
+      await check(`${tag} 20a ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20b 前ステ・バクステ: 1タップ、▶でつながる、CHが付く、保存→再読み込みで同じDOM、書き出し→取り込みで一致
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await aria(page, '前ステップ').click();
+      await check(`${tag} 20b 前ステが1タップで入る（chip sys sys-mv、aria-label「前ステ」、破線の枠）`, async () => {
+        assert.deepEqual(await chipsOf(page), ['前ステ']);
+        assert.equal(await page.locator('.cmd .chip').getAttribute('class'), 'chip sys sys-mv');
+        assert.equal(await page.locator('.cmd .chip').evaluate((e) => getComputedStyle(e).borderTopStyle), 'dashed');
+        assert.deepEqual(await draftTokens(page), [{ type: 'move', id: 'FWD_STEP' }]);
+        await page.waitForFunction(() => document.getElementById('live').textContent === '追加: 前ステ');
+      });
+      await aria(page, 'バックステップ').click();
+      await check(`${tag} 20b バクステも1タップで入り、前ステと▶でつながる`, async () => {
+        assert.deepEqual(await chipsOf(page), ['前ステ', 'バクステ']);
+        assert.equal(await page.locator('.cmd .conn').count(), 1);
+      });
+      await aria(page, 'カウンターヒット').click();
+      await aria(page, '前ステップ').click();
+      await aria(page, '弱P').click();
+      await check(`${tag} 20b CHが前ステに付く（注記は直後の行動のタグ）。弱Pとも▶でつながる`, async () => {
+        assert.deepEqual(await chipsOf(page), ['前ステ', 'バクステ', '前ステ', '立ち弱P']);
+        assert.equal(await page.locator('.cmd .grp:has(.chip[aria-label="前ステ"]) .tag').count(), 1);
+        assert.equal(await page.locator('.cmd .grp').nth(2).locator('.tag, .chip').evaluateAll((e) => e.map((x) => x.getAttribute('aria-label'))).then((a) => a.join()), 'CH,前ステ');
+        assert.equal(await page.locator('.cmd .conn').count(), 3);
+        assert.deepEqual(await draftTokens(page), [{ type: 'move', id: 'FWD_STEP' }, { type: 'move', id: 'BACK_STEP' }, { type: 'note', id: 'CH' }, { type: 'move', id: 'FWD_STEP' }, { type: 'normal', stance: 'stand', key: 'P', str: 'L' }]);
+      });
+      await shot(page, '40-edit-steps', width);
+      const typedDom = await rowDom(page);
+      await page.getByLabel('タイトル（任意）').fill('ステップ');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await page.waitForFunction(() => /^#\/c\/ryu\/r\/[0-9a-f]{32}$/.test(location.hash));
+      const original = await stored(page);
+      await page.reload();
+      await check(`${tag} 20b 保存→再読み込みで、詳細のコマンド列が入力直後と同じDOM。保存データは版2`, async () => {
+        await page.waitForSelector('.d-cmd .row');
+        assert.equal(await page.$eval('.d-cmd .row', (r) => r.outerHTML), typedDom);
+        assert.equal(original.schemaVersion, 2);
+        assert.equal(original.combos.find((c) => c.title === 'ステップ').tokens.length, 5);
+      });
+      await shot(page, '41-detail-steps', width);
+      await gotoHash(page, '#/settings');
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'JSONを書き出す' }).click()]);
+      const text = readFileSync(await dl.path(), 'utf8');
+      await page.evaluate(() => localStorage.clear());
+      await page.reload();
+      await page.locator('input[type=file]').setInputFiles({ name: 'in.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+      await page.waitForSelector('.sheet');
+      await page.getByRole('button', { name: '取り込む', exact: true }).click();
+      await page.waitForSelector('.sheet', { state: 'detached' });
+      await check(`${tag} 20b 書き出し（版2）→全削除→取り込みで、前ステ・バクステを含む記録が一致する`, async () => {
+        assert.equal(JSON.parse(text).schemaVersion, 2);
+        const now = await stored(page);
+        assert.deepEqual(now.combos, original.combos);
+        assert.deepEqual(now.sections, original.sections);
+      });
+      await check(`${tag} 20b ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20c 強度なし: 入力・aria-label・バッジなし・ポップオーバー
+    {
+      const page = await newPage(width, seedState(), {}, () => localStorage.setItem('sf6memo.settings', JSON.stringify({ strengthLabels: true })));
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await aria(page, '下').click();
+      await aria(page, 'P 強度なし').click();
+      await aria(page, '波動 236').click();
+      await aria(page, 'K 強度なし').click();
+      await aria(page, '弱P').click(); // 補助文字がオンであることの対照（弱Pにはバッジが出る）
+      await check(`${tag} 20c ↓→●P（強度なし）は {normal, crouch, P, N}、236→●K（強度なし）は {special, 236, K, N}。aria-labelは「屈P」「波動 ↓↘→ K」`, async () => {
+        assert.deepEqual(await chipsOf(page), ['屈P', '波動 ↓↘→ K', '立ち弱P']);
+        const t = await draftTokens(page);
+        assert.deepEqual(t.slice(0, 2), [{ type: 'normal', stance: 'crouch', key: 'P', str: 'N' }, { type: 'special', motion: '236', key: 'K', str: 'N' }]);
+      });
+      await check(`${tag} 20c 補助文字オンでも強度なしの●にバッジが出ない（弱Pには出る）。●は灰色`, async () => {
+        assert.equal(await page.locator('.cmd .str-labels').count(), 1);
+        assert.equal(await page.locator('.cmd .dot.str-n').count(), 2);
+        assert.equal(await page.locator('.cmd .dot.str-n .badge').count(), 0);
+        assert.equal(await page.locator('.cmd .dot.str-n.has-str').count(), 0);
+        assert.equal(await page.locator('.cmd .dot.str-l .badge').count(), 1);
+        assert.deepEqual(await page.$$eval('.cmd .dot.str-n', (e) => e.map((x) => getComputedStyle(x).color)), ['rgb(133, 133, 133)', 'rgb(133, 133, 133)']);
+      });
+      await page.locator('.cmd .chip').first().click();
+      await check(`${tag} 20c ポップオーバー（通常技）: 強度は［弱］［中］［強］［●（強度なし）］。現在値は強度なし。各44以上`, async () => {
+        const o = await page.locator('.popover .pop-row').first().locator('.opt').evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return [e.getAttribute('aria-label'), e.getAttribute('aria-pressed'), b.width, b.height]; }));
+        assert.deepEqual(o.map((x) => x.slice(0, 2)), [['弱', 'false'], ['中', 'false'], ['強', 'false'], ['強度なし', 'true']]);
+        assert.ok(o.every((x) => x[2] >= 44 && x[3] >= 44), JSON.stringify(o));
+        assert.equal(await page.locator('.popover .opt[aria-label="強度なし"] .dot.str-n').count(), 1);
+        assert.equal(await page.locator('.popover .opt[aria-label="強度なし"]').innerText(), '');
+      });
+      await shot(page, '42-popover-normal', width);
+      await page.locator('.popover .opt[aria-label="強"]').click();
+      await check(`${tag} 20c ポップオーバーで強度なしを強に変更できる`, async () => {
+        await page.waitForSelector('.popover', { state: 'detached' });
+        assert.deepEqual(await chipsOf(page), ['屈強P', '波動 ↓↘→ K', '立ち弱P']);
+      });
+      await page.locator('.cmd .chip').nth(1).click();
+      await check(`${tag} 20c ポップオーバー（必殺技）は5択［弱］［中］［強］［強度なし］［OD］。.optの左右paddingは4px、各44以上`, async () => {
+        const o = await page.locator('.popover .pop-row').first().locator('.opt').evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); const cs = getComputedStyle(e); return [e.getAttribute('aria-label'), b.width, b.height, cs.paddingLeft, cs.paddingRight]; }));
+        assert.deepEqual(o.map((x) => x[0]), ['弱', '中', '強', '強度なし', 'OD']);
+        assert.ok(o.every((x) => x[1] >= 44 && x[2] >= 44 && x[3] === '4px' && x[4] === '4px'), JSON.stringify(o));
+        assert.ok(await noHScroll(page));
+      });
+      await shot(page, '43-popover-special', width);
+      await page.locator('.popover .opt[aria-label="強度なし"]').click();
+      await page.locator('.popover').waitFor({ state: 'detached' });
+      await page.locator('.cmd .chip').nth(1).click();
+      await page.locator('.popover .opt[aria-label="OD"]').click();
+      await check(`${tag} 20c 強度なしの必殺技をODに変更できる（強度なしへも戻せる）`, async () => {
+        await page.locator('.popover').waitFor({ state: 'detached' });
+        assert.deepEqual(await chipsOf(page), ['屈強P', 'OD 波動 ↓↘→ K', '立ち弱P']);
+        assert.deepEqual((await draftTokens(page))[1], { type: 'special', motion: '236', key: 'K', str: 'OD' });
+      });
+      await check(`${tag} 20c ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20d ヘルプマーク（詳細・編集の上部バー、設定の［凡例を見る］）と凡例の追加行
+    {
+      const page = await newPage(width, seedState());
+      for (const [h, name] of [['#/c/ryu/r/c1', '詳細'], ['#/c/ryu/r/c1/edit', '編集']]) {
+        await gotoHash(page, h);
+        await check(`${tag} 20d ${name}の上部バー: 文字の［凡例］がなく、44×44以上の button[aria-label="凡例を開く"]（記号24px、muted）がある`, async () => {
+          assert.equal(await page.locator('.topbar').getByText('凡例', { exact: true }).count(), 0);
+          const b = page.locator('.topbar button[aria-label="凡例を開く"]');
+          assert.equal(await b.count(), 1);
+          const r = await b.evaluate((e) => { const x = e.getBoundingClientRect(); const s = e.querySelector('svg').getBoundingClientRect(); return [x.width, x.height, s.width, s.height, getComputedStyle(e).color, e.querySelector('use').getAttribute('href'), e.className]; });
+          assert.deepEqual(r, [44, 44, 24, 24, 'rgb(170, 166, 157)', '#i-help', 'icon-btn help']);
+          assert.ok(await noHScroll(page));
+        });
+        await shot(page, name === '詳細' ? '44-help-detail' : '45-help-edit', width);
+      }
+      await page.locator('button[aria-label="凡例を開く"]').click();
+      await page.waitForSelector('.sheet.tall');
+      await check(`${tag} 20d 凡例に灰色の●P（強度の指定なし、書き出し「P」）と「移動」群（前ステ・バクステ、破線の枠）がある`, async () => {
+        await page.waitForTimeout(300);
+        const t = await page.locator('.leg').innerText();
+        for (const w of ['移動', '前ステップ', 'バックステップ', '強度の指定なし']) assert.ok(t.includes(w), w);
+        assert.equal(await page.locator('.leg .dot.str-n').count(), 1);
+        assert.equal(await page.locator('.leg .dot.str-n').evaluate((e) => getComputedStyle(e).color), 'rgb(133, 133, 133)');
+        assert.deepEqual(await page.locator('.leg .sys-mv').evaluateAll((e) => e.map((x) => [x.getAttribute('aria-label'), getComputedStyle(x).borderTopStyle])), [['前ステ', 'dashed'], ['バクステ', 'dashed']]);
+        const row = (label) => page.locator('.leg tr', { has: page.locator(`[aria-label="${label}"]`) }).locator('.leg-out').innerText();
+        assert.equal(await row('前ステ'), '前ステ');
+        assert.equal(await row('バクステ'), 'バクステ');
+        assert.equal(await page.locator('.leg tr', { has: page.locator('.dot.str-n') }).locator('.leg-out').innerText(), 'P');
+        assert.equal(await page.locator('.leg tbody').filter({ hasText: '移動' }).locator('.leg-g').innerText(), '移動');
+        assert.ok(await noHScroll(page));
+      });
+      await shot(page, '46-legend-gray-move', width);
+      await page.locator('.sheet').getByRole('button', { name: '閉じる' }).click();
+      await check(`${tag} 20d 凡例を閉じるとフォーカスがヘルプマークに戻る（編集画面）`, async () => {
+        await page.waitForSelector('.sheet', { state: 'detached' });
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '凡例を開く');
+      });
+      await gotoHash(page, '#/settings');
+      await check(`${tag} 20d 設定の［凡例を見る］は先頭に i-help（20px）が付き、押すと凡例が開く`, async () => {
+        const b = page.getByRole('button', { name: '凡例を見る' });
+        assert.deepEqual(await b.evaluate((e) => [e.firstElementChild.querySelector('use').getAttribute('href'), e.firstElementChild.getBoundingClientRect().width, e.textContent]), ['#i-help', 20, '凡例を見る']);
+        await b.click();
+        assert.equal(await page.locator('.sheet h2').innerText(), '凡例');
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('.sheet', { state: 'detached' });
+        assert.equal(await page.evaluate(() => document.activeElement?.dataset.fk), 'legend');
+      });
+      await shot(page, '47-settings', width);
+      await check(`${tag} 20d ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20e データの版: 版1はそのまま読めて、保存後は版2。版3は読み込みエラー（読み取り専用、既存値を上書きしない）
+    {
+      const seed = seedState();
+      const v1 = { ...exportDoc(seed), schemaVersion: 1 };
+      const page = await newPage(width, null);
+      await page.evaluate((d) => localStorage.setItem('sf6memo.data', JSON.stringify(d)), v1);
+      await page.reload();
+      await gotoHash(page, '#/c/ryu');
+      await check(`${tag} 20e 版1のデータで起動でき、エラー帯なしで一覧が出る`, async () => {
+        assert.equal(await page.locator('.banners').count(), 0);
+        assert.equal(await page.locator('.item').count(), 3);
+        assert.equal((await stored(page)).schemaVersion, 1); // 読んだだけでは書き換えない
+      });
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      await page.getByLabel('タイトル（任意）').fill('版1から編集');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await page.waitForFunction(() => location.hash === '#/c/ryu/r/c1');
+      await check(`${tag} 20e 編集・保存の後は版2になり、記録は失われない`, async () => {
+        const d = await stored(page);
+        assert.equal(d.schemaVersion, 2);
+        assert.equal(d.combos.length, 3);
+        assert.equal(d.combos.find((c) => c.id === 'c1').title, '版1から編集');
+        assert.deepEqual(d.combos.find((c) => c.id === 'c2'), seed.combos[1]);
+      });
+      await page.context().close();
+
+      const v3 = JSON.stringify({ ...exportDoc(seed), schemaVersion: 3 });
+      const p3 = await newPage(width, null);
+      await p3.evaluate((t) => localStorage.setItem('sf6memo.data', t), v3);
+      await p3.reload();
+      await check(`${tag} 20e 版3は読み込みエラー（理由を表示、読み取り専用、保存データを上書きしない）`, async () => {
+        const t = await p3.locator('.banners').innerText();
+        assert.match(t, /保存データを読み込めませんでした/);
+        assert.match(t, /新しい版\(schemaVersion 3\)/);
+        assert.match(t, /読み取り専用/);
+        await gotoHash(p3, '#/c/ryu');
+        assert.equal(await p3.locator('.bottombar').count(), 0); // 記録・セクションの追加はできない
+        assert.equal(await storedRaw(p3), v3);
+        assert.match(await p3.locator('.empty').innerText(), /記録はありません/);
+      });
+      await check(`${tag} 20e ページエラーなし`, async () => assert.deepEqual(p3.errors, []));
+      await p3.context().close();
+
+      // 取り込み: 版1のファイルは受け付け（確認シートが開く）、版3は拒否（データ不変）
+      const imp = await newPage(width, seedState());
+      await gotoHash(imp, '#/settings');
+      const before = await storedRaw(imp);
+      await imp.locator('input[type=file]').setInputFiles({ name: 'v3.json', mimeType: 'application/json', buffer: Buffer.from(v3) });
+      await check(`${tag} 20e 取り込み: 版3のファイルは「新しい版」で拒否され、データは変わらない`, async () => {
+        await imp.waitForFunction(() => /新しい版\(schemaVersion 3\)/.test(document.querySelector('.set-err')?.textContent ?? ''));
+        assert.equal(await storedRaw(imp), before);
+      });
+      const extra = { ...exportDoc({ sections: [sec('x1', 'ken', '通常', 0)], combos: [] }), schemaVersion: 1 };
+      await imp.locator('input[type=file]').setInputFiles({ name: 'v1.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(extra)) });
+      await imp.waitForSelector('.sheet');
+      await check(`${tag} 20e 取り込み: 版1のファイルは受け付けられ、取り込み後の保存データは版2`, async () => {
+        assert.match(await imp.locator('.sheet').innerText(), /追加 1件/);
+        await imp.getByRole('button', { name: '取り込む', exact: true }).click();
+        await imp.waitForSelector('.sheet', { state: 'detached' });
+        const d = await stored(imp);
+        assert.equal(d.schemaVersion, 2);
+        assert.equal(d.sections.some((s) => s.id === 'x1'), true);
+      });
+      await imp.context().close();
+    }
+  }
+
+  // 21. T-019（D-013。design-spec-v2.1 1・5章）: カナの削除・ネオンの10段階・ブランドロゴ・性能
+  {
+    // 1.2の表（正本）。c=英字・件数の色、sh=text-shadow（芯, にじみ。[r,g,b,a,ぼかし]）、plate=板、edge=縁（[太さ,r,g,b,a]）
+    const TABLE = [
+      { c: [170, 166, 157], sh: [], plate: [23, 25, 28], edge: null },
+      { c: [233, 225, 211], sh: [[233, 225, 211, 0.5, 1], [255, 226, 186, 0.18, 3]], plate: [34, 37, 42], edge: null },
+      { c: [245, 237, 224], sh: [[245, 237, 224, 0.6, 1], [255, 214, 160, 0.24, 4]], plate: [34, 37, 42], edge: null },
+      { c: [255, 244, 222], sh: [[255, 244, 222, 0.8, 1], [255, 196, 120, 0.32, 6]], plate: [34, 37, 42], edge: null },
+      { c: [255, 235, 203], sh: [[255, 235, 203, 0.8, 1], [255, 182, 100, 0.36, 6]], plate: [38, 35, 31], edge: [1, 255, 182, 100, 0.22] },
+      { c: [255, 224, 176], sh: [[255, 224, 176, 0.8, 1.5], [255, 166, 84, 0.4, 7]], plate: [38, 35, 31], edge: [1, 255, 166, 84, 0.3] },
+      { c: [255, 212, 150], sh: [[255, 212, 150, 0.8, 1.5], [255, 150, 72, 0.43, 7]], plate: [38, 35, 31], edge: [1, 255, 150, 72, 0.38] },
+      { c: [255, 198, 128], sh: [[255, 198, 128, 0.8, 1.5], [255, 134, 64, 0.45, 8]], plate: [43, 35, 29], edge: [1, 255, 134, 64, 0.46] },
+      { c: [255, 184, 114], sh: [[255, 184, 114, 0.8, 2], [255, 118, 56, 0.47, 8]], plate: [43, 35, 29], edge: [1, 255, 118, 56, 0.55] },
+      { c: [255, 170, 106], sh: [[255, 170, 106, 0.8, 2], [255, 104, 50, 0.5, 8]], plate: [43, 35, 29], edge: [2, 255, 104, 50, 0.66] },
+      { c: [255, 156, 102], sh: [[255, 156, 102, 0.8, 2], [255, 90, 46, 0.5, 8]], plate: [43, 35, 29], edge: [2, 255, 90, 46, 0.8] },
+    ];
+    const want = (lv) => {
+      const t = TABLE[lv];
+      return {
+        color: `rgb(${t.c.join(', ')})`,
+        shadow: t.sh.length ? t.sh.map(([r, g, b, a, bl]) => `rgba(${r}, ${g}, ${b}, ${a}) 0px 0px ${bl}px`).join(', ') : 'none',
+        plate: `rgb(${t.plate.join(', ')})`,
+        edge: t.edge ? `rgba(${t.edge.slice(1).join(', ')}) 0px 0px 0px ${t.edge[0]}px inset` : 'rgba(0, 0, 0, 0) 0px 0px 0px 0px inset',
+      };
+    };
+    // 件数 → 段階の境界（neonLevel を使わず、表を直接書く）
+    const COUNT_LV = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 3], [5, 4], [7, 4], [8, 5], [11, 5], [12, 6], [17, 6], [18, 7], [27, 7], [28, 8], [44, 8], [45, 9], [69, 9], [70, 10]];
+    const countsSeed = (counts) => { // counts: [[characterId, 件数], ...]。0件のキャラにはセクションも作らない
+      const d = { sections: [], combos: [] };
+      for (const [cid, n] of counts) {
+        if (!n) continue;
+        d.sections.push(sec(`s-${cid}`, cid, '通常', 0));
+        for (let i = 0; i < n; i++) d.combos.push({ ...combo(`x${d.combos.length + 1}`, `s-${cid}`, `r${i}`, [N('stand', 'L', 'P')], { createdAt: T0 }), characterId: cid });
+      }
+      return d;
+    };
+    const tileStyle = (page, sel) => page.$eval(sel, (e) => {
+      const en = getComputedStyle(e.querySelector('.cell-en')), b = getComputedStyle(e, '::before'), n = e.querySelector('.cell-n');
+      return { lv: e.dataset.lv, color: en.color, shadow: en.textShadow, nColor: n ? getComputedStyle(n).color : null, nShadow: n ? getComputedStyle(n).textShadow : null, plate: b.backgroundColor, edge: b.boxShadow, filter: [en.filter, b.filter, en.backdropFilter, b.backdropFilter] };
+    });
+    const ids = CHARACTERS.map((c) => c.id);
+
+    // 21a カナの削除: 見えるのは英字と件数だけ。読み上げ名（aria-label・h1のsr-only）はカナのまま
+    {
+      const page = await newPage(width, countsSeed([['ryu', 3], ['ken', 1], ['chunli', 70]]));
+      await check(`${tag} 21a キャラ選択: .cell の見える文字は英字と件数だけ（カナ・.cell-name・.kn なし）。aria-label は「リュウ 3件」形式で0件は名前だけ`, async () => {
+        const r = await page.$$eval('.cell', (els) => els.map((e) => [e.getAttribute('aria-label'), e.innerText.trim()]));
+        assert.equal(r.length, 32);
+        for (const [label, text] of r) assert.match(text, /^[A-Z.\- ]+(\n\d+件)?$/, `${label}: ${JSON.stringify(text)}`);
+        assert.equal(await page.locator('.cell-name, .kn').count(), 0);
+        const by = Object.fromEntries(r);
+        assert.equal(by['リュウ 3件'], 'RYU\n3件');
+        assert.equal(by['ケン 1件'], 'KEN\n1件');
+        assert.equal(by['春麗 70件'], 'CHUN-LI\n70件');
+        assert.equal(by['ダルシム'], 'DHALSIM');
+        assert.equal(r.filter(([l]) => /^\S+ \d+件$/.test(l)).length, 3);
+      });
+      await check(`${tag} 21a キャラ選択: 0件のタイルも英字の位置がそろう（2行目の高さを確保）、タイルの高さ54`, async () => {
+        const r = await page.$$eval('.cell', (els) => els.map((e) => [Math.round((e.querySelector('.cell-en').getBoundingClientRect().top - e.getBoundingClientRect().top) * 10), e.getBoundingClientRect().height]));
+        assert.equal(new Set(r.map((x) => x[0])).size, 1, JSON.stringify([...new Set(r.map((x) => x[0]))]));
+        assert.ok(r.every((x) => x[1] === 54));
+        assert.ok(await noHScroll(page));
+      });
+      await gotoHash(page, '#/c/ryu');
+      await check(`${tag} 21a 一覧の上部バー: 見える文字は英字（.wm）だけ。h1の読み上げ名は「リュウ」（.sr-only）で、.kn はない`, async () => {
+        assert.equal(await page.locator('.topbar h1 .kn').count(), 0);
+        assert.equal(await page.locator('.topbar h1 .sr-only').textContent(), 'リュウ');
+        assert.equal(await page.$eval('.topbar h1', (h) => { const c = h.cloneNode(true); c.querySelector('.sr-only').remove(); return c.innerText.trim(); }), 'RYU');
+        assert.equal(await page.getByRole('heading', { name: 'リュウ', exact: true, level: 1 }).count(), 1);
+        assert.equal(await page.locator('.topbar h1 svg').count(), 0); // ロゴはキャラ選択だけ
+      });
+      await page.context().close();
+    }
+
+    // 21b ネオンの段階: 件数 → data-lv と、英字・件数・板・縁の computed style が1.2の表と一致する
+    {
+      const counts = COUNT_LV.map(([n], i) => [ids[i], n]);
+      const page = await newPage(width, countsSeed(counts));
+      const found = {};
+      await check(`${tag} 21b 件数 0・1・2・3・4・5・7・8・11・12・17・18・27・28・44・45・69・70 の data-lv が境界どおり`, async () => {
+        for (const [i, [n, lv]] of COUNT_LV.entries()) {
+          const cell = page.locator(`.cell[aria-label^="${CHARACTERS[i].name}"]`);
+          assert.equal(await cell.getAttribute('data-lv'), String(lv), `${n}件`);
+          found[lv] ??= `.cell[aria-label^="${CHARACTERS[i].name}"]`;
+        }
+        assert.equal(Object.keys(found).length, 11);
+      });
+      await check(`${tag} 21b 全11段階: 英字・件数の色、text-shadow、板の色、縁が表（1.2）と一致する。縁は0ぼかしのinset。filterなし`, async () => {
+        for (let lv = 0; lv <= 10; lv++) {
+          const st = await tileStyle(page, found[lv]), w = want(lv);
+          assert.deepEqual([st.lv, st.color, st.shadow, st.plate, st.edge], [String(lv), w.color, w.shadow, w.plate, w.edge], `段階${lv}`);
+          if (lv > 0) assert.deepEqual([st.nColor, st.nShadow], [w.color, 'none'], `段階${lv}の件数`); // 件数は英字と同じ色で影なし
+          assert.deepEqual(st.filter, ['none', 'none', 'none', 'none']);
+        }
+      });
+      await check(`${tag} 21b 全タイルの発光の上限: 影は2層以下、ぼかし8px以下、アルファ0.8以下（にじみは0.5以下）`, async () => {
+        const bad = await page.$$eval('.cell-en', (els) => els.flatMap((e) => {
+          const v = getComputedStyle(e).textShadow;
+          const ls = v === 'none' ? [] : v.split(/,(?![^(]*\))/).map((x) => x.trim());
+          const a = (x) => Number(x.match(/rgba?\(([^)]*)\)/)[1].split(',')[3] ?? 1), bl = (x) => parseFloat(x.replace(/rgba?\([^)]*\)/, '').trim().split(/\s+/)[2]);
+          return [...(ls.length > 2 ? ['3層以上'] : []), ...ls.filter((x) => a(x) > 0.8 || bl(x) > 8).map((x) => `上限超え ${x}`), ...(ls[1] && a(ls[1]) > 0.5 ? [`にじみ ${ls[1]}`] : [])];
+        }));
+        assert.deepEqual(bad, []);
+      });
+      await check(`${tag} 21b 押下中（1.2の※）: 段階1は英字が --lit＋発光、段階5は自分の色のまま。どちらも板は --line、即時`, async () => {
+        for (const [lv, color] of [[1, 'rgb(255, 244, 222)'], [5, 'rgb(255, 224, 176)']]) {
+          const t = page.locator(found[lv]);
+          const bb = await t.boundingBox();
+          await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
+          await page.mouse.down();
+          const down = await t.evaluate((e) => [getComputedStyle(e.querySelector('.cell-en')).color, getComputedStyle(e.querySelector('.cell-en')).textShadow, getComputedStyle(e, '::before').backgroundColor, getComputedStyle(e, '::before').transitionDuration]);
+          await page.mouse.move(0, 0);
+          await page.mouse.up();
+          assert.deepEqual([down[0], down[2], down[3]], [color, 'rgb(46, 50, 56)', '0s'], `段階${lv}`);
+          assert.equal(down[1], lv === 1 ? 'rgba(255, 244, 222, 0.8) 0px 0px 1px, rgba(255, 196, 120, 0.35) 0px 0px 8px' : want(lv).shadow, `段階${lv}の影`);
+        }
+      });
+      await shot(page, '48-home-levels', width);
+      await check(`${tag} 21b 英字がタイルに収まり、横スクロールなし`, async () => {
+        assert.deepEqual(await page.$$eval('.cell-en', (els) => els.filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent)), []);
+        assert.ok(await noHScroll(page));
+      });
+      // 最近使ったキャラの英字と、一覧のワードマーク（0件は消灯）
+      for (const id of ['ryu', 'luke', 'jamie']) { // ryu=0件、luke=1件、jamie=2件の順に開く。最近使ったキャラは新しい順で [jamie, luke, ryu]
+        await page.locator(`.cell[aria-label^="${CHARACTERS.find((c) => c.id === id).name}"]`).click();
+        await page.waitForFunction((x) => location.hash === `#/c/${x}`, id);
+        await page.waitForSelector('.topbar h1 .wm');
+        if (id === 'ryu') {
+          await check(`${tag} 21b 一覧のワードマーク: 0件は muted・影なし`, async () => {
+            assert.deepEqual(await page.$eval('.wm', (e) => [e.dataset.lv, getComputedStyle(e).color, getComputedStyle(e).textShadow]), ['0', 'rgb(170, 166, 157)', 'none']);
+          });
+        }
+        if (id === 'jamie') {
+          await check(`${tag} 21b 一覧のワードマーク: 2件は段階2の色と影`, async () => {
+            assert.deepEqual(await page.$eval('.wm', (e) => [e.dataset.lv, getComputedStyle(e).color, getComputedStyle(e).textShadow]), ['2', want(2).color, want(2).shadow]);
+          });
+        }
+        await page.getByRole('button', { name: 'キャラクター選択に戻る' }).click();
+        await page.waitForSelector('.grid');
+      }
+      await check(`${tag} 21b 最近使ったキャラ: data-lv が件数の段階（0件・1件・2件）で、.rc-en は表の色と影（0件は消灯）。板は --key のまま`, async () => {
+        const r = await page.$$eval('.rc', (els) => els.map((e) => [e.getAttribute('aria-label'), e.dataset.lv, getComputedStyle(e.querySelector('.rc-en')).color, getComputedStyle(e.querySelector('.rc-en')).textShadow, getComputedStyle(e, '::before').backgroundColor]));
+        assert.deepEqual(r, [['ジェイミー', '2', want(2).color, want(2).shadow, 'rgb(34, 37, 42)'], ['ルーク', '1', want(1).color, want(1).shadow, 'rgb(34, 37, 42)'], ['リュウ', '0', want(0).color, 'none', 'rgb(34, 37, 42)']]);
+      });
+      await shot(page, '49-home-recent-levels', width);
+      await check(`${tag} 21b ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 21c ロゴ: キャラ選択の上部バー
+    {
+      const page = await newPage(width, seedState());
+      await check(`${tag} 21c ロゴ: キャラ選択の上部バーに .logo（26×20、aria-hidden、#i-logo）。h1の読み上げ名は「SF6戦略メモ」`, async () => {
+        const r = await page.$eval('.topbar h1', (h) => { const l = h.querySelector('svg.logo'); const b = l.getBoundingClientRect(); return [h.querySelectorAll('svg').length, l.getAttribute('aria-hidden'), l.querySelector('use').getAttribute('href'), b.width, b.height, h.textContent]; });
+        assert.deepEqual(r, [1, 'true', '#i-logo', 26, 20, 'SF6戦略メモ']);
+        assert.equal(await page.getByRole('heading', { name: 'SF6戦略メモ', exact: true, level: 1 }).count(), 1);
+        const sym = await page.$eval('#i-logo', (s) => [s.getAttribute('viewBox'), s.querySelectorAll('path').length, s.querySelectorAll('circle').length, s.innerHTML.includes('filter'), s.querySelector('path:last-of-type').getAttribute('stroke')]);
+        assert.deepEqual(sym, ['100 137 312 238', 3, 1, false, 'var(--ink)']);
+        assert.equal(await page.$eval('.logo', (e) => getComputedStyle(e).filter), 'none');
+        assert.equal(await page.$eval('.topbar h1', (h) => getComputedStyle(h).fontFamily.includes('Tilt Neon')), false); // 名前の文字は和文のシステムフォント（併記しない）
+      });
+      await check(`${tag} 21c ロゴは実際に描かれる（上部バーの .logo の領域に橙の管と黄の●の画素がある）`, async () => {
+        const bb = await page.locator('.topbar .logo').boundingBox();
+        const png = await page.screenshot({ clip: { x: bb.x, y: bb.y, width: bb.width, height: bb.height } });
+        const px = await page.evaluate(async (b64) => {
+          const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+          const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+          const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+          const d = g.getImageData(0, 0, c.width, c.height).data; let orange = 0, yellow = 0;
+          for (let i = 0; i < d.length; i += 4) { if (d[i] > 200 && d[i + 1] < 130 && d[i + 2] < 90) orange++; if (d[i] > 200 && d[i + 1] > 190 && d[i + 2] < 150) yellow++; }
+          return { orange, yellow };
+        }, png.toString('base64'));
+        assert.ok(px.orange >= 15 && px.yellow >= 10, JSON.stringify(px));
+      });
+      await shot(page, '50-home-logo', width);
+      await page.context().close();
+    }
+
+    // 21d 性能（360幅のみ）: 32キャラ全員が70件（段階10）。CPU 4倍・360×600でキャラ選択をスクロールして55fps以上。発光テキストは35個以下
+    if (width === 360) {
+      const page = await newPage(width, countsSeed(ids.map((id) => [id, 70])), { viewport: { width: 360, height: 600 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+      await check(`${tag} 21d 全員70件: 32タイルすべて段階10、発光テキスト（text-shadowが非noneの要素）は35個以下、filterなし、影のアニメーションなし`, async () => {
+        assert.equal(await page.locator('.cell[data-lv="10"]').count(), 32);
+        const r = await page.evaluate(() => {
+          const all = [...document.querySelectorAll('*')];
+          return {
+            glow: all.filter((e) => getComputedStyle(e).textShadow !== 'none').length,
+            filt: all.filter((e) => getComputedStyle(e).filter !== 'none' || getComputedStyle(e).backdropFilter !== 'none').length,
+            anim: [...new Set(document.getAnimations().map((a) => a.animationName ?? ''))],
+          };
+        });
+        assert.ok(r.glow <= 35, `発光テキスト ${r.glow}`);
+        assert.equal(r.filt, 0);
+        assert.ok(r.anim.every((n) => n === 'flick' || n === 'enter'), JSON.stringify(r.anim));
+      });
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await page.waitForTimeout(800); // 起動時の点灯と画面の入場アニメーションを終える
+      await page.evaluate(() => { window.__t = []; window.__rec = true; const f = (t) => { window.__t.push(t); if (window.__rec) requestAnimationFrame(f); }; requestAnimationFrame(f); });
+      const dist = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+      for (let i = 0; i < 8; i++) { // 上下に往復（ゆっくり動かして、スクロール中のフレームを十分に取る）
+        await cdp.send('Input.synthesizeScrollGesture', { x: 180, y: 400, yDistance: -dist, speed: 300, gestureSourceType: 'touch' });
+        await cdp.send('Input.synthesizeScrollGesture', { x: 180, y: 200, yDistance: dist, speed: 300, gestureSourceType: 'touch' });
+      }
+      const t = await page.evaluate(() => { window.__rec = false; return window.__t; });
+      const d = t.slice(1).map((x, i) => x - t[i]), sorted = [...d].sort((a, b) => a - b);
+      const st = { scrollable: dist, frames: t.length, fps: +(1000 * d.length / (t.at(-1) - t[0])).toFixed(1), p50: +sorted[Math.floor(d.length * 0.5)].toFixed(1), p95: +sorted[Math.floor(d.length * 0.95)].toFixed(1), max: +sorted.at(-1).toFixed(1) };
+      console.log(`e2e: 21d フレーム時間（CPU x4、360x600、全員70件、スクロール ${dist}px を往復）`, JSON.stringify(st));
+      await check(`${tag} 21d 性能: 全員70件・CPU 4倍・360×600のキャラ選択のスクロールで 55fps 以上（実測 ${st.fps}fps、p95 ${st.p95}ms）`, async () => {
+        assert.ok(dist >= 100, `スクロールできる量が足りない ${dist}`);
+        assert.ok(st.frames >= 120, `フレーム数が少ない ${st.frames}`);
+        assert.ok(st.fps >= 55, JSON.stringify(st));
+      });
+      await page.context().close();
+    }
+  }
+
+  // 22. T-015 修正（データ・保存）: 他タブとトースト・設定の読み直し・変更日時・下書き・巻き戻し・200手の上限
+  {
+    const setting = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('sf6memo.settings') ?? 'null'));
+    const addSec = async (p, name) => {
+      await p.getByRole('button', { name: 'セクション', exact: true }).click();
+      await p.getByRole('button', { name, exact: true }).click();
+      await p.waitForSelector('.sheet', { state: 'detached' });
+    };
+    const tabs = async (seed, hashes, blockStorage = []) => { // 同じコンテキスト（同じlocalStorage）の複数タブ。blockStorage[i] が真ならそのタブは storage イベントを受け取れない
+      const ctx = await browser.newContext({ viewport: { width, height: 740 }, acceptDownloads: true });
+      const ps = [];
+      for (const [i, h] of hashes.entries()) {
+        const p = await ctx.newPage();
+        p.errors = [];
+        p.on('pageerror', (e) => p.errors.push(e.message));
+        if (blockStorage[i]) await p.addInitScript(() => addEventListener('storage', (e) => e.stopImmediatePropagation()));
+        await p.goto(BASE);
+        if (i === 0) { await p.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(seed)); await p.reload(); } // 起動時に読ませてから画面を移す
+        await gotoHash(p, h);
+        ps.push(p);
+      }
+      return [ctx, ...ps];
+    };
+
+    // 22a A-M1: 他タブが書いたら、取り消しトーストを閉じる。残すと古いスナップショットを書き戻して他タブの変更を消す
+    {
+      const [ctx, a, b] = await tabs(seedState(), ['#/c/ryu/r/c3', '#/c/ryu']);
+      await a.getByRole('button', { name: 'その他…' }).click();
+      await a.getByRole('button', { name: '削除' }).click();
+      await a.waitForSelector('#toast .toast');
+      await addSec(b, 'スタン');
+      await check(`${tag} 22a 他タブの変更でトースト（［元に戻す］）が閉じ、他タブの追加も削除も残る`, async () => {
+        await a.waitForFunction(() => document.querySelectorAll('#toast .toast').length === 0);
+        assert.equal(await a.getByRole('button', { name: '元に戻す' }).count(), 0);
+        const d = await stored(a);
+        assert.equal(d.sections.some((s) => s.name === 'スタン'), true);
+        assert.equal(d.combos.some((c) => c.id === 'c3'), false);
+      });
+      await check(`${tag} 22a ページエラーなし`, async () => assert.deepEqual([...a.errors, ...b.errors], []));
+      await ctx.close();
+    }
+
+    // 22b A-M3: 他タブの settings を読み直す（storageイベント）。さらに、イベントを取りこぼした古いタブの保存も、他タブが書いたキーを消さない
+    {
+      const [ctx, a, b, stale] = await tabs(seedState(), ['#/settings', '#/c/ryu/r/c1', '#/settings'], [false, false, true]);
+      await a.getByRole('radio', { name: '数字' }).check();
+      const [dl] = await Promise.all([a.waitForEvent('download'), a.getByRole('button', { name: 'JSONを書き出す' }).click()]);
+      await dl.path();
+      await a.waitForSelector('#toast .toast');
+      await check(`${tag} 22b 他タブの表示設定が、再読み込みなしで次の描画から反映される`, async () => {
+        await b.waitForTimeout(300);
+        await gotoHash(b, '#/c/ryu/r/c1/edit'); // 一覧は描画のたびに settings を書き、そのとき最新を読むので、書かない画面で確かめる
+        assert.ok((await b.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')))).some((l) => /236/.test(l)), '数字表記になっている');
+      });
+      await stale.getByRole('radio', { name: 'オン' }).check(); // 古いタブ（表記=矢印、書き出し日なしの状態で開いたまま）が別のキーを変える
+      await check(`${tag} 22b 古いタブの保存が、他タブの表記と最終書き出し日を消さない（変えたキーだけ書く）`, async () => {
+        const s = await setting(a);
+        assert.equal(s.strengthLabels, true);
+        assert.equal(s.notation, 'numpad');
+        assert.ok(Number.isSafeInteger(s.lastExportAt), String(s.lastExportAt));
+      });
+      await check(`${tag} 22b ページエラーなし`, async () => assert.deepEqual([...a.errors, ...b.errors, ...stale.errors], []));
+      await ctx.close();
+    }
+
+    // 22c A-M4: 保存操作で settings の lastChangeAt（毎回）と firstChangeAt（初回のみ）が時刻で入る
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu');
+      const t0 = Date.now();
+      await addSec(page, 'スタン');
+      const s1 = await setting(page);
+      await page.waitForTimeout(30);
+      await addSec(page, 'カウンター');
+      const s2 = await setting(page);
+      await check(`${tag} 22c 保存操作で lastChangeAt・firstChangeAt が現在時刻で入る`, async () => {
+        assert.ok(s1.lastChangeAt >= t0 && s1.lastChangeAt <= Date.now(), String(s1.lastChangeAt));
+        assert.equal(s1.firstChangeAt, s1.lastChangeAt);
+      });
+      await check(`${tag} 22c 2回目以降は lastChangeAt だけ進み、firstChangeAt は初回のまま`, async () => {
+        assert.ok(s2.lastChangeAt > s1.lastChangeAt, `${s2.lastChangeAt} > ${s1.lastChangeAt}`);
+        assert.equal(s2.firstChangeAt, s1.firstChangeAt);
+      });
+      await page.context().close();
+    }
+
+    // 22d A-M2: 下書きを書けなかったときは、離れても「残しました」と言わず、エラー帯も消さない
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+      await page.getByRole('button', { name: '中P', exact: true }).click();
+      await check(`${tag} 22d 下書きの書き込みに失敗するとエラー帯が出る`, async () => assert.equal(await page.locator('.err').count(), 1));
+      await gotoHash(page, '#/c/ryu');
+      await check(`${tag} 22d 離れると「下書きを保存できませんでした」が出て、「下書きを残しました」は出ず、エラー帯が残る`, async () => {
+        const t = await page.locator('#toast').innerText();
+        assert.match(t, /下書きを保存できませんでした/);
+        assert.doesNotMatch(t, /下書きを残しました/);
+        assert.equal(await page.locator('.err').count(), 1);
+        assert.match(await page.locator('.err').innerText(), /変更は保存されませんでした/);
+        assert.equal(await storedRaw(page, 'sf6memo.drafts'), null);
+      });
+      await page.context().close();
+    }
+
+    // 22e A-L1: 壊れた下書きは空の記録として復元しない。形の違う項目は保存済みの値で補う
+    {
+      const seed = seedState();
+      seed.combos[0].position = 'corner';
+      const page = await newPage(width, seed);
+      const putDrafts = (o) => page.evaluate((d) => localStorage.setItem('sf6memo.drafts', JSON.stringify(d)), o);
+      await putDrafts({ 'new:s1': { tokens: 'x' }, 'edit:c1': { tokens: [N('stand', 'L', 'P')], title: 5, position: 'zzz', tags: 'x', memo: null } });
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await check(`${tag} 22e tokens が配列でない下書きは捨てる（お知らせなし・空の編集画面）`, async () => {
+        assert.equal(await page.locator('.notice').count(), 0);
+        assert.equal(await page.locator('.cmd .chip').count(), 0);
+        assert.equal(await page.getByLabel('タイトル（任意）').inputValue(), '');
+      });
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      await check(`${tag} 22e 形の違う項目は保存済みの値（タイトル・位置・タグ）で補い、tokens は下書きのまま`, async () => {
+        assert.equal(await page.locator('.notice').count(), 1);
+        assert.equal(await page.getByLabel('タイトル（任意）').inputValue(), '基本コンボ');
+        assert.deepEqual(await page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label'))), ['立ち弱P']);
+        assert.equal(await page.getByRole('radio', { name: '画面端', exact: true }).isChecked(), true);
+        assert.deepEqual(await page.$$eval('.tag-list .pill', (els) => els.map((e) => e.textContent.trim())), ['基本']);
+      });
+      await page.context().close();
+    }
+
+    // 22f A-L5: 保存に失敗した操作はすべて巻き戻す（画面からも消え、リロードとの食い違いがない）
+    {
+      const fail = (p) => p.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+      const listCount = async (p) => { await gotoHash(p, '#/c/ryu'); return p.locator('.item').count(); };
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await fail(page);
+      await page.getByRole('button', { name: '複製' }).click();
+      await check(`${tag} 22f 複製の保存に失敗: 詳細のまま、エラー帯が出て、一覧に複製が残らない`, async () => {
+        await page.waitForSelector('.err');
+        assert.equal(await hash(page), '#/c/ryu/r/c1');
+        assert.equal(await listCount(page), 3);
+      });
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await page.getByRole('button', { name: 'その他…' }).click();
+      await page.getByRole('button', { name: '削除' }).click();
+      await check(`${tag} 22f 削除の保存に失敗: 記録が消えず、［元に戻す］も出ない`, async () => {
+        await page.waitForSelector('.err');
+        assert.equal(await page.locator('#toast .toast').count(), 0);
+        assert.equal(await listCount(page), 3);
+      });
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await page.getByRole('button', { name: '中K', exact: true }).click();
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await check(`${tag} 22f 記録の保存に失敗: 入力は画面に残り、一覧には新しい記録が出ない`, async () => {
+        await page.waitForSelector('.err');
+        assert.equal(await page.locator('.cmd .chip').count(), 1);
+        assert.equal(await listCount(page), 3);
+      });
+      await page.context().close();
+    }
+
+    // 22g A-L5・A-Nit: 取り込みの保存に失敗: 専用の文言で、データは変わらない
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/settings');
+      const incoming = exportDoc({ sections: [...seedState().sections, sec('s4', 'ryu', '新しい状況', 3)], combos: seedState().combos });
+      await page.locator('input[type=file]').setInputFiles({ name: 'in.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(incoming)) });
+      await page.waitForSelector('.sheet');
+      await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+      await page.getByRole('button', { name: '取り込む', exact: true }).click();
+      await page.waitForSelector('.err');
+      await check(`${tag} 22g 取り込みの保存に失敗: 「取り込みは保存されませんでした」と出て（入力内容の文言は出ない）、追加したセクションは残らない`, async () => {
+        const t = await page.locator('.banners').innerText();
+        assert.match(t, /端末の保存領域がいっぱいです。取り込みは保存されませんでした。保存領域を確認してください。/);
+        assert.doesNotMatch(t, /入力内容/);
+        await gotoHash(page, '#/c/ryu');
+        assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め']);
+      });
+      await page.context().close();
+    }
+
+    // 22h A-L7: 編集画面のトークンは200手まで。201手目はトーストで断り、列は変わらない
+    {
+      const full = seedState();
+      full.combos.push(combo('c9', 's1', '200手', Array.from({ length: 200 }, () => N('stand', 'L', 'P'))));
+      const page = await newPage(width, full);
+      await gotoHash(page, '#/c/ryu/r/c9/edit');
+      const n = () => page.locator('.cmd .chip').count();
+      await page.getByRole('button', { name: '中K', exact: true }).click();
+      await check(`${tag} 22h 200手のときに足すと「1つの記録に入れられるのは200手までです」が出て、手数は200のまま`, async () => {
+        assert.equal(await n(), 200);
+        assert.match(await page.locator('#toast').innerText(), /1つの記録に入れられるのは200手までです/);
+        assert.equal(await page.locator('.cmd .chip').last().getAttribute('aria-label'), '立ち弱P');
+      });
+      await check(`${tag} 22h ページエラーなし`, async () => assert.deepEqual(page.errors, []));
       await page.context().close();
     }
   }

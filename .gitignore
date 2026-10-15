@@ -1,0 +1,12 @@
+# 署名鍵・秘密情報は絶対にコミットしない（apk/README.md「署名」）
+*.jks
+*.keystore
+*.p12
+*.b64
+keystore*
+# 端末ごとの設定・生成物
+.claude/settings.local.json
+.DS_Store
+node_modules/
+*.apk
+*.aab
