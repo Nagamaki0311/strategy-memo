@@ -74,6 +74,7 @@ export function isValidToken(t) {
 // action: { type: 'stance', value } | { type: 'preset', value } | { type: 'dir', value: 1-9 }
 //   | { type: 'button', key: 'P'|'K', str: 'L'|'M'|'H'|'OD' } | { type: 'system', id } | { type: 'sa', level }
 //   | { type: 'note', id } | { type: 'recent', token } | { type: 'undo' } | { type: 'cursor', index }
+//   | { type: 'strength', index, value } | { type: 'remove', index }   （列のチップの強度変更・削除。index はトークン列の位置）
 export const NOTICE_NEED_MOTION = '先にモーションを選んでください';
 export const NOTICE_TOO_LONG = `方向は${MOTION_MAX}文字分までです`;
 
@@ -111,6 +112,26 @@ function confirmButton(state, { key, str }) {
     key,
     str,
   });
+}
+
+function checkIndex(state, index) {
+  if (!Number.isInteger(index) || index < 0 || index >= state.tokens.length) throw new Error(`不正なトークン位置: ${index}`);
+}
+
+// 強度の選択肢（チップのポップオーバー）: 通常技=弱中強、必殺技=+OD、SA=1〜3、システム技・注記は強度なし
+export function strengthChoices(token) {
+  switch (token.type) {
+    case 'normal': return ['L', 'M', 'H'];
+    case 'special': return ['L', 'M', 'H', 'OD'];
+    case 'sa': return [1, 2, 3];
+    default: return [];
+  }
+}
+
+// 該当トークンの強度（SAはlevel）だけを置き換えた新しいトークンを返す。元は変更しない。
+export function changeStrength(token, value) {
+  if (!strengthChoices(token).includes(value)) throw new Error(`この技に指定できない強度: ${value}`);
+  return token.type === 'sa' ? { ...token, level: value } : { ...token, str: value };
 }
 
 export function applyPadInput(state, action) {
@@ -158,6 +179,17 @@ export function applyPadInput(state, action) {
         throw new Error(`不正なカーソル位置: ${action.index}`);
       }
       return { ...cleared, cursor: action.index };
+    case 'strength':
+      checkIndex(state, action.index);
+      return { ...cleared, tokens: state.tokens.map((t, i) => (i === action.index ? changeStrength(t, action.value) : t)) };
+    case 'remove': {
+      checkIndex(state, action.index);
+      return {
+        ...cleared,
+        tokens: state.tokens.filter((_, i) => i !== action.index),
+        cursor: state.cursor > action.index ? state.cursor - 1 : state.cursor,
+      };
+    }
     default:
       throw new Error(`不正なaction: ${action.type}`);
   }
@@ -165,7 +197,7 @@ export function applyPadInput(state, action) {
 
 // ===== SECTION: トークン表示 =====
 const ARROWS = { 1: '↙', 2: '↓', 3: '↘', 4: '←', 5: 'ニュートラル', 6: '→', 7: '↖', 8: '↑', 9: '↗' };
-const MOTION_NAMES = { 236: '波動', 214: '竜巻', 623: '昇龍', 22: '下下', '[4]6': '溜め横', '[2]8': '溜め縦', 360: '一回転' };
+export const MOTION_NAMES = { 236: '波動', 214: '竜巻', 623: '昇龍', 22: '下下', '[4]6': '溜め横', '[2]8': '溜め縦', 360: '一回転' };
 const DIR_NAMES = { 1: '左下', 3: '右下', 4: '引き', 6: '前', 7: '左上', 8: '上', 9: '右上' };
 const STANCE_NAMES = { stand: '立ち', crouch: '屈', jump: 'ジャンプ' };
 const STR_NAMES = { L: '弱', M: '中', H: '強' };
@@ -231,7 +263,7 @@ export function describeRow(tokens, notation = 'arrow') {
 
 // ===== SECTION: 文書の検証 =====
 // ponytail: 上限値は個人利用の目安。実データで足りなくなったら調整する。
-const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, name: 50, title: 100, tag: 30, memo: 2000 };
+export const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, name: 50, title: 100, tag: 30, memo: 2000 };
 const COMBO_KEYS = ['id', 'characterId', 'controlType', 'sectionId', 'title', 'position', 'tokens', 'memo', 'tags', 'favorite', 'createdAt', 'updatedAt'];
 const POSITIONS = ['any', 'corner', 'midscreen'];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -380,6 +412,65 @@ export function deleteSection(state, sectionId, moveToId, now) {
       sections: repack(state.sections.filter((s) => s.id !== sectionId), ids, now),
       combos: hasItems ? state.combos.map((c) => (c.sectionId === sectionId ? { ...c, sectionId: moveToId, updatedAt: now } : c)) : state.combos,
     },
+  };
+}
+
+// ===== SECTION: 編集画面の補助 =====
+// 直近の技（パッドの上段）: そのキャラの保存済み記録から、新しい記録の後ろの技から順に、重複と注記を除いて最大 limit 件。
+export function recentTokens(combos, characterId, limit = 8) {
+  const seen = new Set();
+  const out = [];
+  const mine = combos.filter((c) => c.characterId === characterId).sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt);
+  for (const c of mine) {
+    for (const t of [...c.tokens].reverse()) {
+      if (t.type === 'note') continue;
+      const k = tokenLabel(t);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(structuredClone(t));
+      if (out.length === limit) return out;
+    }
+  }
+  return out;
+}
+
+// タグの候補: そのキャラの使用済みタグ（多い順）、続けて他キャラのタグ。既定の候補は持たない（D-005）。
+export function tagCandidates(combos, characterId) {
+  const rank = (list) => {
+    const count = new Map();
+    for (const c of list) for (const t of c.tags) count.set(t, (count.get(t) ?? 0) + 1);
+    return [...count].sort((a, b) => b[1] - a[1]).map(([t]) => t);
+  };
+  const mine = rank(combos.filter((c) => c.characterId === characterId));
+  return [...mine, ...rank(combos.filter((c) => c.characterId !== characterId)).filter((t) => !mine.includes(t))];
+}
+
+// 複製: 同じセクションに、新しいid・日時で。タイトルは「（元）のコピー」（上限を超えるときは元の側を削る）。
+export function duplicateCombo(combo, now) {
+  const suffix = 'のコピー';
+  return {
+    ...structuredClone(combo),
+    id: newId(),
+    title: combo.title ? `${combo.title.slice(0, LIMITS.title - suffix.length)}${suffix}` : 'コピー',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+// localStorage の下書き（外部由来の値）を、編集画面に使える形へ整える。形が違う項目は捨てる。
+export function sanitizeDraft(raw) {
+  if (!isObj(raw)) return null;
+  const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+  return {
+    sectionId: typeof raw.sectionId === 'string' ? raw.sectionId : null,
+    title: str(raw.title, LIMITS.title),
+    position: POSITIONS.includes(raw.position) ? raw.position : 'any',
+    tokens: Array.isArray(raw.tokens) ? raw.tokens.filter(isValidToken).slice(0, LIMITS.tokens) : [],
+    memo: str(raw.memo, LIMITS.memo),
+    tags: Array.isArray(raw.tags)
+      ? raw.tags.filter((t) => typeof t === 'string' && t.length >= 1).map((t) => t.slice(0, LIMITS.tag)).slice(0, LIMITS.tags)
+      : [],
+    savedAt: isTime(raw.savedAt) ? raw.savedAt : null,
   };
 }
 

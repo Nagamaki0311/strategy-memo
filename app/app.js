@@ -1,6 +1,7 @@
 import {
-  CHARACTERS, SECTION_PRESETS, SECTION_NAME_MAX, describeRow, motionToArrows, parseDocText, exportDoc,
-  sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime,
+  CHARACTERS, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
+  sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
+  applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
 } from './core.js';
 
 // ===== SECTION: コマンド列の描画 =====
@@ -83,8 +84,22 @@ function chipNodes(token, label, notation) {
   }
 }
 
-// tokens → .row 要素。opts: { size: 'L'|'S', notation: 'arrow'|'numpad', strengthLabels: boolean }
-export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabels = false } = {}) {
+// onChip を渡すと、技とタグを <button> にしてタップできる（詳細・編集）。渡さなければ読み上げ用の span のまま（一覧・直近のS）。
+// 両画面が同じ呼び出しなので、DOM は画面によらず同じになる。
+function tapPart(cls, label, index, token, nodes, onChip) {
+  const b = el('button', cls);
+  b.type = 'button';
+  b.setAttribute('aria-label', label);
+  b.setAttribute('aria-haspopup', 'dialog');
+  b.dataset.i = index;
+  b.dataset.fk = `chip:${index}`;
+  b.append(...nodes);
+  b.addEventListener('click', () => onChip(index, token, b));
+  return b;
+}
+
+// tokens → .row 要素。opts: { size: 'L'|'S', notation: 'arrow'|'numpad', strengthLabels: boolean, onChip?: (index, token, button) => void }
+export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabels = false, onChip = null } = {}) {
   const row = el('div', `row ${size}${strengthLabels ? ' str-labels' : ''}`);
   let grp = null;
   for (const d of describeRow(tokens, notation)) {
@@ -94,13 +109,18 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
       continue;
     }
     grp = el('span', 'grp');
-    for (const n of d.notes) grp.append(el('span', 'tag', n.id));
+    for (const n of d.notes) grp.append(onChip ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
     if (d.token) {
-      const chip = el('span', d.token.type === 'system' || d.token.type === 'sa' ? 'chip sys' : 'chip');
-      chip.setAttribute('role', 'img');
-      chip.setAttribute('aria-label', d.label);
-      chip.append(...chipNodes(d.token, d.label, notation));
-      grp.append(chip);
+      const cls = d.token.type === 'system' || d.token.type === 'sa' ? 'chip sys' : 'chip';
+      const nodes = chipNodes(d.token, d.label, notation);
+      if (onChip) grp.append(tapPart(cls, d.label, d.index, d.token, nodes, onChip));
+      else {
+        const chip = el('span', cls);
+        chip.setAttribute('role', 'img');
+        chip.setAttribute('aria-label', d.label);
+        chip.append(...nodes);
+        grp.append(chip);
+      }
     }
     row.append(grp);
   }
@@ -141,7 +161,7 @@ const byFk = (k) => document.querySelector(`[data-fk="${CSS.escape(k)}"]`);
 // ===== SECTION: 保存層 =====
 // D-003: 文書全体をまとめて書く。読み込みは必ず parseDocText（validateDoc）を通す（不正データでは renderRow が落ちる）。
 // ponytail: 書き出しJSONが2MBを超えたらIndexedDBへ移行する（D-003）。
-const KEYS = { data: 'sf6memo.data', settings: 'sf6memo.settings', drafts: 'sf6memo.drafts' /* T-010で使う */ };
+const KEYS = { data: 'sf6memo.data', settings: 'sf6memo.settings', drafts: 'sf6memo.drafts' };
 let data = { sections: [], combos: [] };
 let settings;
 let loadError = null; // 非nullなら読み取り専用（既存の値を上書きしない）
@@ -297,10 +317,12 @@ function announce(msg) {
 let activeSheet = null;
 const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), a[href]';
 
-function openSheet(opener) {
+// pop: true ならチップに近接するポップオーバー（暗幕なし、タイトルと［閉じる］なし）。履歴・Tab閉じ込め・Escは共通。
+function openSheet(opener, { pop = false } = {}) {
   const key = opener?.dataset?.fk;
-  const scrim = h('div', 'scrim');
-  const box = at(h('div', 'sheet'), { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sheet-title' });
+  const scrim = h('div', pop ? 'scrim pop' : 'scrim');
+  const box = at(h('div', pop ? 'popover' : 'sheet'), { role: 'dialog', 'aria-modal': 'true', ...(pop ? { 'aria-label': '技の詳細' } : { 'aria-labelledby': 'sheet-title' }) });
+  if (pop) opener.classList.add('sel');
   scrim.append(box);
   history.pushState({ n: navN, sheet: true }, '');
   document.getElementById('layer').append(scrim);
@@ -317,6 +339,20 @@ function openSheet(opener) {
       );
       (body.querySelector(FOCUSABLE) ?? box.querySelector(FOCUSABLE))?.focus();
     },
+    // 既定はチップの上、入らなければ下。幅は最大320。
+    pop(body) {
+      box.replaceChildren(body);
+      box.tabIndex = -1;
+      const r = opener.getBoundingClientRect();
+      const w = Math.min(320, innerWidth - 16);
+      box.style.width = `${w}px`;
+      box.style.left = `${Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8)}px`;
+      const ph = box.offsetHeight;
+      const top = r.top - ph - 6 >= document.querySelector('.topbar').getBoundingClientRect().bottom ? r.top - ph - 6 : r.bottom + 6;
+      box.style.top = `${Math.max(8, Math.min(top, innerHeight - ph - 8))}px`;
+      (body.querySelector(FOCUSABLE) ?? box).focus();
+    },
+    box,
     // then は閉じた後に実行する（操作の反映は閉じてから行う）
     close(then) {
       if (sheet.closing) return;
@@ -329,9 +365,14 @@ function openSheet(opener) {
       if (activeSheet !== sheet) return;
       activeSheet = null;
       appRoot.inert = false;
-      scrim.classList.add('closing');
-      box.classList.add('closing');
-      setTimeout(() => scrim.remove(), 150);
+      if (pop) {
+        opener.classList.remove('sel');
+        scrim.remove();
+      } else {
+        scrim.classList.add('closing');
+        box.classList.add('closing');
+        setTimeout(() => scrim.remove(), 150);
+      }
       sheet.then?.();
       const a = document.activeElement;
       if (!activeSheet && (!a || a === document.body || scrim.contains(a))) { // 操作側がフォーカスを置かなければ、開いた要素へ戻す（消えていれば画面の見出しへ）
@@ -448,23 +489,24 @@ function deleteSheet(sh, s, items) {
   sh.show(`「${s.name}」を削除`, body, go);
 }
 
+const menuItem = (label, onClick, disabled) => {
+  const b = at(h('button', 'menu-item', label), { type: 'button', ...(disabled && { disabled: '' }) });
+  b.addEventListener('click', onClick);
+  return b;
+};
+
 function sectionMenu(opener, s) {
   const sh = openSheet(opener);
   const list = sectionsOf(data, s.characterId);
   const i = list.findIndex((x) => x.id === s.id);
-  const item = (label, onClick, disabled) => {
-    const b = at(h('button', 'menu-item', label), { type: 'button', ...(disabled && { disabled: '' }) });
-    b.addEventListener('click', onClick);
-    return b;
-  };
   const items = data.combos.filter((c) => c.sectionId === s.id).length;
   sh.show(s.name, h('div', 'sheet-body flush',
-    item('名称変更', () => nameForm(sh, {
+    menuItem('名称変更', () => nameForm(sh, {
       title: '名称変更', value: s.name, submit: '保存', onSubmit: (name) => sh.close(() => mutate(renameSection(data, s.id, name, now()))),
     })),
-    item('上へ', () => sh.close(() => moveBy(s, -1)), i === 0),
-    item('下へ', () => sh.close(() => moveBy(s, 1)), i === list.length - 1),
-    item('削除', () => (items ? deleteSheet(sh, s, items) : sh.close(() => removeSection(s, null)))),
+    menuItem('上へ', () => sh.close(() => moveBy(s, -1)), i === 0),
+    menuItem('下へ', () => sh.close(() => moveBy(s, 1)), i === list.length - 1),
+    menuItem('削除', () => (items ? deleteSheet(sh, s, items) : sh.close(() => removeSection(s, null)))),
   ));
 }
 
@@ -576,7 +618,386 @@ function listScreen({ cid }) {
   return shell({ title: name, back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
 }
 
-// ponytail: 実装前の仮画面。詳細は T-010、編集・新規作成は T-011、設定は T-012 で置き換える（置き換えたらこの関数と SCREENS の呼び出しを削除する）。
+// ===== SECTION: 凡例 =====
+// 形 → 意味 → 書き出し時の表記（requirements 3.3・3.5・3.6）。形は実際のチップの描画（renderRow・dirNodes）をそのまま使う。
+// システム技・注記の正式名称は、パッドのaria-labelと凡例で共有する。略称はtokenLabelと同じ。
+const SYS_FULL = { CDR: 'キャンセルドライブラッシュ', RAW_DR: 'パリィドライブラッシュ', DI: 'ドライブインパクト', PARRY: 'ドライブパリィ', REVERSAL: 'ドライブリバーサル' };
+const NOTE_FULL = { CH: 'カウンターヒット', PC: 'パニッシュカウンター' };
+const nm = (stance, str, key, dir) => ({ type: 'normal', stance, ...(dir && { dir }), key, str });
+const MOTION_MEANING = { 22: '下下（下を2回）', 63214: '通称なし（右・右下・下・左下・左）', '[4]6': '溜め横（左を溜めて右）', '[2]8': '溜め縦（下を溜めて上）' };
+
+function legendTable() {
+  const shape = (tokens, o = {}) => renderRow(tokens, { size: 'L', notation: settings.notation, strengthLabels: settings.strengthLabels, ...o });
+  const motion = (m) => h('div', 'row L', ...dirNodes(m, settings.notation));
+  const diagram = () => h('div', 'diag', ...[7, 8, 9, 4, 5, 6, 1, 2, 3].map((d) => h('div', 'diag-c', arrow(String(d)), h('span', 'diag-n', String(d)))));
+  const conn = () => h('div', 'row L', icon('i-conn', 'conn'));
+  const sys = (id) => [shape([{ type: 'system', id }]), `${SYS_FULL[id]}（${tokenLabel({ type: 'system', id })}）`, tokenLabel({ type: 'system', id })];
+  const groups = [
+    ['ボタン', [
+      [shape([nm('stand', 'L', 'P')]), '水色の円＝弱。円の中の文字がP（パンチ）かK（キック）', '弱P'],
+      [shape([nm('stand', 'M', 'K')]), '薄い黄の円＝中', '中K'],
+      [shape([nm('stand', 'H', 'P')]), '薄い赤の円＝強', '強P'],
+      [shape([nm('stand', 'H', 'K')], { strengthLabels: true }), '設定で円の隅に弱・中・強の小さな文字を出せる（既定はオフ）', '強K'],
+    ]],
+    ['姿勢', [
+      [shape([nm('stand', 'M', 'P')]), '何も付かない＝立ち', '立ち中P'],
+      [shape([nm('crouch', 'M', 'K')]), '円の前の下向き矢印＝しゃがみ', '屈中K'],
+      [shape([nm('jump', 'M', 'K')]), '円の前のJ＝ジャンプ', 'ジャンプ中K'],
+    ]],
+    ['方向', [
+      [shape([nm('stand', 'H', 'P', 4)]), '方向入れの通常技。円の前の矢印が入れる方向', '引き強P'],
+      [diagram(), '8方向とニュートラル（N）。数字はテンキーの位置', '1〜9（5はニュートラル）'],
+    ]],
+    ['モーションのプリセットと通称', PRESETS.map((m) => [motion(m), MOTION_MEANING[m] ?? MOTION_NAMES[m], m])],
+    ['OD', [[shape([{ type: 'special', motion: '236', key: 'P', str: 'OD' }]), 'OD必殺技。「OD」の文字とボタンの円2つ', 'OD236P']]],
+    ['システム技・SA', [
+      ...['CDR', 'RAW_DR', 'DI', 'PARRY', 'REVERSAL'].map(sys),
+      [h('div', 'leg-sa', ...[1, 2, 3].map((level) => shape([{ type: 'sa', level }]))), 'スーパーアーツ1〜3', 'SA1〜SA3'],
+    ]],
+    ['注記（直後の技に付く）', ['CH', 'PC'].map((id) => [shape([{ type: 'note', id }]), NOTE_FULL[id], id])],
+    ['つなぎ', [[conn(), '技と技のつなぎ。自動で入る', '▶']]],
+  ];
+  const table = h('table', 'leg', h('thead', '', h('tr', '', h('th', '', '形'), h('th', '', '意味'), h('th', '', '書き出し時の表記'))));
+  for (const [name, rows] of groups) {
+    table.append(h('tbody', '', h('tr', '', at(h('th', 'leg-g', name), { colspan: '3' })),
+      ...rows.map(([a, b, c]) => h('tr', '', h('td', 'leg-shape', a), h('td', '', b), h('td', 'leg-out', c)))));
+  }
+  return table;
+}
+
+function openLegend(opener) {
+  const sh = openSheet(opener);
+  sh.box.classList.add('tall');
+  sh.show('凡例', at(h('div', 'sheet-body', legendTable()), { tabindex: '0' })); // 長い表なのでキーボードでもスクロールできるようにする
+}
+
+// ===== SECTION: 詳細画面 =====
+// 閲覧専用（input・textarea・contenteditable を置かない）。チップのタップは「意味」の表示だけ。
+const motionNote = (motion) => h('div', 'pop-note', ...dirNodes(motion, 'arrow'), ' ＝ ', motion, ...(MOTION_NAMES[motion] ? [`（${MOTION_NAMES[motion]}）`] : []));
+
+function detailScreen({ cid, rid }) {
+  const c = data.combos.find((x) => x.id === rid);
+  const sec = data.sections.find((s) => s.id === c.sectionId);
+  const { notation, strengthLabels } = settings;
+  const onChip = (index, token, chip) => {
+    const sh = openSheet(chip, { pop: true });
+    sh.pop(h('div', 'pop-body', token.type === 'special' ? motionNote(token.motion) : h('div', 'pop-note', tokenLabel(token, notation))));
+  };
+  const legendBtn = btn('top-action', '凡例', () => openLegend(legendBtn), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
+  const other = btn('', 'その他…', () => {
+    const sh = openSheet(other);
+    sh.show('その他', h('div', 'sheet-body flush', menuItem('削除', () => sh.close(() => removeCombo(c)))));
+  }, { 'data-fk': 'other', 'aria-haspopup': 'dialog' });
+  const main = h('div', 'detail',
+    h('p', 'd-meta', [sec.name, POS[c.position], c.tags.join(' ')].filter(Boolean).join('・')),
+    ...(c.title ? [h('h2', 'd-title', c.title)] : []),
+    h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip })),
+    ...(c.memo ? [h('section', 'd-memo', h('h2', 'd-memo-h', 'メモ'), h('p', '', c.memo))] : []));
+  const bottom = h('footer', 'bottombar', other, btn('', '複製', () => duplicate(c)), at(h('a', 'btn primary', '編集'), { href: `#/c/${cid}/r/${rid}/edit` }));
+  return shell({ title: `${charName(cid)}/${sec.name}`, back: { label: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}` }, right: [legendBtn], notices: banners(), main: [main], bottom });
+}
+
+// 削除: 一覧へ移り、取り消しトーストを出す。取り消しは直前の状態（prev）をそのまま書き戻す。
+function removeCombo(c) {
+  const prev = data;
+  if (!commit({ sections: data.sections, combos: data.combos.filter((x) => x.id !== c.id) })) { render({ keepScroll: true }); return; }
+  showToast(`『${c.title || '無題'}』を削除しました`, { label: '元に戻す', onAction: () => { commit(prev); render({ keepScroll: true }); } });
+  const to = `#/c/${c.characterId}`;
+  if (navN > 0 && prevHash === to) history.back(); // 一覧から来たなら履歴を戻す。それ以外は詳細の履歴を一覧に置き換える
+  else { history.replaceState({ n: navN }, '', to); navigate(); }
+}
+
+function duplicate(c) {
+  const copy = duplicateCombo(c, now());
+  if (!commit({ sections: data.sections, combos: [...data.combos, copy] })) { render({ keepScroll: true }); return; }
+  location.hash = `#/c/${c.characterId}/r/${copy.id}`;
+  showToast('複製しました', { ms: 2500 });
+}
+
+// ===== SECTION: 編集画面 =====
+// 編集中の状態 ed は画面の再描画（他タブの変更の反映など）をまたいで保つ。ルートが変わると navigate() が捨てる。
+let ed = null;
+const hhmm = (t) => `${pad2(new Date(t).getHours())}:${pad2(new Date(t).getMinutes())}`;
+
+// 下書き（D-003）: sf6memo.drafts = { "edit:<記録id>" | "new:<セクションid>": { sectionId, title, position, tokens, memo, tags, savedAt } }。
+// 読むときは sanitizeDraft を通す。キーに接頭辞を付けるのは、記録idが "__proto__" でも衝突させないため。
+function readDrafts() {
+  try {
+    const o = JSON.parse(localStorage.getItem(KEYS.drafts) ?? '{}');
+    return o !== null && typeof o === 'object' && !Array.isArray(o) ? o : {};
+  } catch {
+    return {};
+  }
+}
+function writeDraft() {
+  const all = readDrafts();
+  all[ed.draftKey] = { sectionId: ed.sectionId, title: ed.title, position: ed.position, tokens: ed.pad.tokens, memo: ed.memo, tags: ed.tags, savedAt: now() };
+  return write(KEYS.drafts, JSON.stringify(all));
+}
+function removeDraft(key) {
+  const all = readDrafts();
+  delete all[key];
+  write(KEYS.drafts, JSON.stringify(all));
+}
+
+function initEdit({ cid, rid, sid }, secs) {
+  const base = rid ? data.combos.find((c) => c.id === rid) : null;
+  const fresh = base
+    ? { sectionId: base.sectionId, title: base.title, position: base.position, tokens: structuredClone(base.tokens), memo: base.memo, tags: [...base.tags] }
+    : { sectionId: secs.some((s) => s.id === sid) ? sid : secs[0].id, title: '', position: 'any', tokens: [], memo: '', tags: [] };
+  const draftKey = base ? `edit:${rid}` : `new:${fresh.sectionId}`;
+  const all = readDrafts();
+  const draft = Object.hasOwn(all, draftKey) ? sanitizeDraft(all[draftKey]) : null;
+  const { tokens, ...f } = draft ? { ...fresh, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
+  saveError = null;
+  return { cid, rid, draftKey, ...f, pad: initialPadState(tokens), padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
+}
+
+const PAD_DIRS = [7, 8, 9, 4, 5, 6, 1, 2, 3];
+const PAD_DIR_NAMES = { 1: '左下', 2: '下', 3: '右下', 4: '左', 5: 'ニュートラル', 6: '右', 7: '左上', 8: '上', 9: '右上' };
+const padKey = (cls, label, onClick, ...kids) => {
+  const b = at(h('button', `key ${cls}`.trim(), ...kids), { type: 'button', 'aria-label': label });
+  b.addEventListener('click', onClick);
+  return b;
+};
+
+// パッド（design-spec 4章）。キーは action を act に渡すだけ。入力の規則は core.js の applyPadInput にある。
+// sync(pending) で姿勢とプリセットの選択表示を更新する。
+function buildPad(act, recents, notation, strengthLabels) {
+  const stanceKeys = [];
+  const presetKeys = [];
+  const recent = recents.length
+    ? at(h('div', 'recent-keys', ...recents.map((t) => padKey('', `${tokenLabel(t, notation)}を追加`, () => act({ type: 'recent', token: t }),
+      renderRow([t], { size: 'S', notation, strengthLabels })))), { role: 'group', 'aria-label': '直近の技' })
+    : h('div', 'recent-empty', '入力した技がここに並びます');
+  const presetRow = (list) => h('div', 'preset-grid', ...list.map((v) => {
+    const k = padKey('', `${MOTION_NAMES[v] ?? ''} ${v}`.trim(), () => act({ type: 'preset', value: v }), h('span', 'pk-arrows', ...dirNodes(v, notation)), h('span', 'pk-name', MOTION_NAMES[v] ?? ''));
+    presetKeys.push([v, k]);
+    return k;
+  }));
+  const sysKey = (label, aria, action) => padKey('', aria, () => act(action), label);
+  const system = at(h('div', 'sys-keys',
+    ...['CDR', 'RAW_DR', 'DI'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id })),
+    ...[1, 2, 3].map((level) => sysKey(`SA${level}`, `スーパーアーツ${level}`, { type: 'sa', level })),
+    ...['PARRY', 'REVERSAL'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id })),
+    ...['CH', 'PC'].map((id) => sysKey(id, NOTE_FULL[id], { type: 'note', id }))), { role: 'group', 'aria-label': 'システム技' });
+  const dirs = h('div', 'dirs', ...PAD_DIRS.map((d) => padKey('dkey', PAD_DIR_NAMES[d], () => act({ type: 'dir', value: d }), arrow(String(d)))));
+  const stance = at(h('div', 'stance', ...[['stand', '立ち', '立ち'], ['crouch', 'しゃがみ', arrow('2')], ['jump', 'ジャンプ', 'J']].map(([v, label, face]) => {
+    const k = at(padKey('', label, () => act({ type: 'stance', value: v }), face), { role: 'radio' });
+    stanceKeys.push([v, k]);
+    return k;
+  })), { role: 'radiogroup', 'aria-label': '姿勢' });
+  const undo = padKey('', '直前の入力を取り消す', () => act({ type: 'undo' }), svgIcon('i-back'), h('span', 'undo-t', '消す'));
+  const buttons = ['P', 'K'].flatMap((k) => [
+    ...['L', 'M', 'H'].map((s) => padKey('bkey', `${STR_TEXT[s]}${k}`, () => act({ type: 'button', key: k, str: s }), dot(k, STR_CLASS[s], s))),
+    padKey('okey', `OD ${k}`, () => act({ type: 'button', key: k, str: 'OD' }), el('span', 'ltr od', 'OD'), h('span', 'dots', dot(k, 'od'), dot(k, 'od'))),
+  ]);
+  const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, recent, presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
+    h('div', 'lower', dirs, h('div', 'btns', stance, undo, ...buttons))), { 'aria-label': '入力パッド' });
+  const sync = ({ stance: st, dirs: ds }) => {
+    // ↓を押したあとモーションを選ぶと、確定する技に↓は入らない。姿勢の選択も立ちに戻して見た目と一致させる。
+    const shown = st === 'crouch' && ds.join('').length >= 2 ? 'stand' : st;
+    for (const [v, k] of stanceKeys) k.setAttribute('aria-checked', String(v === shown));
+    for (const [v, k] of presetKeys) k.setAttribute('aria-pressed', String(ds.length === 1 && ds[0] === v));
+  };
+  return { pad, sync };
+}
+
+// ペンディング（仮チップ）: 不透明度60%の記号＋塗りのない円。確定する技に合わせて、↓は単独のときだけ見せる。
+function pendingNode({ stance, dirs }, notation) {
+  const motion = dirs.join('');
+  const shown = stance === 'crouch' && motion.length < 2 && motion !== '2' ? `2${motion}` : motion;
+  if (!shown && stance === 'stand') return null;
+  const sym = h('span', 'pend-sym', ...(stance === 'jump' ? [el('span', 'ltr', 'J')] : []), ...(shown ? dirNodes(shown, notation) : []));
+  return at(h('span', 'grp pending', sym, el('span', 'ghost')), { 'aria-hidden': 'true' });
+}
+
+// 挿入カーソルを、index がカーソル以降の最初のチップの前（技のグループの先頭なら、グループの前）に置く。なければ末尾。
+function placeAt(row, cursor, nodes) {
+  const target = [...row.querySelectorAll('[data-i]')].find((e) => Number(e.dataset.i) >= cursor);
+  if (!target) { row.append(...nodes); return; }
+  (target.parentElement.firstElementChild === target ? target.parentElement : target).before(...nodes);
+}
+
+function editScreen(route) {
+  const { cid, rid } = route;
+  const secs = sectionsOf(data, cid);
+  if (!ed) ed = initEdit(route, secs);
+  if (!secs.some((s) => s.id === ed.sectionId)) ed.sectionId = secs[0].id;
+  const { notation, strengthLabels } = settings;
+
+  const errSlot = h('div', 'err-slot');
+  const timeEl = h('p', 'draft-time');
+  const cmd = at(h('div', 'cmd'), { role: 'group', 'aria-label': 'コマンド列' });
+  const updateNotices = () => errSlot.replaceChildren(...banners());
+  const showTime = () => { timeEl.textContent = ed.savedAt ? `下書き保存済み ${hhmm(ed.savedAt)}` : ''; };
+
+  // 変更のたびに下書きへ書く。失敗は保存失敗と同じ表示（design-spec 6.6）で、次に成功したら消す。
+  const touch = () => {
+    ed.dirty = true;
+    const was = !!saveError;
+    const err = writeDraft();
+    if (err) { saveError = err; ed.draftFailed = true; }
+    else {
+      ed.savedAt = now();
+      if (ed.draftFailed) { saveError = null; ed.draftFailed = false; }
+    }
+    showTime();
+    if (!!saveError !== was) updateNotices();
+  };
+
+  // ---- コマンド列 ----
+  const updateRow = () => {
+    const { tokens, cursor, pending } = ed.pad;
+    const row = renderRow(tokens, { size: 'L', notation, strengthLabels, onChip: openChipMenu });
+    const pend = pendingNode(pending, notation);
+    placeAt(row, cursor, [...(pend ? [pend] : []), at(el('span', 'cursor'), { 'aria-hidden': 'true' })]);
+    if (!tokens.length && !pend) row.append(el('span', 'cmd-hint', '下のパッドで技を入力'));
+    if (cursor < tokens.length) row.append(btn('to-end', '末尾へ', () => act({ type: 'cursor', index: tokens.length })));
+    cmd.replaceChildren(row);
+  };
+
+  // パッドとチップ操作の入口。成功したら true。トーストの取り消し対象は直前の1操作だけにする。
+  const act = (action) => {
+    const prev = ed.pad;
+    const next = applyPadInput(prev, action);
+    if (next.tokens.length > LIMITS.tokens) {
+      showToast(`1つの記録に入れられるのは${LIMITS.tokens}手までです`, { ms: 3000 });
+      return false;
+    }
+    dismissToast();
+    ed.pad = next;
+    if (next.notice) showToast(next.notice, { ms: 3000 });
+    updateRow();
+    sync(next.pending);
+    if (next.tokens !== prev.tokens) {
+      if (next.tokens.length > prev.tokens.length) announce(`追加: ${tokenLabel(next.tokens[next.cursor - 1], notation)}`);
+      touch();
+    }
+    return true;
+  };
+
+  // ---- チップのポップオーバー ----
+  function openChipMenu(index, token, chip) {
+    const sh = openSheet(chip, { pop: true });
+    const body = h('div', 'pop-body');
+    if (token.type === 'special') body.append(motionNote(token.motion));
+    const choices = strengthChoices(token);
+    if (choices.length) {
+      const cur = token.type === 'sa' ? token.level : token.str;
+      body.append(at(h('div', 'pop-row', ...choices.map((v) => {
+        const label = token.type === 'sa' ? `SA${v}` : v === 'OD' ? 'OD' : STR_TEXT[v];
+        const kids = token.type === 'sa' ? [label] : v === 'OD' ? [el('span', 'ltr od', 'OD')] : [label, dot(token.key, STR_CLASS[v])];
+        return at(btn('opt', kids, () => sh.close(() => act({ type: 'strength', index, value: v }))), { 'aria-pressed': String(v === cur), 'aria-label': label });
+      })), { role: 'group', 'aria-label': '強度' }));
+    }
+    let from = index; // 直前の注記（CH・PC）は技に付くので、その前に挿入する
+    if (token.type !== 'note') while (from > 0 && ed.pad.tokens[from - 1].type === 'note') from--;
+    body.append(h('div', 'pop-row',
+      btn('opt', 'この前に挿入', () => sh.close(() => act({ type: 'cursor', index: from }))),
+      btn('opt', '削除', () => sh.close(() => {
+        const before = ed.pad;
+        if (!act({ type: 'remove', index })) return;
+        showToast(`「${tokenLabel(token, notation)}」を削除しました`, { label: '元に戻す', onAction: () => { ed.pad = before; updateRow(); sync(before.pending); touch(); } });
+      }))));
+    sh.pop(body);
+  }
+
+  // ---- 入力欄 ----
+  const input = (id, label, value, attrs, onInput, tag = 'input') => {
+    const e = at(h(tag, 'field'), { id, ...attrs });
+    e.value = value;
+    e.addEventListener('input', () => onInput(e.value));
+    return h('div', 'fld', at(h('label', 'field-label', label), { for: id }), e);
+  };
+  const secSel = at(h('select', 'field'), { id: 'f-sec' });
+  for (const s of secs) secSel.append(Object.assign(h('option', '', s.name), { value: s.id }));
+  secSel.value = ed.sectionId;
+  secSel.addEventListener('change', () => { ed.sectionId = secSel.value; touch(); });
+  const posSet = h('fieldset', 'seg', h('legend', 'field-label', '位置'), ...Object.entries(POS).map(([v, t]) => {
+    const r = at(h('input'), { type: 'radio', name: 'pos', value: v });
+    r.checked = ed.position === v;
+    r.addEventListener('change', () => { ed.position = v; touch(); });
+    return h('label', 'seg-item', r, h('span', '', t));
+  }));
+
+  const tagList = h('div', 'tag-list');
+  const suggest = h('div', 'suggest');
+  const tagInput = at(h('input', 'field'), { type: 'text', id: 'f-tag', maxlength: String(LIMITS.tag), autocomplete: 'off', enterkeyhint: 'done', placeholder: 'タグを入力' });
+  const candidates = tagCandidates(data.combos, cid);
+  const renderTags = () => {
+    tagList.replaceChildren(...ed.tags.map((t) => btn('pill', [t, svgIcon('i-plus', 45)], () => { ed.tags = ed.tags.filter((x) => x !== t); touch(); renderTags(); }, { 'aria-label': `タグ「${t}」を外す` })));
+    const q = tagInput.value.trim();
+    suggest.replaceChildren(...candidates.filter((t) => !ed.tags.includes(t) && t.includes(q)).slice(0, 6).map((t) => btn('pill', t, () => addTag(t), { 'aria-label': `タグ「${t}」を追加` })));
+  };
+  const addTag = (raw) => {
+    const t = raw.trim();
+    if (t && !ed.tags.includes(t) && ed.tags.length < LIMITS.tags) { ed.tags.push(t); touch(); }
+    tagInput.value = '';
+    renderTags();
+  };
+  tagInput.addEventListener('input', renderTags);
+  tagInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addTag(tagInput.value); } });
+  const tagFld = h('div', 'fld', at(h('label', 'field-label', 'タグ'), { for: 'f-tag' }), tagList,
+    h('div', 'tag-add', tagInput, btn('', '追加', () => addTag(tagInput.value), { 'aria-label': 'タグを追加' })), suggest);
+
+  const fields = h('div', 'fields',
+    h('div', 'fld', at(h('label', 'field-label', 'セクション'), { for: 'f-sec' }), secSel),
+    input('f-title', 'タイトル（任意）', ed.title, { type: 'text', maxlength: String(LIMITS.title), autocomplete: 'off', enterkeyhint: 'done' }, (v) => { ed.title = v; touch(); }),
+    posSet, tagFld,
+    input('f-memo', 'メモ', ed.memo, { maxlength: String(LIMITS.memo), rows: '4' }, (v) => { ed.memo = v; touch(); }, 'textarea'));
+
+  // ---- パッド ----
+  const { pad: padEl, sync } = buildPad(act, recentTokens(data.combos, cid), notation, strengthLabels);
+  const setPad = (hidden) => { padEl.hidden = hidden; ed.padHidden = hidden; };
+  setPad(ed.padHidden);
+  cmd.addEventListener('click', () => setPad(false)); // コマンド列の領域をタップしたらパッドを戻す
+  fields.addEventListener('focusin', (e) => { if (e.target.matches('input[type=text], textarea')) setPad(true); }); // ソフトキーボードの場所を空ける
+
+  // ---- 保存 ----
+  const save = () => {
+    if (tagInput.value.trim()) addTag(tagInput.value); // 入力途中のタグも取り込む
+    const t = now();
+    const base = rid ? data.combos.find((c) => c.id === rid) : null;
+    const edited = { sectionId: ed.sectionId, title: ed.title.trim(), position: ed.position, tokens: structuredClone(ed.pad.tokens), memo: ed.memo, tags: [...ed.tags] };
+    const combo = base
+      ? { ...base, ...edited, updatedAt: t }
+      : { id: newId(), characterId: cid, controlType: 'classic', ...edited, favorite: false, createdAt: t, updatedAt: t };
+    const combos = base ? data.combos.map((c) => (c.id === base.id ? combo : c)) : [...data.combos, combo];
+    const prev = data;
+    if (!commit({ sections: data.sections, combos })) {
+      if (data.combos === combos) data = prev; // 書き込みだけ失敗したときは、保存されていない記録を他の画面に出さない（入力は ed と下書きに残る）
+      updateNotices(); // 画面は移らず、入力内容はそのまま
+      return;
+    }
+    ed.saved = true;
+    removeDraft(ed.draftKey);
+    history.replaceState({ n: navN }, '', `#/c/${cid}/r/${combo.id}`); // location.replace と同じ置き換え（深さの記録を保つため直接行う）
+    navigate();
+    showToast('保存しました', { ms: 2500 });
+  };
+
+  const legendBtn = btn('top-action', '凡例', () => openLegend(legendBtn), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
+  const discard = () => { removeDraft(ed.draftKey); ed = null; render(); };
+  const notice = ed.draftLoaded
+    ? [at(h('div', 'notice', h('span', '', '前回の下書きを開きました'), btn('', rid ? '破棄して保存済みに戻す' : '破棄して新規', discard)), { role: 'status' })]
+    : [];
+  const screen = shell({
+    title: rid ? '記録の編集' : '記録の新規作成',
+    back: rid ? { label: '詳細に戻る', to: `#/c/${cid}/r/${rid}` } : { label: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}` },
+    right: [legendBtn, btn('primary top-action', '保存', save)],
+    notices: [errSlot], main: [...notice, timeEl, cmd, fields], bottom: padEl,
+  });
+  screen.classList.add('edit');
+  renderTags();
+  updateRow();
+  sync(ed.pad.pending);
+  showTime();
+  updateNotices();
+  return screen;
+}
+
+// ponytail: 実装前の仮画面。設定は T-012 で置き換える（置き換えたらこの関数と SCREENS の呼び出しを削除する）。
 function placeholder({ title, backLabel, to, lines }) {
   return shell({
     title, back: { label: backLabel, to },
@@ -587,9 +1008,9 @@ function placeholder({ title, backLabel, to, lines }) {
 const SCREENS = {
   home: homeScreen,
   list: listScreen,
-  detail: ({ cid, rid }) => placeholder({ title: '記録の詳細', backLabel: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}`, lines: [`記録: ${data.combos.find((c) => c.id === rid)?.title || rid}`] }),
-  edit: ({ cid, rid }) => placeholder({ title: '記録の編集', backLabel: '詳細に戻る', to: `#/c/${cid}/r/${rid}`, lines: [`記録: ${rid}`] }),
-  new: ({ cid, sid }) => placeholder({ title: '記録の新規作成', backLabel: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}`, lines: [`セクション: ${data.sections.find((s) => s.id === sid)?.name ?? '未指定'}`] }),
+  detail: detailScreen,
+  edit: editScreen,
+  new: editScreen,
   settings: () => placeholder({ title: '設定', backLabel: 'キャラクター選択に戻る', to: '#/', lines: [] }),
 };
 
@@ -624,6 +1045,7 @@ const ui = { reorder: null }; // 並べ替えモード中のキャラクターid
 let appRoot;
 let currentRoute = null;
 let currentHash = null;
+let prevHash = null; // 直前に表示した画面のhash（削除のあと履歴を戻してよいかの判定に使う）
 let navN = 0; // 履歴内のこのアプリの深さ。0なら戻る先がないので親画面へ置き換える
 const scrollPos = new Map();
 
@@ -632,8 +1054,21 @@ function goBack(to) {
   else { history.replaceState({ n: 0 }, '', to); navigate(); }
 }
 
+// 存在しない記録・セクションのないキャラの新規作成は、安全な画面（一覧）へ落とす
+function redirectFor(route) {
+  if (route.rid && !data.combos.some((c) => c.id === route.rid && c.characterId === route.cid)) return `#/c/${route.cid}`;
+  if (route.name === 'new' && !sectionsOf(data, route.cid).length) return `#/c/${route.cid}`;
+  return null;
+}
+
 function render({ keepScroll = false, focus, dir = null } = {}) {
   const route = currentRoute;
+  const to = redirectFor(route);
+  if (to) {
+    history.replaceState({ n: navN }, '', to);
+    navigate();
+    return;
+  }
   if (route.name === 'list' && settings.recentCharacters[0] !== route.cid) {
     settings.recentCharacters = [route.cid, ...settings.recentCharacters.filter((x) => x !== route.cid)].slice(0, 3);
     saveSettings();
@@ -661,8 +1096,14 @@ function navigate() {
   else history.replaceState({ n: ++navN }, '');
   if (currentHash !== null) scrollPos.set(currentHash, window.scrollY);
   activeSheet?.dispose();
+  if (currentRoute?.name === 'edit' || currentRoute?.name === 'new') { // 編集画面を離れる。保存せずに離れたら下書きが残る
+    if (ed?.dirty && !ed.saved) showToast('下書きを残しました', { ms: 3000 });
+    saveError = null;
+  }
+  ed = null;
   const dir = currentRoute ? (DEPTH[route.name] >= DEPTH[currentRoute.name] ? 'fwd' : 'back') : null;
   currentRoute = route;
+  prevHash = currentHash;
   currentHash = location.hash;
   ui.reorder = null;
   render({ dir });
