@@ -71,7 +71,7 @@ export const neonLevel = (n) => NEON_STEPS.filter((t) => n >= t).length;
 - homeScreen: キャラごとの件数のMap（既存の `counts`）から `data-lv=neonLevel(n)` を `.cell` に付ける。`.cell-name`（カナ）はDOMから外す。`aria-label` は「リュウ 3件」のまま。
 - 最近使ったキャラ: `.rc` にも同じ `counts` から `data-lv` を付ける。
 - listScreen: h1を `<span class="wm" data-lv=… aria-hidden="true">RYU</span><span class="sr-only">リュウ</span>` にする。`.kn` は削除。
-- タイルの寸法（カナを外したあと）: `.cell { grid-template-columns: minmax(0,1fr); grid-template-rows: 20px 14px; row-gap: 4px; align-content: center; }`、`.cell-en { grid-row: 1; grid-column: 1; }`、`.cell-n { grid-row: 2; justify-self: end; padding-left: 0; font: 700 12px/14px var(--font); }`。0件のタイルでも2行目の高さを確保して、英字の位置を全タイルで揃える。360×740で11段×54＋隙間＝630は変わらない。
+- タイルの寸法（カナを外したあと）: `.cell { grid-template-columns: minmax(0,1fr); grid-template-rows: 20px 14px; row-gap: 4px; align-content: center; }`（T-015でレベルメーターの場所を空けるため、`row-gap: 2px; align-content: start; padding: 5px 12px 0 14px` に変更。1.7）、`.cell-en { grid-row: 1; grid-column: 1; }`、`.cell-n { grid-row: 2; justify-self: end; padding-left: 0; font: 700 12px/14px var(--font); }`。0件のタイルでも2行目の高さを確保して、英字の位置を全タイルで揃える。360×740で11段×54＋隙間＝630は変わらない。
 
 ### 1.5 発光の規則の改訂と性能の保証
 
