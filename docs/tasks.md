@@ -17,7 +17,7 @@
 |----|--------|--------|------|------------------|------|
 | T-001 | Phase 0: 要件の洗い出しと決定の記録 | 高 | 完了 | planner, claude | D-001〜D-009を記録。ユーザー回答（配信先・画面端・DP・ブランチ）を反映済み |
 | T-002 | Phase 0: モーション集合と日本語表示名の調査 | 高 | 完了 | researcher | 公式movelist32ページを集計し、プリセット8個とキャラクターマスタ32件をD-010に記録 |
-| T-003 | Phase 0: 環境確認と土台 | 高 | 未着手 | developer | node・python3・ヘッドレスChromiumの有無を確認し、app/とtests/の空の土台、package.json、32キャラのマスタを作る。完了条件: npm testが終了コード0、app/が配信できる、確認方法をprogress.mdに記録 |
+| T-003 | Phase 0: 環境確認と土台 | 高 | 完了 | developer | node・python3・ヘッドレスChromiumの有無を確認し、app/とtests/の空の土台、package.json、32キャラのマスタを作る。完了条件: npm testが終了コード0、app/が配信できる、確認方法をprogress.mdに記録 |
 | T-004 | Phase 0: デザイン仕様 | 高 | 完了 | designer | docs/design-spec.mdに保存。ダーク固定、システム行は横スクロール1段、保存は上部バー右（ユーザー確認済み） |
 | T-005 | Phase 1: 文書の検証と取り込みのマージ（core.js） | 高 | 未着手 | developer | 依存: T-003。完了条件: npm testで検証・マージ・往復のテストが通る |
 | T-006 | Phase 1: パッド入力の状態遷移とトークン表示（core.js） | 高 | 未着手 | developer | 依存: T-003。完了条件: npm testで9タップの検算を含む入力遷移と表示記述子のテストが通る |
