@@ -1,5 +1,5 @@
 import {
-  CHARACTERS, MOVE_NAMES, neonLevel, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
+  CHARACTERS, MOVE_NAMES, NEON_STEPS, neonLevel, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
   sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
   applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
   mergeImport, exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
@@ -10,7 +10,7 @@ import {
 // 記号は index.html の SVGスプライトを <use> で参照する（Unicodeでは描かない）。
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ROTATE = { 6: 0, 3: 45, 2: 90, 1: 135, 4: 180, 7: 225, 8: 270, 9: 315 }; // i-arrow は右向き
-const STR_CLASS = { L: 'str-l', M: 'str-m', H: 'str-h', N: 'str-n' }; // N=強度の指定なし（無彩色の●、D-013）
+const STR_CLASS = { L: 'str-l', M: 'str-m', H: 'str-h', N: 'str-n' }; // N=強度なし（無彩色の●、D-013）
 const STR_TEXT = { L: '弱', M: '中', H: '強', N: '強度なし' };
 const SYS_KIND = { CDR: 'dr', RAW_DR: 'dr', DI: 'di', PARRY: 'dp', REVERSAL: 'dp' }; // システム技の種別。チップの色と枠の形（design-spec-v2 3章）
 
@@ -43,7 +43,7 @@ function arrow(dir) {
 }
 
 function dot(key, colorCls, str) {
-  const badge = str && str !== 'N'; // 強度の指定なしには補助文字を付けない
+  const badge = str && str !== 'N'; // 強度なしには補助文字を付けない
   const d = el('span', `dot ${colorCls}${badge ? ' has-str' : ''}`);
   d.append(icon(key === 'P' ? 'i-dot-p' : 'i-dot-k', 'dot-svg'));
   if (badge) d.append(el('span', 'badge', STR_TEXT[str]));
@@ -88,7 +88,7 @@ function chipNodes(token, label, notation) {
 }
 
 // onChip を渡すと、技とタグを <button> にしてタップできる（詳細・編集）。渡さなければ読み上げ用の span のまま（一覧・直近のS）。
-// 両画面が同じ呼び出しなので、DOM は画面によらず同じになる。
+// canTap(token) が偽のチップは、onChip があっても span のまま（詳細で、出す情報がないチップをボタンにしないため）。
 function tapPart(cls, label, index, token, nodes, onChip) {
   const b = el('button', cls);
   b.type = 'button';
@@ -101,8 +101,8 @@ function tapPart(cls, label, index, token, nodes, onChip) {
   return b;
 }
 
-// tokens → .row 要素。opts: { size: 'L'|'S', notation: 'arrow'|'numpad', strengthLabels: boolean, onChip?: (index, token, button) => void }
-export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabels = false, onChip = null } = {}) {
+// tokens → .row 要素。opts: { size: 'L'|'S', notation: 'arrow'|'numpad', strengthLabels: boolean, onChip?: (index, token, button) => void, canTap?: (token) => boolean }
+export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabels = false, onChip = null, canTap = () => true } = {}) {
   const row = el('div', `row ${size}${strengthLabels ? ' str-labels' : ''}`);
   let grp = null;
   for (const d of describeRow(tokens, notation)) {
@@ -112,12 +112,12 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
       continue;
     }
     grp = el('span', 'grp');
-    for (const n of d.notes) grp.append(onChip ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
+    for (const n of d.notes) grp.append(onChip && canTap({ type: 'note', id: n.id }) ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
     if (d.token) {
       const kind = d.token.type === 'sa' ? 'sa' : d.token.type === 'move' ? 'mv' : SYS_KIND[d.token.id]; // system・sa・move 以外は undefined
       const cls = kind ? `chip sys sys-${kind}` : 'chip';
       const nodes = chipNodes(d.token, d.label, notation);
-      if (onChip) grp.append(tapPart(cls, d.label, d.index, d.token, nodes, onChip));
+      if (onChip && canTap(d.token)) grp.append(tapPart(cls, d.label, d.index, d.token, nodes, onChip));
       else {
         const chip = el('span', cls);
         chip.setAttribute('role', 'img');
@@ -338,7 +338,7 @@ function announce(msg) {
 // ===== SECTION: ボトムシート =====
 // 開くときに pushState し、戻る操作（popstate）で閉じる。開いている間は #app を inert にして Tab を閉じ込める。
 let activeSheet = null;
-const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), a[href]';
+const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]'; // [tabindex="0"] は凡例のスクロール領域（キーボードで操作できるようにTab停止に含める）
 
 // pop: true ならチップに近接するポップオーバー（暗幕なし、タイトルと［閉じる］なし）。履歴・Tab閉じ込め・Escは共通。
 function openSheet(opener, { pop = false } = {}) {
@@ -552,10 +552,13 @@ const LONG_EN = new Set(['kimberly']);
 
 // キャラ選択のタイル（homeScreenとtests/check.htmlの両方が使う）。見えるのは英字と件数だけで、読み上げ名はカナ・日本語名（aria-label）。
 // data-lv は記録数のネオン段階（core.js neonLevel。色と発光はstyles.cssの「ネオンの段階」節）
+// 下端のレベルメーター（.cell-lv）は、10個の目盛りのうち段階の数だけ点灯する。色だけでなく数で隣の段階を見分けるため（D-015）
 export function charTile(c, n) {
+  const lv = neonLevel(n);
   return at(h('a', `cell${n ? ' lit' : ''}${LONG_EN.has(c.id) ? ' long' : ''}`,
-    at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' }), ...(n ? [h('span', 'cell-n', `${n}件`)] : [])),
-  { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name, 'data-lv': String(neonLevel(n)) });
+    at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' }), ...(n ? [h('span', 'cell-n', `${n}件`)] : []),
+    at(h('span', 'cell-lv', ...NEON_STEPS.map((_, i) => h('i', i < lv ? 'on' : ''))), { 'aria-hidden': 'true' })),
+  { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name, 'data-lv': String(lv) });
 }
 
 function homeScreen() {
@@ -670,6 +673,13 @@ function listScreen({ cid }) {
 const MOVE_FULL = { FWD_STEP: '前ステップ', BACK_STEP: 'バックステップ' };
 const SYS_FULL = { CDR: 'キャンセルドライブラッシュ', RAW_DR: 'パリィドライブラッシュ', DI: 'ドライブインパクト', PARRY: 'ドライブパリィ', REVERSAL: 'ドライブリバーサル' };
 const NOTE_FULL = { CH: 'カウンターヒット', PC: 'パニッシュカウンター' };
+// チップの正式名称（略称つき）。通常技・必殺技は略称がないので null（必殺技はモーションの対応表示を出す）
+const fullName = (t) => ({
+  system: () => `${SYS_FULL[t.id]}（${tokenLabel(t)}）`,
+  sa: () => `スーパーアーツ${t.level}（SA${t.level}）`,
+  note: () => `${NOTE_FULL[t.id]}（${t.id}）`,
+  move: () => `${MOVE_FULL[t.id]}（${MOVE_NAMES[t.id]}）`,
+})[t.type]?.() ?? null;
 const nm = (stance, str, key, dir) => ({ type: 'normal', stance, ...(dir && { dir }), key, str });
 const MOTION_MEANING = { 22: '下下（下を2回）', 63214: '通称なし（右・右下・下・左下・左）', '[4]6': '溜め横（左を溜めて右）', '[2]8': '溜め縦（下を溜めて上）' };
 
@@ -687,7 +697,7 @@ function legendTable() {
       [shape([nm('stand', 'L', 'P')]), '水色の円＝弱。円の中の文字がP（パンチ）かK（キック）', '弱P'],
       [shape([nm('stand', 'M', 'K')]), '薄い黄の円＝中', '中K'],
       [shape([nm('stand', 'H', 'P')]), '薄い赤の円＝強', '強P'],
-      [shape([nm('stand', 'N', 'P')]), '灰色の円＝強度の指定なし（弱・中・強を区別しない）', 'P'],
+      [shape([nm('stand', 'N', 'P')]), '灰色の円＝強度なし（弱・中・強を区別しない）', 'P'],
       [shape([nm('stand', 'H', 'K')], { strengthLabels: true }), '設定で円の隅に弱・中・強の小さな文字を出せる（既定はオフ）', '強K'],
     ]],
     ['姿勢', [
@@ -709,10 +719,10 @@ function legendTable() {
     ['移動', ['FWD_STEP', 'BACK_STEP'].map((id) => [shape([{ type: 'move', id }], L), `${MOVE_FULL[id]}。破線の枠`, MOVE_NAMES[id]])],
     ['つなぎ', [[conn(), '技と技のつなぎ。自動で入る', '▶']]],
   ];
-  const table = h('table', 'leg', h('thead', '', h('tr', '', h('th', '', '形'), h('th', '', '意味'), h('th', '', '書き出し時の表記'))));
+  const table = h('table', 'leg', h('thead', '', h('tr', '', h('th', '', '形'), h('th', '', '意味と書き出し時の表記'))));
   for (const [name, rows] of groups) {
-    table.append(h('tbody', '', h('tr', '', at(h('th', 'leg-g', name), { colspan: '3' })),
-      ...rows.map(([a, b, c]) => h('tr', '', h('td', 'leg-shape', a), h('td', '', b), h('td', 'leg-out', c)))));
+    table.append(h('tbody', '', h('tr', '', at(h('th', 'leg-g', name), { colspan: '2' })),
+      ...rows.map(([a, b, c]) => h('tr', '', h('td', 'leg-shape', a), h('td', '', b, h('div', 'leg-out', c))))));
   }
   return table;
 }
@@ -727,7 +737,7 @@ function helpButton() {
 function openLegend(opener) {
   const sh = openSheet(opener);
   sh.box.classList.add('tall');
-  sh.show('凡例', at(h('div', 'sheet-body', legendTable()), { tabindex: '0' })); // 長い表なのでキーボードでもスクロールできるようにする
+  sh.show('凡例', at(h('div', 'sheet-body', legendTable()), { tabindex: '0', role: 'region', 'aria-label': '凡例の表' })); // 長い表なので、フォーカスできる領域にしてキーボード（矢印・PageDown）でもスクロールできるようにする
 }
 
 // ===== SECTION: 詳細画面 =====
@@ -738,10 +748,12 @@ function detailScreen({ cid, rid }) {
   const c = data.combos.find((x) => x.id === rid);
   const sec = data.sections.find((s) => s.id === c.sectionId);
   const { notation, strengthLabels } = settings;
+  // 出す情報（モーションの対応表示、正式名称）がある技・注記だけがボタン。通常技は表示名と読み上げ名が同じなので、ボタンにしない
   const onChip = (index, token, chip) => {
     const sh = openSheet(chip, { pop: true });
-    sh.pop(h('div', 'pop-body', token.type === 'special' ? motionNote(token.motion) : h('div', 'pop-note', tokenLabel(token, notation))));
+    sh.pop(h('div', 'pop-body', token.type === 'special' ? motionNote(token.motion) : h('div', 'pop-note pop-name', fullName(token))));
   };
+  const canTap = (t) => t.type === 'special' || fullName(t) !== null;
   const other = btn('', 'その他…', () => {
     const sh = openSheet(other);
     sh.show('その他', h('div', 'sheet-body flush', menuItem('削除', () => sh.close(() => removeCombo(c)))));
@@ -750,17 +762,19 @@ function detailScreen({ cid, rid }) {
     h('p', 'd-meta', [sec.name, POS[c.position], c.tags.join(' ')].filter(Boolean).join('・')),
     ...(c.title ? [h('h2', 'd-title', c.title)] : []),
     ...(c.damage === undefined ? [] : [h('p', 'd-stat', h('span', 'd-stat-l', 'ダメージ'), h('b', 'd-stat-n', fmtDamage.format(c.damage)))]),
-    h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip })),
+    h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip, canTap })),
     ...(c.memo ? [h('section', 'd-memo', h('h2', 'd-memo-h', 'メモ'), h('p', '', c.memo))] : []));
   const bottom = h('footer', 'bottombar', other, btn('', '複製', () => duplicate(c)), at(h('a', 'btn primary', '編集'), { href: `#/c/${cid}/r/${rid}/edit` }));
   return shell({ title: `${charName(cid)}/${sec.name}`, back: { label: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}` }, right: [helpButton()], notices: banners(), main: [main], bottom });
 }
 
+let focusUndo = false; // 次の描画の終わりに［元に戻す］へフォーカスを移す（記録の削除）
 // 削除: 一覧へ移り、取り消しトーストを出す。取り消しは直前の状態（prev）をそのまま書き戻す。
 function removeCombo(c) {
   const prev = data;
   if (!commit({ sections: data.sections, combos: data.combos.filter((x) => x.id !== c.id) })) { render({ keepScroll: true }); return; }
-  showToast(`『${c.title || '無題'}』を削除しました`, { label: '元に戻す', onAction: () => { commit(prev); render({ keepScroll: true }); } });
+  showToast(`「${c.title || '無題'}」を削除しました`, { label: '元に戻す', onAction: () => { commit(prev); render({ keepScroll: true }); } });
+  focusUndo = true; // 一覧へ移ったあと（履歴を戻す遷移は非同期）、キーボード操作で［元に戻す］に届くようにする
   const to = `#/c/${c.characterId}`;
   if (navN > 0 && prevHash === to) history.back(); // 一覧から来たなら履歴を戻す。それ以外は詳細の履歴を一覧に置き換える
   else { history.replaceState({ n: navN }, '', to); navigate(); }
@@ -847,6 +861,16 @@ function buildPad(act, recents, notation, strengthLabels, onDone) {
     stanceKeys.push([v, k]);
     return k;
   })), { role: 'radiogroup', 'aria-label': '姿勢' });
+  // ラジオグループの作法（roving tabindex）: Tabの停止は選択中の1つだけ。矢印キーで隣へ移り、そのまま選ぶ
+  stance.addEventListener('keydown', (e) => {
+    const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    const i = stanceKeys.findIndex(([, k]) => k === document.activeElement);
+    if (!d || i < 0) return;
+    e.preventDefault();
+    const [v, k] = stanceKeys[(i + d + stanceKeys.length) % stanceKeys.length];
+    act({ type: 'stance', value: v });
+    k.focus();
+  });
   const undo = padKey('', '直前の入力を取り消す', () => act({ type: 'undo' }), svgIcon('i-back'), h('span', 'undo-t', '消す'));
   const buttons = ['P', 'K'].flatMap((k) => [
     ...['L', 'M', 'H'].map((s) => padKey('bkey', `${STR_TEXT[s]}${k}`, () => act({ type: 'button', key: k, str: s }), dot(k, STR_CLASS[s], s))),
@@ -858,7 +882,7 @@ function buildPad(act, recents, notation, strengthLabels, onDone) {
   const sync = ({ stance: st, dirs: ds }) => {
     // ↓を押したあとモーションを選ぶと、確定する技に↓は入らない。姿勢の選択も立ちに戻して見た目と一致させる。
     const shown = st === 'crouch' && ds.join('').length >= 2 ? 'stand' : st;
-    for (const [v, k] of stanceKeys) k.setAttribute('aria-checked', String(v === shown));
+    for (const [v, k] of stanceKeys) { k.setAttribute('aria-checked', String(v === shown)); k.tabIndex = v === shown ? 0 : -1; }
     for (const [v, k] of presetKeys) k.setAttribute('aria-pressed', String(ds.length === 1 && ds[0] === v));
   };
   return { pad, sync };
@@ -943,6 +967,7 @@ function editScreen(route) {
     const sh = openSheet(chip, { pop: true });
     const body = h('div', 'pop-body');
     if (token.type === 'special') body.append(motionNote(token.motion));
+    else if (fullName(token)) body.append(h('div', 'pop-note pop-name', fullName(token)));
     const choices = strengthChoices(token);
     if (choices.length) {
       const cur = token.type === 'sa' ? token.level : token.str;
@@ -1340,6 +1365,7 @@ function render({ keepScroll = false, focus, dir = null } = {}) {
   const target = (focus ?? []).map(byFk).find((t) => t && !t.disabled);
   if (target) target.focus({ preventScroll: true });
   else if (!keepScroll || focus) screen.querySelector('h1').focus({ preventScroll: true });
+  if (focusUndo) { focusUndo = false; document.querySelector('.toast-act')?.focus({ preventScroll: true }); }
 }
 
 function navigate() {

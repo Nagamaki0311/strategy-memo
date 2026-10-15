@@ -82,7 +82,32 @@ const hash = (page) => page.evaluate(() => location.hash);
 const names = (page) => page.$$eval('.sec-name', (els) => els.map((e) => e.textContent));
 const noHScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 const shot = async (page, name, width) => { if (SHOTS && width === 360) await page.waitForTimeout(350); if (SHOTS && width === 360) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
-const gotoHash = async (page, h) => { await page.evaluate((x) => { location.hash = x; }, h); await page.waitForTimeout(250); };
+// hash を変え、画面が描き直される（#app の .screen が新しい要素になる）まで待つ。同じ hash なら何も起きないので待たない。
+// 固定の待ち時間ではなく描き直しを待つ（遅い環境でのゆらぎと、速い環境での無駄な待ちをなくす）
+const gotoHash = async (page, h) => {
+  const same = await page.evaluate((x) => {
+    if (location.hash === x) return true;
+    window.__screen = document.querySelector('.screen');
+    location.hash = x;
+    return false;
+  }, h);
+  // 新しい画面の出現アニメーション（translateX。終わるまで横にはみ出す）が終わるまで待つ
+  if (!same) await page.waitForFunction(() => { const s = document.querySelector('.screen'); return s && s !== window.__screen && s.getAnimations().length === 0; });
+};
+// コマンド列のDOMを、編集と詳細で比べられる形にする。詳細は出す情報のないチップ（通常技）を <button> にしない（B-Med3）ので、ボタンも span の読み上げ形にそろえる
+const normRow = (r) => {
+  const c = r.cloneNode(true);
+  c.querySelectorAll('.cursor, .pending, .to-end, .cmd-hint').forEach((x) => x.remove()); // 編集だけにある挿入カーソル等
+  c.querySelectorAll('button.chip, button.tag').forEach((b) => {
+    const sp = document.createElement('span');
+    sp.className = b.className;
+    sp.setAttribute('role', 'img');
+    sp.setAttribute('aria-label', b.getAttribute('aria-label'));
+    sp.append(...b.childNodes);
+    b.replaceWith(sp);
+  });
+  return c.outerHTML;
+};
 
 // ===== SECTION: 19 Service Worker・manifest・配信（T-013） =====
 // 本物のオリジン（localhost）が要るので、python の http.server とは別に、app/ だけを配信する静的サーバーを立てる。
@@ -254,16 +279,16 @@ for (const width of [360, 430]) {
         rmSync(work, { recursive: true });
       }
     });
-    await check(`${tag} 19b アイコンのPNGは新しい図案（背景・●・管の芯の3点の色。192と512）`, async () => {
+    await check(`${tag} 19b アイコンのPNGは新しい図案（背景・●P・管の芯・●Kの4点の色。192と512）`, async () => {
       const px = (src, pts) => page.evaluate(async ([u, pts]) => {
         const img = new Image(); img.src = u; await img.decode();
         const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
         const g = c.getContext('2d'); g.drawImage(img, 0, 0);
         return pts.map(([x, y]) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3));
       }, [`${root.origin()}${src}`, pts]);
-      const want = [[14, 15, 17], [240, 216, 112], [255, 196, 160]]; // #0E0F11 地、#F0D870 の●（Pの上）、#FFC4A0 の管の芯（上辺の中央）
+      const want = [[14, 15, 17], [240, 216, 112], [255, 196, 160], [143, 211, 240]]; // #0E0F11 地、#F0D870 の●P（Pの左）、#FFC4A0 の管の芯（上辺）、#8FD3F0 の●K（Kの右）
       for (const [src, k] of [['icon-512.png', 1], ['icon-192.png', 0.375]]) {
-        const got = await px(src, [[10 * k, 10 * k], [256 * k, 200 * k], [276 * k, 151 * k]].map(([x, y]) => [Math.round(x), Math.round(y)]));
+        const got = await px(src, [[10 * k, 10 * k], [170 * k, 256 * k], [276 * k, 166 * k], [345 * k, 256 * k]].map(([x, y]) => [Math.round(x), Math.round(y)]));
         got.forEach((c, i) => assert.ok(c.every((v, j) => Math.abs(v - want[i][j]) <= 12), `${src} 点${i} ${c} != ${want[i]}`));
       }
     });
@@ -1034,11 +1059,7 @@ for (const width of [360, 430]) {
     let clicks = 0;
     const tap = async (loc) => { clicks++; await loc.click(); };
     const checked = (name) => radio(name).getAttribute('aria-checked');
-    const rowDom = () => page.$eval('.cmd .row', (r) => {
-      const c = r.cloneNode(true);
-      c.querySelectorAll('.cursor, .pending, .to-end, .cmd-hint').forEach((x) => x.remove()); // 編集だけにある挿入カーソル等
-      return c.outerHTML;
-    });
+    const rowDom = () => page.$eval('.cmd .row', normRow);
 
     await check(`${tag} 12 空の編集画面: 案内文・下書き表示なし・セクション選択済み・パッドは下部`, async () => {
       assert.equal(await page.locator('.cmd-hint').innerText(), '下のパッドで技を入力');
@@ -1109,7 +1130,7 @@ for (const width of [360, 430]) {
     await page.reload();
     await check(`${tag} 12 受け入れ基準7.3-2: 再読み込み後の詳細のコマンド列DOMが、入力直後の編集画面と同じ`, async () => {
       await page.waitForSelector('.d-cmd .row');
-      const after = await page.$eval('.d-cmd .row', (r) => r.outerHTML);
+      const after = await page.$eval('.d-cmd .row', normRow);
       assert.ok(typedDom.length > 500);
       assert.equal(after, typedDom);
     });
@@ -1332,7 +1353,7 @@ for (const width of [360, 430]) {
     await page.locator('.cmd .chip').nth(2).click(); // CDR は強度なし
     await check(`${tag} 14 システム技のポップオーバーに強度の行はない`, async () => {
       assert.equal(await pop.locator('.pop-row').count(), 1);
-      assert.equal(await pop.locator('.pop-note').count(), 0);
+      assert.deepEqual(await pop.locator('.pop-note').allInnerTexts(), ['キャンセルドライブラッシュ（CDR）']); // 正式名称（モーションの対応表示ではない）
     });
     await page.keyboard.press('Escape');
     // 前に挿入
@@ -1634,10 +1655,10 @@ for (const width of [360, 430]) {
     await page.getByRole('button', { name: 'その他…' }).click();
     await shot(page, '34-detail-more', width);
     await page.getByRole('button', { name: '削除' }).click();
-    await check(`${tag} 16 削除: 一覧へ移り、トースト「『タイトル』を削除しました［元に戻す］」`, async () => {
+    await check(`${tag} 16 削除: 一覧へ移り、トースト「「タイトル」を削除しました［元に戻す］」`, async () => {
       await page.waitForSelector('.sheet', { state: 'detached' });
       await page.waitForFunction(() => location.hash === '#/c/ryu');
-      assert.match(await page.locator('#toast').innerText(), /『基本コンボのコピー』を削除しました/);
+      assert.match(await page.locator('#toast').innerText(), /「基本コンボのコピー」を削除しました/);
       assert.equal(await page.getByRole('button', { name: '元に戻す' }).count(), 1);
       assert.equal((await stored(page)).combos.some((c) => c.id === copyId), false);
       assert.equal(await page.locator('.item').count(), 3);
@@ -1659,7 +1680,7 @@ for (const width of [360, 430]) {
     await p2.waitForSelector('.item');
     await check(`${tag} 16 一覧から来た詳細の削除: 履歴を戻して一覧へ。さらに戻るとキャラクター選択（一覧が重複しない）`, async () => {
       assert.equal(await p2.locator('.item', { hasText: '長いコンボ' }).count(), 0);
-      assert.match(await p2.locator('#toast').innerText(), /『長いコンボ』を削除しました/);
+      assert.match(await p2.locator('#toast').innerText(), /「長いコンボ」を削除しました/);
       await p2.goBack();
       assert.ok(['', '#/'].includes(await hash(p2)), await hash(p2));
     });
@@ -2569,11 +2590,7 @@ for (const width of [360, 430]) {
     const aria = (page, name) => page.getByRole('button', { name, exact: true });
     const chipsOf = (page) => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')));
     const draftTokens = async (page) => JSON.parse(await storedRaw(page, 'sf6memo.drafts'))['new:s1'].tokens;
-    const rowDom = (page, sel = '.cmd .row') => page.$eval(sel, (r) => {
-      const c = r.cloneNode(true);
-      c.querySelectorAll('.cursor, .pending, .to-end, .cmd-hint').forEach((x) => x.remove());
-      return c.outerHTML;
-    });
+    const rowDom = (page, sel = '.cmd .row') => page.$eval(sel, normRow);
 
     // 20a パッドの4段目（前ステ・バクステ、強度なし）と、パッドを開いたときの余白
     {
@@ -2663,7 +2680,7 @@ for (const width of [360, 430]) {
       await page.reload();
       await check(`${tag} 20b 保存→再読み込みで、詳細のコマンド列が入力直後と同じDOM。保存データは版2`, async () => {
         await page.waitForSelector('.d-cmd .row');
-        assert.equal(await page.$eval('.d-cmd .row', (r) => r.outerHTML), typedDom);
+        assert.equal(await page.$eval('.d-cmd .row', normRow), typedDom);
         assert.equal(original.schemaVersion, 2);
         assert.equal(original.combos.find((c) => c.title === 'ステップ').tokens.length, 5);
       });
@@ -2761,10 +2778,10 @@ for (const width of [360, 430]) {
       }
       await page.locator('button[aria-label="凡例を開く"]').click();
       await page.waitForSelector('.sheet.tall');
-      await check(`${tag} 20d 凡例に灰色の●P（強度の指定なし、書き出し「P」）と「移動」群（前ステ・バクステ、破線の枠）がある`, async () => {
+      await check(`${tag} 20d 凡例に灰色の●P（強度なし、書き出し「P」）と「移動」群（前ステ・バクステ、破線の枠）がある`, async () => {
         await page.waitForTimeout(300);
         const t = await page.locator('.leg').innerText();
-        for (const w of ['移動', '前ステップ', 'バックステップ', '強度の指定なし']) assert.ok(t.includes(w), w);
+        for (const w of ['移動', '前ステップ', 'バックステップ', '強度なし']) assert.ok(t.includes(w), w);
         assert.equal(await page.locator('.leg .dot.str-n').count(), 1);
         assert.equal(await page.locator('.leg .dot.str-n').evaluate((e) => getComputedStyle(e).color), 'rgb(133, 133, 133)');
         assert.deepEqual(await page.locator('.leg .sys-mv').evaluateAll((e) => e.map((x) => [x.getAttribute('aria-label'), getComputedStyle(x).borderTopStyle])), [['前ステ', 'dashed'], ['バクステ', 'dashed']]);
@@ -3015,27 +3032,27 @@ for (const width of [360, 430]) {
     // 21c ロゴ: キャラ選択の上部バー
     {
       const page = await newPage(width, seedState());
-      await check(`${tag} 21c ロゴ: キャラ選択の上部バーに .logo（26×20、aria-hidden、#i-logo）。h1の読み上げ名は「SF6戦略メモ」`, async () => {
+      await check(`${tag} 21c ロゴ: キャラ選択の上部バーに .logo（34×20、aria-hidden、#i-logo）。h1の読み上げ名は「SF6戦略メモ」`, async () => {
         const r = await page.$eval('.topbar h1', (h) => { const l = h.querySelector('svg.logo'); const b = l.getBoundingClientRect(); return [h.querySelectorAll('svg').length, l.getAttribute('aria-hidden'), l.querySelector('use').getAttribute('href'), b.width, b.height, h.textContent]; });
-        assert.deepEqual(r, [1, 'true', '#i-logo', 26, 20, 'SF6戦略メモ']);
+        assert.deepEqual(r, [1, 'true', '#i-logo', 34, 20, 'SF6戦略メモ']);
         assert.equal(await page.getByRole('heading', { name: 'SF6戦略メモ', exact: true, level: 1 }).count(), 1);
         const sym = await page.$eval('#i-logo', (s) => [s.getAttribute('viewBox'), s.querySelectorAll('path').length, s.querySelectorAll('circle').length, s.innerHTML.includes('filter'), s.querySelector('path:last-of-type').getAttribute('stroke')]);
-        assert.deepEqual(sym, ['100 137 312 238', 3, 1, false, 'var(--ink)']);
+        assert.deepEqual(sym, ['77 152 358 208', 4, 3, false, 'var(--ink)']); // 管2本とP・K、●2つと縁取り
         assert.equal(await page.$eval('.logo', (e) => getComputedStyle(e).filter), 'none');
         assert.equal(await page.$eval('.topbar h1', (h) => getComputedStyle(h).fontFamily.includes('Tilt Neon')), false); // 名前の文字は和文のシステムフォント（併記しない）
       });
-      await check(`${tag} 21c ロゴは実際に描かれる（上部バーの .logo の領域に橙の管と黄の●の画素がある）`, async () => {
+      await check(`${tag} 21c ロゴは実際に描かれる（上部バーの .logo の領域に橙の管、黄の●P、水色の●Kの画素がある）`, async () => {
         const bb = await page.locator('.topbar .logo').boundingBox();
         const png = await page.screenshot({ clip: { x: bb.x, y: bb.y, width: bb.width, height: bb.height } });
         const px = await page.evaluate(async (b64) => {
           const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
           const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
           const g = c.getContext('2d'); g.drawImage(img, 0, 0);
-          const d = g.getImageData(0, 0, c.width, c.height).data; let orange = 0, yellow = 0;
-          for (let i = 0; i < d.length; i += 4) { if (d[i] > 200 && d[i + 1] < 130 && d[i + 2] < 90) orange++; if (d[i] > 200 && d[i + 1] > 190 && d[i + 2] < 150) yellow++; }
-          return { orange, yellow };
+          const d = g.getImageData(0, 0, c.width, c.height).data; let orange = 0, yellow = 0, cyan = 0;
+          for (let i = 0; i < d.length; i += 4) { if (d[i] > 200 && d[i + 1] < 130 && d[i + 2] < 90) orange++; if (d[i] > 200 && d[i + 1] > 190 && d[i + 2] < 150) yellow++; if (d[i] > 110 && d[i] < 180 && d[i + 1] > 180 && d[i + 2] > 210) cyan++; }
+          return { orange, yellow, cyan };
         }, png.toString('base64'));
-        assert.ok(px.orange >= 15 && px.yellow >= 10, JSON.stringify(px));
+        assert.ok(px.orange >= 15 && px.yellow >= 10 && px.cyan >= 10, JSON.stringify(px));
       });
       await shot(page, '50-home-logo', width);
       await page.context().close();
@@ -3275,6 +3292,274 @@ for (const width of [360, 430]) {
         assert.equal(await page.locator('.cmd .chip').last().getAttribute('aria-label'), '立ち弱P');
       });
       await check(`${tag} 22h ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+  }
+
+  // 23. T-015 修正2段目（UI）: 凡例のキーボード・レベルメーター・詳細のチップの正式名称・タップ領域・入力欄・姿勢キー・削除後のフォーカス・640px・禁止事項（D-015）
+  {
+    const seed23 = () => {
+      const st = seedState();
+      st.combos.push(combo('c4', 's1', '移動', [{ type: 'move', id: 'FWD_STEP' }, { type: 'move', id: 'BACK_STEP' }, N('stand', 'N', 'P')]));
+      return st;
+    };
+    const ratioIn = (page, fg, bg) => page.evaluate(([a, b]) => {
+      const lum = (c) => { const [r, g, bl] = c.match(/\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * bl; };
+      const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+      return (x + 0.05) / (y + 0.05);
+    }, [fg, bg]);
+
+    // 23a 凡例シート: スクロール領域をキーボードで操作できる（B-Med1）。意味の列の幅（B-Low2）
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await page.locator('button[aria-label="凡例を開く"]').click();
+      await page.waitForSelector('.sheet.tall');
+      await check(`${tag} 23a 凡例: スクロール領域は tabindex=0・role=region で、開いた直後にフォーカスがあり、キーボード（PageDown）でスクロールできる`, async () => {
+        const r = await page.evaluate(() => { const b = document.querySelector('.sheet-body'); return [b.tabIndex, b.getAttribute('role'), b.getAttribute('aria-label'), document.activeElement === b, b.scrollHeight > b.clientHeight]; });
+        assert.deepEqual(r, [0, 'region', '凡例の表', true, true]);
+        await page.keyboard.press('PageDown');
+        await page.waitForFunction(() => document.querySelector('.sheet-body').scrollTop > 100);
+      });
+      await check(`${tag} 23a 凡例: Tab は［閉じる］とスクロール領域を巡回し（シートの外へ出ない）、フォーカスリングが見える`, async () => {
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => document.activeElement.textContent), '閉じる');
+        await page.keyboard.press('Tab');
+        assert.deepEqual(await page.evaluate(() => { const a = document.activeElement; return [a.classList.contains('sheet-body'), getComputedStyle(a).outlineStyle, getComputedStyle(a).outlineWidth]; }), [true, 'solid', '2px']);
+        await page.keyboard.press('Shift+Tab');
+        assert.equal(await page.evaluate(() => document.activeElement.textContent), '閉じる');
+      });
+      await check(`${tag} 23a 凡例: 意味の列は170px以上あり、書き出し時の表記は意味の下の行（.leg-out）にある`, async () => {
+        const r = await page.evaluate(() => [...document.querySelectorAll('.leg tbody tr')].filter((tr) => tr.children.length === 2).map((tr) => [tr.children[1].getBoundingClientRect().width, tr.children[1].lastElementChild.className, getComputedStyle(tr.querySelector('.leg-out'), '::before').content]));
+        assert.ok(r.length > 20, String(r.length));
+        assert.ok(r.every(([w, cls, before]) => w >= 170 && cls === 'leg-out' && before === '"書き出し "'), JSON.stringify(r.find(([w, cls]) => w < 170 || cls !== 'leg-out')));
+        assert.ok(await noHScroll(page));
+      });
+      await page.context().close();
+    }
+
+    // 23b レベルメーター（B-Med2）
+    {
+      const page = await newPage(width, seedState());
+      await check(`${tag} 23b キャラ選択のタイル: 下端のレベルメーター（目盛り10個、点灯は段階の数、aria-hidden）。リュウ3件は3つ点灯、他は0`, async () => {
+        const r = await page.$$eval('.cell', (cs) => cs.map((c) => [c.getAttribute('aria-label'), c.dataset.lv, c.querySelectorAll('.cell-lv i').length, c.querySelectorAll('.cell-lv i.on').length, c.querySelector('.cell-lv').getAttribute('aria-hidden')]));
+        assert.equal(r.length, 32);
+        for (const [label, lv, n, on, hid] of r) assert.deepEqual([n, on, hid], [10, Number(lv), 'true'], label);
+        assert.deepEqual(r.find((x) => x[0].startsWith('リュウ')).slice(0, 2), ['リュウ 3件', '3']);
+        assert.equal(r.filter((x) => x[3] === 0).length, 31);
+      });
+      await check(`${tag} 23b レベルメーター: 点灯は英字と同じ色、消灯は --line-strong、影・filterなし、タイルの内側で件数と重ならない`, async () => {
+        const r = await page.$eval('.cell[aria-label^="リュウ"]', (c) => {
+          const ticks = [...c.querySelectorAll('.cell-lv i')], cs = (e) => getComputedStyle(e);
+          const t = c.getBoundingClientRect(), m = c.querySelector('.cell-lv').getBoundingClientRect(), n = c.querySelector('.cell-n').getBoundingClientRect();
+          return {
+            on: ticks.slice(0, 3).every((i) => cs(i).backgroundColor === cs(c.querySelector('.cell-en')).color),
+            off: [...new Set(ticks.slice(3).map((i) => cs(i).backgroundColor))],
+            flat: ticks.every((i) => cs(i).boxShadow === 'none' && cs(i).filter === 'none' && cs(i).backgroundImage === 'none'),
+            inside: m.bottom <= t.bottom - 2 && m.left >= t.left + 10 && m.right <= t.right - 10 && m.top >= n.bottom && m.height >= 3 && ticks.every((i) => i.getBoundingClientRect().width >= 3),
+          };
+        });
+        assert.deepEqual(r, { on: true, off: ['rgb(74, 80, 89)'], flat: true, inside: true });
+      });
+      await shot(page, '51-home-meter', width);
+      await page.context().close();
+    }
+
+    // 23c 詳細のチップ: 正式名称を出す。出す情報がないチップ（通常技）はボタンにしない（B-Med3）
+    {
+      const page = await newPage(width, seed23());
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await check(`${tag} 23c 詳細: 通常技のチップはボタンではなく（role=img）、必殺技・システム技はボタン`, async () => {
+        assert.deepEqual(await page.$$eval('.d-cmd .chip', (cs) => cs.map((c) => [c.tagName, c.getAttribute('aria-label'), c.getAttribute('role')])),
+          [['SPAN', '屈中K', 'img'], ['BUTTON', '波動 ↓↘→ 強P', null], ['BUTTON', 'CDR', null], ['SPAN', '屈中K', 'img'], ['BUTTON', '波動 ↓↘→ 強P', null]]);
+      });
+      const pop = page.locator('.popover');
+      const popText = async (sel) => {
+        await page.locator(sel).click();
+        await pop.waitFor();
+        const t = await pop.innerText();
+        await page.keyboard.press('Escape');
+        await pop.waitFor({ state: 'detached' });
+        return t;
+      };
+      await check(`${tag} 23c 詳細: CDRのポップオーバーは正式名称「キャンセルドライブラッシュ（CDR）」。必殺技はモーションの対応表示`, async () => {
+        assert.equal(await popText('.d-cmd button[aria-label="CDR"]'), 'キャンセルドライブラッシュ（CDR）');
+        assert.match(await popText('.d-cmd button[aria-label^="波動"] >> nth=0'), /＝ 236（波動）/);
+      });
+      await gotoHash(page, '#/c/ryu/r/c3');
+      await check(`${tag} 23c 詳細: 注記CHはボタンで「カウンターヒット（CH）」、SA3は「スーパーアーツ3（SA3）」`, async () => {
+        assert.equal(await page.locator('.d-cmd button.tag').count(), 1);
+        assert.equal(await popText('.d-cmd button.tag'), 'カウンターヒット（CH）');
+        assert.equal(await popText('.d-cmd button[aria-label="SA3"]'), 'スーパーアーツ3（SA3）');
+      });
+      await gotoHash(page, '#/c/ryu/r/c4');
+      await check(`${tag} 23c 詳細: 前ステ・バクステは「前ステップ（前ステ）」「バックステップ（バクステ）」。強度なしの通常技はボタンでない`, async () => {
+        assert.equal(await popText('.d-cmd button[aria-label="前ステ"]'), '前ステップ（前ステ）');
+        assert.equal(await popText('.d-cmd button[aria-label="バクステ"]'), 'バックステップ（バクステ）');
+        assert.deepEqual(await page.$$eval('.d-cmd .chip', (cs) => cs.map((c) => c.tagName)), ['BUTTON', 'BUTTON', 'SPAN']);
+      });
+      await check(`${tag} 23c 詳細: ポップオーバーの正式名称は fg・700で、下に余白を余らせない`, async () => {
+        await page.locator('.d-cmd button[aria-label="前ステ"]').click();
+        await pop.waitFor();
+        const r = await page.$eval('.popover .pop-name', (e) => [getComputedStyle(e).fontWeight, getComputedStyle(e).color, getComputedStyle(e).marginBottom]);
+        assert.deepEqual(r, ['700', 'rgb(242, 238, 230)', '0px']);
+        await page.keyboard.press('Escape');
+      });
+      await page.context().close();
+    }
+
+    // 23d 編集: 長いタグ（B-Low3）、CH・PCのタップ領域（B-Low4）、入力欄の枠（B-Low5）
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/r/c3/edit');
+      await check(`${tag} 23d 編集: CH・PCのタグの当たり領域は44×44以上で、隣の技の当たり領域（左5px）とは重ならない`, async () => {
+        const r = await page.$eval('.cmd button.tag', (t) => {
+          const b = t.getBoundingClientRect(), cy = b.top + b.height / 2, cx = b.left + b.width / 2;
+          const hit = (x, y) => document.elementFromPoint(x, y)?.closest('button');
+          const chip = t.parentElement.querySelector('button.chip'), cb = chip.getBoundingClientRect();
+          return {
+            w: b.width + 11 >= 44, h: b.height + 24 >= 44,
+            hits: [hit(b.left - 8, cy), hit(b.right + 1.5, cy), hit(cx, b.top - 11), hit(cx, b.bottom + 11)].map((e) => e === t),
+            chipLeft: hit(cb.left - 4, cy) === chip,
+          };
+        });
+        assert.deepEqual(r, { w: true, h: true, hits: [true, true, true, true], chipLeft: true });
+      });
+      await check(`${tag} 23d 編集: 30文字の区切りのないタグは画面幅に収まる（.pill の max-width と overflow-wrap）。横スクロールなし`, async () => {
+        await page.locator('#f-tag').fill('W'.repeat(30));
+        await page.locator('#f-tag').press('Enter');
+        const r = await page.$eval('.tag-list .pill', (p) => {
+          const b = p.getBoundingClientRect(), range = document.createRange();
+          range.selectNodeContents(p.firstChild);
+          return [b.left >= 0, b.right <= innerWidth, getComputedStyle(p).maxWidth, getComputedStyle(p).overflowWrap, range.getClientRects().length >= 2, p.scrollWidth <= p.clientWidth]; // 文字は2行以上に折り返され、枠から出ない
+        });
+        assert.deepEqual(r, [true, true, '100%', 'anywhere', true, true]);
+        assert.ok(await noHScroll(page));
+      });
+      await check(`${tag} 23d 編集: 入力欄・選択肢の枠は #6B727C（地との比3:1以上）`, async () => {
+        const r = await page.evaluate(() => ['#f-title', '#f-memo', '#f-sec', '.seg-item span'].map((s) => [getComputedStyle(document.querySelector(s)).borderTopColor, getComputedStyle(document.body).backgroundColor]));
+        for (const [c, bg] of r) {
+          assert.equal(c, 'rgb(107, 114, 124)');
+          assert.ok(await ratioIn(page, c, bg) >= 3, `${c} ${bg}`);
+        }
+        assert.ok(await ratioIn(page, 'rgb(107, 114, 124)', 'rgb(23, 25, 28)') >= 3); // シートの中（surface）の入力欄
+      });
+      await page.context().close();
+    }
+
+    // 23e 姿勢キー: ラジオグループの矢印キー操作（roving tabindex。B-Low6）
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      const st = () => page.$$eval('[aria-label="姿勢"] [role=radio]', (ks) => ks.map((k) => [k.getAttribute('aria-label'), k.getAttribute('aria-checked'), k.tabIndex]));
+      const on = () => page.evaluate(() => document.activeElement.getAttribute('aria-label'));
+      await check(`${tag} 23e 姿勢: Tab停止は選択中の1つだけ（立ち）`, async () => {
+        assert.deepEqual(await st(), [['立ち', 'true', 0], ['しゃがみ', 'false', -1], ['ジャンプ', 'false', -1]]);
+      });
+      await check(`${tag} 23e 姿勢: 矢印キーで隣へ移って選ぶ（右・下は次、左・上は前、端で巡回）。Tab停止も移る`, async () => {
+        await page.getByRole('radio', { name: '立ち', exact: true }).focus();
+        const seq = [['ArrowRight', 'しゃがみ'], ['ArrowDown', 'ジャンプ'], ['ArrowRight', '立ち'], ['ArrowLeft', 'ジャンプ'], ['ArrowUp', 'しゃがみ'], ['ArrowDown', 'ジャンプ']];
+        for (const [key, want] of seq) {
+          await page.keyboard.press(key);
+          assert.equal(await on(), want, key);
+          assert.deepEqual(await st(), ['立ち', 'しゃがみ', 'ジャンプ'].map((n) => [n, String(n === want), n === want ? 0 : -1]), key);
+        }
+      });
+      await check(`${tag} 23e 姿勢: 矢印で選ぶと入力にも反映され（ジャンプ→Pで ジャンプ弱P）、Tab は姿勢の次（消す）へ進む`, async () => {
+        await page.getByRole('button', { name: '弱P', exact: true }).click();
+        assert.equal(await page.locator('.cmd .chip').last().getAttribute('aria-label'), 'ジャンプ弱P');
+        await page.getByRole('radio', { name: 'ジャンプ', exact: true }).focus();
+        await page.keyboard.press('Tab');
+        assert.equal(await on(), '直前の入力を取り消す');
+      });
+      await check(`${tag} 23e 姿勢: ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 23f 記録の削除後は［元に戻す］へフォーカス（B-Low7）。履歴を戻す経路と、置き換える経路の両方
+    for (const [label, route] of [['一覧から詳細へ（履歴を戻す）', true], ['詳細を直接開いた（履歴を置き換える）', false]]) {
+      const page = await newPage(width, seedState());
+      if (route) {
+        await gotoHash(page, '#/c/ryu');
+        await page.locator('a.item', { hasText: '基本コンボ' }).click();
+        await page.waitForSelector('.d-cmd');
+      } else await gotoHash(page, '#/c/ryu/r/c1');
+      await page.getByRole('button', { name: 'その他…' }).click();
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await check(`${tag} 23f 記録の削除（${label}）: 一覧へ移ったあと、フォーカスは［元に戻す］にある`, async () => {
+        await page.waitForFunction(() => location.hash === '#/c/ryu' && document.activeElement?.classList.contains('toast-act'));
+        assert.equal(await page.evaluate(() => document.activeElement.textContent), '元に戻す');
+        await page.keyboard.press('Enter');
+        await page.waitForSelector('a.item:has-text("基本コンボ")');
+        assert.equal((await stored(page)).combos.length, 3);
+      });
+      await page.context().close();
+    }
+
+    // 23g 高さ640px以下では、パッドをコマンド列の下の通常の流れに置く（要件の矛盾の解消。閾値 max-height:640px）
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      const lay = () => page.evaluate(() => {
+        const s = document.querySelector('.screen.edit'), p = document.querySelector('.pad').getBoundingClientRect(), c = document.querySelector('.cmd').getBoundingClientRect();
+        return { overflow: getComputedStyle(s).overflow, padBelowCmd: p.top >= c.bottom - 1, padAtBottom: Math.abs(p.bottom - innerHeight) < 2 };
+      });
+      await page.setViewportSize({ width, height: 640 });
+      await check(`${tag} 23g 高さ640px: パッドは通常の流れ（.screen.edit は overflow:visible、パッドはコマンド列の下）`, async () => {
+        assert.deepEqual(await lay(), { overflow: 'visible', padBelowCmd: true, padAtBottom: false });
+      });
+      await page.setViewportSize({ width, height: 641 });
+      await check(`${tag} 23g 高さ641px: パッドは画面下端に固定（.screen.edit は overflow:hidden）`, async () => {
+        assert.deepEqual(await lay(), { overflow: 'hidden', padBelowCmd: true, padAtBottom: true });
+      });
+      await page.context().close();
+    }
+
+    // 23h ▶は読み上げで「次」（B-Test1）。常時の明滅（無限ループのアニメーション）・グラデーション・filter がない（design-spec-v2 2.6、B-Test1）
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await check(`${tag} 23h 詳細・一覧: ▶（.conn）は aria-hidden で、直前に読み上げ用の「、次、」（.sr-only）がある（5手で4つ）`, async () => {
+        const r = await page.$$eval('.d-cmd .conn', (cs) => cs.map((c) => [c.getAttribute('aria-hidden'), c.previousElementSibling?.className, c.previousElementSibling?.textContent]));
+        assert.deepEqual(r, Array(4).fill(['true', 'sr-only', '、次、']));
+        await gotoHash(page, '#/c/ryu');
+        assert.equal(await page.locator('a.item', { hasText: '基本コンボ' }).locator('.sr-only', { hasText: '、次、' }).count(), 4);
+      });
+      await check(`${tag} 23h 一覧: 記録のリンクの読み上げ名に「次」が4回入る（チップ名と次が交互）`, async () => {
+        const link = page.locator('a.item', { hasText: '基本コンボ' });
+        const snap = await link.ariaSnapshot();
+        assert.equal((snap.split('\n')[0].match(/次/g) ?? []).length, 4, snap); // 1行目 = リンクの名前
+        assert.ok(snap.includes('屈中K') && snap.includes('CDR'), snap);
+      });
+      const css = await page.evaluate(async () => (await (await fetch('./styles.css')).text()).split('\n').filter((l) => !l.includes('data:font/')).join('\n'));
+      await check(`${tag} 23h styles.css に gradient( と infinite（無限ループ）がない`, async () => {
+        assert.ok(css.length > 10000);
+        assert.ok(!/gradient\(/.test(css) && !/infinite/.test(css));
+      });
+      const forbidden = () => page.evaluate(() => {
+        const bad = [];
+        for (const e of document.querySelectorAll('*')) for (const ps of [null, '::before', '::after']) {
+          const cs = getComputedStyle(e, ps);
+          if (/gradient/.test(cs.backgroundImage) || /gradient/.test(cs.borderImageSource)) bad.push(`gradient ${e.className}${ps ?? ''}`);
+          if (cs.animationIterationCount.split(',').some((v) => v.trim() === 'infinite')) bad.push(`infinite ${e.className}${ps ?? ''}`);
+          if (cs.filter !== 'none' || cs.backdropFilter !== 'none') bad.push(`filter ${e.className}${ps ?? ''}`);
+        }
+        if (document.getAnimations().some((a) => a.effect?.getComputedTiming().iterations === Infinity)) bad.push('動いている無限アニメーション');
+        return bad;
+      });
+      for (const h of ['#/', '#/c/ryu', '#/c/ryu/r/c1', '#/c/ryu/r/c1/edit', '#/settings']) {
+        await gotoHash(page, h);
+        await check(`${tag} 23h ${h}: グラデーション・無限ループのアニメーション・filter がない（疑似要素を含む）`, async () => assert.deepEqual(await forbidden(), []));
+      }
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await page.locator('button[aria-label="凡例を開く"]').click();
+      await page.waitForSelector('.sheet.tall');
+      await check(`${tag} 23h 凡例シート: グラデーション・無限ループのアニメーション・filter がない`, async () => assert.deepEqual(await forbidden(), []));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.sheet', { state: 'detached' });
+      await page.locator('.d-cmd button[aria-label^="波動"]').first().click();
+      await check(`${tag} 23h ポップオーバー: グラデーション・無限ループのアニメーション・filter がない`, async () => assert.deepEqual(await forbidden(), []));
+      await check(`${tag} 23h ページエラーなし`, async () => assert.deepEqual(page.errors, []));
       await page.context().close();
     }
   }

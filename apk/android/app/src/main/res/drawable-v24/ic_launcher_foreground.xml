@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- app/icon.svg（design-spec-v2.1 5章「看板と●」）の管・●・P。にじみはVectorDrawableで表せないため省く。
+<!-- app/icon.svg（design-spec-v2.1 5章「看板と●」）の管と重なる2つの●（●P・●K）。にじみはVectorDrawableで表せないため省く。
      512の図案を安全円（全体108dpのうち中央66dp、半径205単位）に合わせて scale 0.161 で置く -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -12,24 +12,36 @@
         android:scaleX="0.161"
         android:scaleY="0.161">
         <path
-            android:pathData="M170,361H114L158,151H398L354,361H238"
+            android:pathData="M147,346H91L129,166H421L383,346H225"
             android:strokeColor="#FF5A2E"
             android:strokeWidth="28"
             android:strokeLineCap="round"
             android:strokeLineJoin="round" />
         <path
-            android:pathData="M170,361H114L158,151H398L354,361H238"
+            android:pathData="M147,346H91L129,166H421L383,346H225"
             android:strokeColor="#FFC4A0"
             android:strokeWidth="9"
             android:strokeLineCap="round"
             android:strokeLineJoin="round" />
         <path
             android:fillColor="#F0D870"
-            android:pathData="M256,256m-64,0a64,64 0,1 1,128 0a64,64 0,1 1,-128 0" />
+            android:pathData="M210,256m-60,0a60,60 0,1 1,120 0a60,60 0,1 1,-120 0" />
         <path
-            android:pathData="M238.2,288V224H259.6A17.8,17.8 0,0 1,259.6 259.6H238.2"
+            android:pathData="M193.33,286V226h20a16.67,16.67 0,0 1,0 33.33h-20"
             android:strokeColor="#0E0F11"
-            android:strokeWidth="14.2"
+            android:strokeWidth="13"
+            android:strokeLineCap="square"
+            android:strokeLineJoin="miter" />
+        <path
+            android:fillColor="#0E0F11"
+            android:pathData="M302,256m-63,0a63,63 0,1 1,126 0a63,63 0,1 1,-126 0" />
+        <path
+            android:fillColor="#8FD3F0"
+            android:pathData="M302,256m-60,0a60,60 0,1 1,120 0a60,60 0,1 1,-120 0" />
+        <path
+            android:pathData="M282,226v60M322,226L285.33,259.33M297,249.33L323.67,286"
+            android:strokeColor="#0E0F11"
+            android:strokeWidth="13"
             android:strokeLineCap="square"
             android:strokeLineJoin="miter" />
     </group>

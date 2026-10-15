@@ -232,6 +232,19 @@ for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .s
     if (press < 4.5) problems.push(`段階${lv}: 押下中の文字と板の比が4.5未満 ${press.toFixed(2)}`);
     if (en.scrollWidth > en.clientWidth) problems.push(`段階${lv}: 英字がタイルに収まらない ${en.textContent}`);
   }
+  // レベルメーター（色以外の手がかり）: 目盛り10個のうち段階の数だけ点灯。点灯は英字と同じ色、消灯は別の色。発光なし。タイル内で件数の文字と重ならない
+  for (const t of tiles) {
+    const lv = Number(t.dataset.lv), ticks = [...t.querySelectorAll('.cell-lv i')], on = ticks.filter((i) => i.classList.contains('on'));
+    if (ticks.length !== 10) problems.push(`段階${lv}: メーターの目盛りが10個でない ${ticks.length}`);
+    if (on.length !== lv || ticks.slice(0, lv).some((i) => !i.classList.contains('on'))) problems.push(`段階${lv}: 点灯の目盛りが段階の数・先頭からでない`);
+    const bg = (i) => getComputedStyle(i).backgroundColor;
+    if (on.some((i) => bg(i) !== getComputedStyle(t.querySelector('.cell-en')).color)) problems.push(`段階${lv}: 点灯の目盛りが英字の色でない`);
+    if (on.length && on.length < 10 && bg(ticks[lv]) === bg(on[0])) problems.push(`段階${lv}: 消灯の目盛りが点灯と同じ色`);
+    if (ticks.some((i) => getComputedStyle(i).boxShadow !== 'none' || getComputedStyle(i).filter !== 'none')) problems.push(`段階${lv}: 目盛りに影・filter`);
+    const m = t.querySelector('.cell-lv').getBoundingClientRect(), tr = t.getBoundingClientRect(), n = t.querySelector('.cell-n')?.getBoundingClientRect();
+    if (m.bottom > tr.bottom - 2 || m.height < 3 || ticks.some((i) => i.getBoundingClientRect().width < 3)) problems.push(`段階${lv}: メーターの位置・大きさが不正`);
+    if (n && m.top < n.bottom) problems.push(`段階${lv}: メーターが件数と重なる`);
+  }
   // 0件でも2行目の高さを確保し、英字の位置が全タイルで揃う
   const tops = new Set(tiles.map((t) => Math.round((t.querySelector('.cell-en').getBoundingClientRect().top - t.getBoundingClientRect().top) * 10)));
   if (tops.size !== 1) problems.push(`英字の縦位置がタイルでそろっていない ${[...tops]}`);
@@ -254,6 +267,13 @@ for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .s
   if (document.querySelectorAll('.wmrow .wm').length !== 11) problems.push('ワードマークが11段階そろっていない');
   window.neonMin = `plate>=${minRatio.plate.toFixed(2)} press>=${minRatio.press.toFixed(2)} wm>=${minRatio.wm.toFixed(2)}`;
 }
+// 禁止事項（design-spec-v2 2.6）: グラデーションと、常時の明滅（無限ループのアニメーション）がない。computed（疑似要素を含む）と styles.css の本文の両方で見る
+for (const e of document.querySelectorAll('*')) for (const ps of [null, '::before', '::after']) {
+  if (/gradient/.test(getComputedStyle(e, ps).backgroundImage)) problems.push(`gradient ${e.className}${ps ?? ''}`);
+}
+if (document.getAnimations().some((a) => a.effect?.getComputedTiming().iterations === Infinity)) problems.push('無限ループのアニメーションが動いている');
+const cssText = (await (await fetch('../app/styles.css')).text()).split('\n').filter((l) => !l.includes('data:font/')).join('\n');
+if (/gradient\(|infinite/.test(cssText)) problems.push('styles.css に gradient または infinite がある');
 const rows = document.querySelectorAll('.row').length;
 document.getElementById('result').textContent = problems.length
   ? `CHECK-FAIL w=${window.innerWidth} rows=${rows} ${[...new Set(problems)].join(' / ')}`
