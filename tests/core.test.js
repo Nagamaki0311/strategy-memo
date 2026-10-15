@@ -5,7 +5,7 @@ import {
   validateDoc, parseDocText, exportDoc, mergeImport,
   SECTION_PRESETS, newId, isTime, addSection, renameSection, moveSection, deleteSection, sectionsOf,
   LIMITS, strengthChoices, changeStrength, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft, isDamage, DAMAGE_MAX,
-  exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
+  exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport, NEON_STEPS, neonLevel,
 } from '../app/core.js';
 
 // requirements.md 4.5 のスラッグ順
@@ -869,4 +869,10 @@ test('shouldRemindExport: スヌーズ中は出さず、期限が来たら出す
   assert.equal(shouldRemindExport(settingsOf({ ...base, remindSnoozeUntil: NOW + 1 }), withCombos, NOW), false);
   assert.equal(shouldRemindExport(settingsOf({ ...base, remindSnoozeUntil: NOW }), withCombos, NOW), true);
   assert.equal(shouldRemindExport(settingsOf({ ...base, remindSnoozeUntil: snoozeUntil(NOW - 7 * D) }), withCombos, NOW), true, '7日前のあとで');
+});
+
+test('neonLevel: 閾値の境界（design-spec-v2.1 1.1）', () => {
+  assert.deepEqual(NEON_STEPS, [1, 2, 3, 5, 8, 12, 18, 28, 45, 70]);
+  const cases = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 3], [5, 4], [7, 4], [8, 5], [11, 5], [12, 6], [17, 6], [18, 7], [27, 7], [28, 8], [44, 8], [45, 9], [69, 9], [70, 10], [5000, 10]];
+  for (const [n, lv] of cases) assert.equal(neonLevel(n), lv, `${n}件`);
 });

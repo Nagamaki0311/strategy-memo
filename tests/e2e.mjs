@@ -88,6 +88,8 @@ const gotoHash = async (page, h) => { await page.evaluate((x) => { location.hash
 // 機内モードは context.setOffline(true) に加えて、サーバー側で接続を切って再現する（setOffline は Service Worker の fetch を止めないため。
 // キャッシュに無いファイルがあっても、setOffline だけではネットワークから取れてしまい、検出できない）。
 // prefix='/strategy-memo/' で、GitHub Pagesのプロジェクトサイトと同じサブパス配信を再現する。
+// 配信する版数。見た目・アイコン・キャッシュ対象を変えるデプロイでは sw.js の CACHE を上げ、ここも合わせる（T-019: アイコン・ネオン・ロゴで v1 → v2）。上げ忘れを検出する
+const EXPECT_CACHE = 'sf6memo-v2';
 const SW_APP = path.resolve(process.env.SW_APP ?? new URL('../app', import.meta.url).pathname);
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 async function serveApp(dir, prefix = '/') {
@@ -169,7 +171,7 @@ for (const width of [360, 430]) {
       assert.deepEqual(srv.downHits, []);
     });
     // 機内モードで、セクション追加 -> 記録の作成・保存 -> 閲覧
-    await page.locator('.cell', { hasText: 'リュウ' }).click();
+    await page.locator('.cell[aria-label^="リュウ"]').click();
     await page.locator('.empty .chips .btn', { hasText: /^通常$/ }).click();
     await page.getByRole('link', { name: '記録', exact: true }).click();
     await page.waitForSelector('.pad');
@@ -219,6 +221,22 @@ for (const width of [360, 430]) {
       ]);
       for (const [src, px] of [['icon-192.png', 192], ['icon-512.png', 512]]) assert.deepEqual(await pngSize(`${root.origin()}${src}`), [200, 'PNG', px, px], src);
       assert.equal((await fetch(`${root.origin()}icon.svg`)).status, 200);
+    });
+    await check(`${tag} 19b sw.js の CACHE が ${EXPECT_CACHE}（T-019で上げた版。上げないと利用者の端末が古いアイコン・見た目のまま）`, async () => {
+      assert.equal(readFileSync(path.join(SW_APP, 'sw.js'), 'utf8').match(/const CACHE = '([^']*)'/)[1], EXPECT_CACHE);
+    });
+    await check(`${tag} 19b アイコンのPNGは新しい図案（背景・●・管の芯の3点の色。192と512）`, async () => {
+      const px = (src, pts) => page.evaluate(async ([u, pts]) => {
+        const img = new Image(); img.src = u; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+        return pts.map(([x, y]) => [...g.getImageData(x, y, 1, 1).data].slice(0, 3));
+      }, [`${root.origin()}${src}`, pts]);
+      const want = [[14, 15, 17], [240, 216, 112], [255, 196, 160]]; // #0E0F11 地、#F0D870 の●（Pの上）、#FFC4A0 の管の芯（上辺の中央）
+      for (const [src, k] of [['icon-512.png', 1], ['icon-192.png', 0.375]]) {
+        const got = await px(src, [[10 * k, 10 * k], [256 * k, 200 * k], [276 * k, 151 * k]].map(([x, y]) => [Math.round(x), Math.round(y)]));
+        got.forEach((c, i) => assert.ok(c.every((v, j) => Math.abs(v - want[i][j]) <= 12), `${src} 点${i} ${c} != ${want[i]}`));
+      }
     });
     await check(`${tag} 19b sw.js の FILES が、配信する app/ のファイル（sw.js・ライセンス文書を除く）と一致し、すべて取得できる`, async () => {
       const files = [...readFileSync(path.join(SW_APP, 'sw.js'), 'utf8').match(/const FILES = \[(.*)\]/)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
@@ -273,17 +291,17 @@ for (const width of [360, 430]) {
       await (await caches.open('sf6memo-v0')).put('/x', new Response('old'));
       await (await caches.open('other-app-v1')).put('/x', new Response('other'));
     });
-    await page.reload(); // 旧版（v1）に制御されたタブ
+    await page.reload(); // 現行版に制御されたタブ
     const v1 = (await cacheKeys(page)).filter((k) => k.startsWith('sf6memo-') && k !== 'sf6memo-v0');
-    root.sw = (t) => t.replace(/const CACHE = '[^']*'/, "const CACHE = 'sf6memo-v2'");
+    root.sw = (t) => t.replace(/const CACHE = '[^']*'/, "const CACHE = 'sf6memo-v3'");
     await page.evaluate(async () => { await (await navigator.serviceWorker.ready).update(); });
     await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state === 'installed');
     await check(`${tag} 19d 更新: 新版はプリキャッシュして待機するだけ（skipWaitingなし）。旧版のキャッシュは残り、開いているタブは動き続ける`, async () => {
       assert.deepEqual(v1.length, 1);
-      assert.notEqual(v1[0], 'sf6memo-v2');
-      assert.deepEqual(await cacheKeys(page), ['other-app-v1', 'sf6memo-v0', v1[0], 'sf6memo-v2'].sort());
+      assert.equal(v1[0], EXPECT_CACHE);
+      assert.deepEqual(await cacheKeys(page), ['other-app-v1', 'sf6memo-v0', v1[0], 'sf6memo-v3'].sort());
       assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.state), 'activated');
-      await page.locator('.cell', { hasText: 'ケン' }).click();
+      await page.locator('.cell[aria-label^="ケン"]').click();
       await page.waitForFunction(() => location.hash === '#/c/ken');
       assert.deepEqual(page.errors, []);
     });
@@ -291,8 +309,8 @@ for (const width of [360, 430]) {
     const next = await page.context().newPage();
     await next.goto(root.origin());
     await check(`${tag} 19d 更新: タブを閉じたあと新版が有効になり、sf6memo- の旧キャッシュだけが消える（他アプリのキャッシュは残る）`, async () => {
-      await next.waitForFunction(async () => (await caches.keys()).includes('sf6memo-v2') && !(await caches.keys()).includes('sf6memo-v0'), null, { timeout: 8000 });
-      assert.deepEqual(await cacheKeys(next), ['other-app-v1', 'sf6memo-v2']);
+      await next.waitForFunction(async () => (await caches.keys()).includes('sf6memo-v3') && !(await caches.keys()).includes('sf6memo-v0'), null, { timeout: 8000 });
+      assert.deepEqual(await cacheKeys(next), ['other-app-v1', 'sf6memo-v3']);
       assert.equal(await next.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.scriptURL), `${root.origin()}sw.js`);
     });
     await next.context().close();
@@ -319,8 +337,8 @@ for (const width of [360, 430]) {
     });
     await shot(page, '01-home-first', width);
     for (const n of ['リュウ', '春麗', 'ケン', 'ガイル']) {
-      await page.locator('.cell', { hasText: n }).click();
-      await page.waitForFunction((t) => location.hash.startsWith('#/c/') && document.querySelector('.topbar h1')?.textContent.endsWith(t), n); // h1は「RYU」（装飾）＋カナ
+      await page.locator(`.cell[aria-label^="${n}"]`).click();
+      await page.waitForFunction((t) => location.hash.startsWith('#/c/') && document.querySelector('.topbar h1')?.textContent.endsWith(t), n); // h1は「RYU」（装飾）＋読み上げ名のカナ
       await page.getByRole('button', { name: 'キャラクター選択に戻る' }).click();
       await page.waitForSelector('.grid');
     }
@@ -384,7 +402,7 @@ for (const width of [360, 430]) {
       assert.match(t, /保存データを読み込めませんでした（データは変更していません）/);
       assert.match(t, /JSONとして読めません/);
       assert.match(t, /読み取り専用/);
-      await bad.locator('.cell', { hasText: 'リュウ' }).click();
+      await bad.locator('.cell[aria-label^="リュウ"]').click();
       await bad.waitForSelector('.topbar');
       assert.equal(await bad.locator('.bottombar').count(), 0); // 変更操作は出さない
       assert.equal(await bad.locator('.err').count(), 1);
@@ -623,7 +641,7 @@ for (const width of [360, 430]) {
       assert.equal(await fresh.evaluate(() => history.length), len); // 履歴を増やしていない
       await fresh.context().close();
     });
-    await check(`${tag} 4 ホームの件数表示`, async () => assert.match(await page.locator('.cell', { hasText: 'リュウ' }).innerText(), /3件/));
+    await check(`${tag} 4 ホームの件数表示`, async () => assert.match(await page.locator('.cell[aria-label^="リュウ"]').innerText(), /3件/));
     await check(`${tag} 4 ページエラーなし`, async () => assert.deepEqual(page.errors, []));
     await page.context().close();
   }
@@ -1689,7 +1707,7 @@ for (const width of [360, 430]) {
       assert.equal(await page.getByRole('link', { name: 'ダルシム', exact: true }).count(), 1); // 0件は件数なし
       assert.equal(await page.locator('.cell-n').first().innerText(), '4件');
     });
-    await check(`${tag} 17a 点灯と消灯の色: 点灯は板key・英字lit+発光、消灯は板surface・英字muted・発光なし`, async () => {
+    await check(`${tag} 17a 点灯と消灯の色（リュウ4件=段階3）: 点灯は板key・英字lit+発光、消灯（段階0）は板surface・英字muted・発光なし`, async () => {
       const f = (sel) => page.$eval(sel, (e) => { const b = getComputedStyle(e, '::before'); const t = getComputedStyle(e.querySelector('.cell-en')); return [b.backgroundColor, t.color, t.textShadow !== 'none']; });
       assert.deepEqual(await f('.cell.lit'), ['rgb(34, 37, 42)', 'rgb(255, 244, 222)', true]);
       assert.deepEqual(await f('.cell:not(.lit)'), ['rgb(23, 25, 28)', 'rgb(170, 166, 157)', false]);
@@ -2803,6 +2821,223 @@ for (const width of [360, 430]) {
         assert.equal(d.sections.some((s) => s.id === 'x1'), true);
       });
       await imp.context().close();
+    }
+  }
+
+  // 21. T-019（D-013。design-spec-v2.1 1・5章）: カナの削除・ネオンの10段階・ブランドロゴ・性能
+  {
+    // 1.2の表（正本）。c=英字・件数の色、sh=text-shadow（芯, にじみ。[r,g,b,a,ぼかし]）、plate=板、edge=縁（[太さ,r,g,b,a]）
+    const TABLE = [
+      { c: [170, 166, 157], sh: [], plate: [23, 25, 28], edge: null },
+      { c: [233, 225, 211], sh: [[233, 225, 211, 0.5, 1], [255, 226, 186, 0.18, 3]], plate: [34, 37, 42], edge: null },
+      { c: [245, 237, 224], sh: [[245, 237, 224, 0.6, 1], [255, 214, 160, 0.24, 4]], plate: [34, 37, 42], edge: null },
+      { c: [255, 244, 222], sh: [[255, 244, 222, 0.8, 1], [255, 196, 120, 0.32, 6]], plate: [34, 37, 42], edge: null },
+      { c: [255, 235, 203], sh: [[255, 235, 203, 0.8, 1], [255, 182, 100, 0.36, 6]], plate: [38, 35, 31], edge: [1, 255, 182, 100, 0.22] },
+      { c: [255, 224, 176], sh: [[255, 224, 176, 0.8, 1.5], [255, 166, 84, 0.4, 7]], plate: [38, 35, 31], edge: [1, 255, 166, 84, 0.3] },
+      { c: [255, 212, 150], sh: [[255, 212, 150, 0.8, 1.5], [255, 150, 72, 0.43, 7]], plate: [38, 35, 31], edge: [1, 255, 150, 72, 0.38] },
+      { c: [255, 198, 128], sh: [[255, 198, 128, 0.8, 1.5], [255, 134, 64, 0.45, 8]], plate: [43, 35, 29], edge: [1, 255, 134, 64, 0.46] },
+      { c: [255, 184, 114], sh: [[255, 184, 114, 0.8, 2], [255, 118, 56, 0.47, 8]], plate: [43, 35, 29], edge: [1, 255, 118, 56, 0.55] },
+      { c: [255, 170, 106], sh: [[255, 170, 106, 0.8, 2], [255, 104, 50, 0.5, 8]], plate: [43, 35, 29], edge: [2, 255, 104, 50, 0.66] },
+      { c: [255, 156, 102], sh: [[255, 156, 102, 0.8, 2], [255, 90, 46, 0.5, 8]], plate: [43, 35, 29], edge: [2, 255, 90, 46, 0.8] },
+    ];
+    const want = (lv) => {
+      const t = TABLE[lv];
+      return {
+        color: `rgb(${t.c.join(', ')})`,
+        shadow: t.sh.length ? t.sh.map(([r, g, b, a, bl]) => `rgba(${r}, ${g}, ${b}, ${a}) 0px 0px ${bl}px`).join(', ') : 'none',
+        plate: `rgb(${t.plate.join(', ')})`,
+        edge: t.edge ? `rgba(${t.edge.slice(1).join(', ')}) 0px 0px 0px ${t.edge[0]}px inset` : 'rgba(0, 0, 0, 0) 0px 0px 0px 0px inset',
+      };
+    };
+    // 件数 → 段階の境界（neonLevel を使わず、表を直接書く）
+    const COUNT_LV = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 3], [5, 4], [7, 4], [8, 5], [11, 5], [12, 6], [17, 6], [18, 7], [27, 7], [28, 8], [44, 8], [45, 9], [69, 9], [70, 10]];
+    const countsSeed = (counts) => { // counts: [[characterId, 件数], ...]。0件のキャラにはセクションも作らない
+      const d = { sections: [], combos: [] };
+      for (const [cid, n] of counts) {
+        if (!n) continue;
+        d.sections.push(sec(`s-${cid}`, cid, '通常', 0));
+        for (let i = 0; i < n; i++) d.combos.push({ ...combo(`x${d.combos.length + 1}`, `s-${cid}`, `r${i}`, [N('stand', 'L', 'P')]), characterId: cid });
+      }
+      return d;
+    };
+    const tileStyle = (page, sel) => page.$eval(sel, (e) => {
+      const en = getComputedStyle(e.querySelector('.cell-en')), b = getComputedStyle(e, '::before'), n = e.querySelector('.cell-n');
+      return { lv: e.dataset.lv, color: en.color, shadow: en.textShadow, nColor: n ? getComputedStyle(n).color : null, nShadow: n ? getComputedStyle(n).textShadow : null, plate: b.backgroundColor, edge: b.boxShadow, filter: [en.filter, b.filter, en.backdropFilter, b.backdropFilter] };
+    });
+    const ids = CHARACTERS.map((c) => c.id);
+
+    // 21a カナの削除: 見えるのは英字と件数だけ。読み上げ名（aria-label・h1のsr-only）はカナのまま
+    {
+      const page = await newPage(width, countsSeed([['ryu', 3], ['ken', 1], ['chunli', 70]]));
+      await check(`${tag} 21a キャラ選択: .cell の見える文字は英字と件数だけ（カナ・.cell-name・.kn なし）。aria-label は「リュウ 3件」形式で0件は名前だけ`, async () => {
+        const r = await page.$$eval('.cell', (els) => els.map((e) => [e.getAttribute('aria-label'), e.innerText.trim()]));
+        assert.equal(r.length, 32);
+        for (const [label, text] of r) assert.match(text, /^[A-Z.\- ]+(\n\d+件)?$/, `${label}: ${JSON.stringify(text)}`);
+        assert.equal(await page.locator('.cell-name, .kn').count(), 0);
+        const by = Object.fromEntries(r);
+        assert.equal(by['リュウ 3件'], 'RYU\n3件');
+        assert.equal(by['ケン 1件'], 'KEN\n1件');
+        assert.equal(by['春麗 70件'], 'CHUN-LI\n70件');
+        assert.equal(by['ダルシム'], 'DHALSIM');
+        assert.equal(r.filter(([l]) => /^\S+ \d+件$/.test(l)).length, 3);
+      });
+      await check(`${tag} 21a キャラ選択: 0件のタイルも英字の位置がそろう（2行目の高さを確保）、タイルの高さ54`, async () => {
+        const r = await page.$$eval('.cell', (els) => els.map((e) => [Math.round((e.querySelector('.cell-en').getBoundingClientRect().top - e.getBoundingClientRect().top) * 10), e.getBoundingClientRect().height]));
+        assert.equal(new Set(r.map((x) => x[0])).size, 1, JSON.stringify([...new Set(r.map((x) => x[0]))]));
+        assert.ok(r.every((x) => x[1] === 54));
+        assert.ok(await noHScroll(page));
+      });
+      await gotoHash(page, '#/c/ryu');
+      await check(`${tag} 21a 一覧の上部バー: 見える文字は英字（.wm）だけ。h1の読み上げ名は「リュウ」（.sr-only）で、.kn はない`, async () => {
+        assert.equal(await page.locator('.topbar h1 .kn').count(), 0);
+        assert.equal(await page.locator('.topbar h1 .sr-only').textContent(), 'リュウ');
+        assert.equal(await page.$eval('.topbar h1', (h) => { const c = h.cloneNode(true); c.querySelector('.sr-only').remove(); return c.innerText.trim(); }), 'RYU');
+        assert.equal(await page.getByRole('heading', { name: 'リュウ', exact: true, level: 1 }).count(), 1);
+        assert.equal(await page.locator('.topbar h1 svg').count(), 0); // ロゴはキャラ選択だけ
+      });
+      await page.context().close();
+    }
+
+    // 21b ネオンの段階: 件数 → data-lv と、英字・件数・板・縁の computed style が1.2の表と一致する
+    {
+      const counts = COUNT_LV.map(([n], i) => [ids[i], n]);
+      const page = await newPage(width, countsSeed(counts));
+      const found = {};
+      await check(`${tag} 21b 件数 0・1・2・3・4・5・7・8・11・12・17・18・27・28・44・45・69・70 の data-lv が境界どおり`, async () => {
+        for (const [i, [n, lv]] of COUNT_LV.entries()) {
+          const cell = page.locator(`.cell[aria-label^="${CHARACTERS[i].name}"]`);
+          assert.equal(await cell.getAttribute('data-lv'), String(lv), `${n}件`);
+          found[lv] ??= `.cell[aria-label^="${CHARACTERS[i].name}"]`;
+        }
+        assert.equal(Object.keys(found).length, 11);
+      });
+      await check(`${tag} 21b 全11段階: 英字・件数の色、text-shadow、板の色、縁が表（1.2）と一致する。縁は0ぼかしのinset。filterなし`, async () => {
+        for (let lv = 0; lv <= 10; lv++) {
+          const st = await tileStyle(page, found[lv]), w = want(lv);
+          assert.deepEqual([st.lv, st.color, st.shadow, st.plate, st.edge], [String(lv), w.color, w.shadow, w.plate, w.edge], `段階${lv}`);
+          if (lv > 0) assert.deepEqual([st.nColor, st.nShadow], [w.color, 'none'], `段階${lv}の件数`); // 件数は英字と同じ色で影なし
+          assert.deepEqual(st.filter, ['none', 'none', 'none', 'none']);
+        }
+      });
+      await check(`${tag} 21b 全タイルの発光の上限: 影は2層以下、ぼかし8px以下、アルファ0.8以下（にじみは0.5以下）`, async () => {
+        const bad = await page.$$eval('.cell-en', (els) => els.flatMap((e) => {
+          const v = getComputedStyle(e).textShadow;
+          const ls = v === 'none' ? [] : v.split(/,(?![^(]*\))/).map((x) => x.trim());
+          const a = (x) => Number(x.match(/rgba?\(([^)]*)\)/)[1].split(',')[3] ?? 1), bl = (x) => parseFloat(x.replace(/rgba?\([^)]*\)/, '').trim().split(/\s+/)[2]);
+          return [...(ls.length > 2 ? ['3層以上'] : []), ...ls.filter((x) => a(x) > 0.8 || bl(x) > 8).map((x) => `上限超え ${x}`), ...(ls[1] && a(ls[1]) > 0.5 ? [`にじみ ${ls[1]}`] : [])];
+        }));
+        assert.deepEqual(bad, []);
+      });
+      await check(`${tag} 21b 押下中（1.2の※）: 段階1は英字が --lit＋発光、段階5は自分の色のまま。どちらも板は --line、即時`, async () => {
+        for (const [lv, color] of [[1, 'rgb(255, 244, 222)'], [5, 'rgb(255, 224, 176)']]) {
+          const t = page.locator(found[lv]);
+          const bb = await t.boundingBox();
+          await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
+          await page.mouse.down();
+          const down = await t.evaluate((e) => [getComputedStyle(e.querySelector('.cell-en')).color, getComputedStyle(e.querySelector('.cell-en')).textShadow, getComputedStyle(e, '::before').backgroundColor, getComputedStyle(e, '::before').transitionDuration]);
+          await page.mouse.move(0, 0);
+          await page.mouse.up();
+          assert.deepEqual([down[0], down[2], down[3]], [color, 'rgb(46, 50, 56)', '0s'], `段階${lv}`);
+          assert.equal(down[1], lv === 1 ? 'rgba(255, 244, 222, 0.8) 0px 0px 1px, rgba(255, 196, 120, 0.35) 0px 0px 8px' : want(lv).shadow, `段階${lv}の影`);
+        }
+      });
+      await shot(page, '48-home-levels', width);
+      await check(`${tag} 21b 英字がタイルに収まり、横スクロールなし`, async () => {
+        assert.deepEqual(await page.$$eval('.cell-en', (els) => els.filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent)), []);
+        assert.ok(await noHScroll(page));
+      });
+      // 最近使ったキャラの英字と、一覧のワードマーク（0件は消灯）
+      for (const id of ['ryu', 'luke', 'jamie']) { // ryu=0件、luke=1件、jamie=2件の順に開く。最近使ったキャラは新しい順で [jamie, luke, ryu]
+        await page.locator(`.cell[aria-label^="${CHARACTERS.find((c) => c.id === id).name}"]`).click();
+        await page.waitForFunction((x) => location.hash === `#/c/${x}`, id);
+        await page.waitForSelector('.topbar h1 .wm');
+        if (id === 'ryu') {
+          await check(`${tag} 21b 一覧のワードマーク: 0件は muted・影なし`, async () => {
+            assert.deepEqual(await page.$eval('.wm', (e) => [e.dataset.lv, getComputedStyle(e).color, getComputedStyle(e).textShadow]), ['0', 'rgb(170, 166, 157)', 'none']);
+          });
+        }
+        if (id === 'jamie') {
+          await check(`${tag} 21b 一覧のワードマーク: 2件は段階2の色と影`, async () => {
+            assert.deepEqual(await page.$eval('.wm', (e) => [e.dataset.lv, getComputedStyle(e).color, getComputedStyle(e).textShadow]), ['2', want(2).color, want(2).shadow]);
+          });
+        }
+        await page.getByRole('button', { name: 'キャラクター選択に戻る' }).click();
+        await page.waitForSelector('.grid');
+      }
+      await check(`${tag} 21b 最近使ったキャラ: data-lv が件数の段階（0件・1件・2件）で、.rc-en は表の色と影（0件は消灯）。板は --key のまま`, async () => {
+        const r = await page.$$eval('.rc', (els) => els.map((e) => [e.getAttribute('aria-label'), e.dataset.lv, getComputedStyle(e.querySelector('.rc-en')).color, getComputedStyle(e.querySelector('.rc-en')).textShadow, getComputedStyle(e, '::before').backgroundColor]));
+        assert.deepEqual(r, [['ジェイミー', '2', want(2).color, want(2).shadow, 'rgb(34, 37, 42)'], ['ルーク', '1', want(1).color, want(1).shadow, 'rgb(34, 37, 42)'], ['リュウ', '0', want(0).color, 'none', 'rgb(34, 37, 42)']]);
+      });
+      await shot(page, '49-home-recent-levels', width);
+      await check(`${tag} 21b ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 21c ロゴ: キャラ選択の上部バー
+    {
+      const page = await newPage(width, seedState());
+      await check(`${tag} 21c ロゴ: キャラ選択の上部バーに .logo（26×20、aria-hidden、#i-logo）。h1の読み上げ名は「SF6戦略メモ」`, async () => {
+        const r = await page.$eval('.topbar h1', (h) => { const l = h.querySelector('svg.logo'); const b = l.getBoundingClientRect(); return [h.querySelectorAll('svg').length, l.getAttribute('aria-hidden'), l.querySelector('use').getAttribute('href'), b.width, b.height, h.textContent]; });
+        assert.deepEqual(r, [1, 'true', '#i-logo', 26, 20, 'SF6戦略メモ']);
+        assert.equal(await page.getByRole('heading', { name: 'SF6戦略メモ', exact: true, level: 1 }).count(), 1);
+        const sym = await page.$eval('#i-logo', (s) => [s.getAttribute('viewBox'), s.querySelectorAll('path').length, s.querySelectorAll('circle').length, s.innerHTML.includes('filter'), s.querySelector('path:last-of-type').getAttribute('stroke')]);
+        assert.deepEqual(sym, ['100 137 312 238', 3, 1, false, 'var(--ink)']);
+        assert.equal(await page.$eval('.logo', (e) => getComputedStyle(e).filter), 'none');
+        assert.equal(await page.$eval('.topbar h1', (h) => getComputedStyle(h).fontFamily.includes('Tilt Neon')), false); // 名前の文字は和文のシステムフォント（併記しない）
+      });
+      await check(`${tag} 21c ロゴは実際に描かれる（上部バーの .logo の領域に橙の管と黄の●の画素がある）`, async () => {
+        const bb = await page.locator('.topbar .logo').boundingBox();
+        const png = await page.screenshot({ clip: { x: bb.x, y: bb.y, width: bb.width, height: bb.height } });
+        const px = await page.evaluate(async (b64) => {
+          const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+          const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+          const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+          const d = g.getImageData(0, 0, c.width, c.height).data; let orange = 0, yellow = 0;
+          for (let i = 0; i < d.length; i += 4) { if (d[i] > 200 && d[i + 1] < 130 && d[i + 2] < 90) orange++; if (d[i] > 200 && d[i + 1] > 190 && d[i + 2] < 150) yellow++; }
+          return { orange, yellow };
+        }, png.toString('base64'));
+        assert.ok(px.orange >= 15 && px.yellow >= 10, JSON.stringify(px));
+      });
+      await shot(page, '50-home-logo', width);
+      await page.context().close();
+    }
+
+    // 21d 性能（360幅のみ）: 32キャラ全員が70件（段階10）。CPU 4倍・360×600でキャラ選択をスクロールして55fps以上。発光テキストは35個以下
+    if (width === 360) {
+      const page = await newPage(width, countsSeed(ids.map((id) => [id, 70])), { viewport: { width: 360, height: 600 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+      await check(`${tag} 21d 全員70件: 32タイルすべて段階10、発光テキスト（text-shadowが非noneの要素）は35個以下、filterなし、影のアニメーションなし`, async () => {
+        assert.equal(await page.locator('.cell[data-lv="10"]').count(), 32);
+        const r = await page.evaluate(() => {
+          const all = [...document.querySelectorAll('*')];
+          return {
+            glow: all.filter((e) => getComputedStyle(e).textShadow !== 'none').length,
+            filt: all.filter((e) => getComputedStyle(e).filter !== 'none' || getComputedStyle(e).backdropFilter !== 'none').length,
+            anim: [...new Set(document.getAnimations().map((a) => a.animationName ?? ''))],
+          };
+        });
+        assert.ok(r.glow <= 35, `発光テキスト ${r.glow}`);
+        assert.equal(r.filt, 0);
+        assert.ok(r.anim.every((n) => n === 'flick' || n === 'enter'), JSON.stringify(r.anim));
+      });
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      await page.waitForTimeout(800); // 起動時の点灯と画面の入場アニメーションを終える
+      await page.evaluate(() => { window.__t = []; window.__rec = true; const f = (t) => { window.__t.push(t); if (window.__rec) requestAnimationFrame(f); }; requestAnimationFrame(f); });
+      const dist = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+      for (let i = 0; i < 8; i++) { // 上下に往復（ゆっくり動かして、スクロール中のフレームを十分に取る）
+        await cdp.send('Input.synthesizeScrollGesture', { x: 180, y: 400, yDistance: -dist, speed: 300, gestureSourceType: 'touch' });
+        await cdp.send('Input.synthesizeScrollGesture', { x: 180, y: 200, yDistance: dist, speed: 300, gestureSourceType: 'touch' });
+      }
+      const t = await page.evaluate(() => { window.__rec = false; return window.__t; });
+      const d = t.slice(1).map((x, i) => x - t[i]), sorted = [...d].sort((a, b) => a - b);
+      const st = { scrollable: dist, frames: t.length, fps: +(1000 * d.length / (t.at(-1) - t[0])).toFixed(1), p50: +sorted[Math.floor(d.length * 0.5)].toFixed(1), p95: +sorted[Math.floor(d.length * 0.95)].toFixed(1), max: +sorted.at(-1).toFixed(1) };
+      console.log(`e2e: 21d フレーム時間（CPU x4、360x600、全員70件、スクロール ${dist}px を往復）`, JSON.stringify(st));
+      await check(`${tag} 21d 性能: 全員70件・CPU 4倍・360×600のキャラ選択のスクロールで 55fps 以上（実測 ${st.fps}fps、p95 ${st.p95}ms）`, async () => {
+        assert.ok(dist >= 100, `スクロールできる量が足りない ${dist}`);
+        assert.ok(st.frames >= 120, `フレーム数が少ない ${st.frames}`);
+        assert.ok(st.fps >= 55, JSON.stringify(st));
+      });
+      await page.context().close();
     }
   }
 

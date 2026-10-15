@@ -1,5 +1,5 @@
 import {
-  CHARACTERS, MOVE_NAMES, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
+  CHARACTERS, MOVE_NAMES, neonLevel, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
   sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
   applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
   mergeImport, exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
@@ -534,16 +534,22 @@ const BOOT_MAX = 6;
 // 360px幅の1列（英字の幅92px）で20pxだと収まらない名前（実測。KIMBERLY 93.5px。tests/e2e.mjs が360・390・430幅で収まりを確認する）
 const LONG_EN = new Set(['kimberly']);
 
+// キャラ選択のタイル（homeScreenとtests/check.htmlの両方が使う）。見えるのは英字と件数だけで、読み上げ名はカナ・日本語名（aria-label）。
+// data-lv は記録数のネオン段階（core.js neonLevel。色と発光はstyles.cssの「ネオンの段階」節）
+export function charTile(c, n) {
+  return at(h('a', `cell${n ? ' lit' : ''}${LONG_EN.has(c.id) ? ' long' : ''}`,
+    at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' }), ...(n ? [h('span', 'cell-n', `${n}件`)] : [])),
+  { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name, 'data-lv': String(neonLevel(n)) });
+}
+
 function homeScreen() {
   const counts = new Map();
   for (const c of data.combos) counts.set(c.characterId, (counts.get(c.characterId) ?? 0) + 1);
   const grid = at(h('nav', 'grid'), { 'aria-label': 'キャラクター' });
   let booted = 0;
   for (const c of CHARACTERS) {
-    const n = counts.get(c.id);
-    const cell = at(h('a', `cell${n ? ' lit' : ''}${LONG_EN.has(c.id) ? ' long' : ''}`,
-      at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' }), h('span', 'cell-name', c.name), ...(n ? [h('span', 'cell-n', `${n}件`)] : [])),
-    { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name });
+    const n = counts.get(c.id) ?? 0;
+    const cell = charTile(c, n);
     if (n && !bootPlayed && booted < BOOT_MAX) {
       cell.classList.add('boot');
       cell.style.setProperty('--d', `${booted++ * 60}ms`);
@@ -553,9 +559,9 @@ function homeScreen() {
   bootPlayed = true;
   const recent = settings.recentCharacters;
   const bottom = h('footer', 'bottombar recent', ...(recent.length
-    ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'rc', at(h('span', 'rc-en', charEn(id)), { 'aria-hidden': 'true' })), { href: `#/c/${id}`, 'aria-label': charName(id) }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
+    ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'rc', at(h('span', 'rc-en', charEn(id)), { 'aria-hidden': 'true' })), { href: `#/c/${id}`, 'aria-label': charName(id), 'data-lv': String(neonLevel(counts.get(id) ?? 0)) }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
     : [h('p', 'hint', 'キャラクターを選ぶと記録を始められます')]));
-  return shell({ title: 'SF6戦略メモ', right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], notices: [...banners(), ...remindBar()], main: [grid], bottom });
+  return shell({ title: [icon('i-logo', 'logo'), 'SF6戦略メモ'], right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], notices: [...banners(), ...remindBar()], main: [grid], bottom });
 }
 
 function recordRow(c) {
@@ -638,7 +644,8 @@ function listScreen({ cid }) {
       (() => { const b = btn('', [svgIcon('i-plus'), 'セクション'], () => addSectionSheet(b, cid), { 'data-fk': 'add-section' }); return b; })(),
       addRecord);
   }
-  return shell({ title: [at(h('span', 'wm', charEn(cid)), { 'aria-hidden': 'true' }), h('span', 'kn', name)], back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
+  const lv = neonLevel(data.combos.filter((c) => c.characterId === cid).length);
+  return shell({ title: [at(h('span', 'wm', charEn(cid)), { 'aria-hidden': 'true', 'data-lv': String(lv) }), h('span', 'sr-only', name)], back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
 }
 
 // ===== SECTION: 凡例 =====

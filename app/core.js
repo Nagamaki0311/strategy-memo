@@ -35,6 +35,11 @@ export const CHARACTERS = [
   { id: 'arjun', en: 'ARJUN', name: 'アルジュン' },
 ];
 
+// ===== SECTION: ネオンの段階 =====
+// 記録数に応じたキャラ選択の看板の点灯段階（design-spec-v2.1 1.1）。0件が0、70件以上が10。
+export const NEON_STEPS = [1, 2, 3, 5, 8, 12, 18, 28, 45, 70];
+export const neonLevel = (n) => NEON_STEPS.filter((t) => n >= t).length;
+
 // ===== SECTION: トークン定義 =====
 // トークンの種別は `type` で持つ（D-004）。dir は数値（1,3,4,6,7,8,9）、motion は文字列。
 export const APP_ID = 'sf6-strategy-memo';

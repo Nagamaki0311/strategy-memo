@@ -10,6 +10,9 @@
   main { padding: 16px; }
   h2 { margin: 16px 0 8px; font: 400 var(--t-sm) var(--font); color: var(--fg-muted); }
   .case { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .nbox { margin: 0 -16px; }
+  .wmrow { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .wmrow small { font: 400 var(--t-xs) var(--font); color: var(--fg-muted); }
   #result { margin: 0; padding: 8px 16px; font: 400 var(--t-xs) var(--font); white-space: pre-wrap; }
 </style>
 </head>
@@ -18,7 +21,8 @@
 <pre id="result">CHECK-PENDING</pre>
 <main id="main"></main>
 <script type="module">
-import { renderRow } from '../app/app.js';
+import { renderRow, charTile } from '../app/app.js';
+import { CHARACTERS } from '../app/core.js';
 
 if (new URLSearchParams(location.search).has('gray')) document.documentElement.style.filter = 'grayscale(1)';
 
@@ -82,6 +86,47 @@ for (const [title, tokens, opts] of CASES) {
   box.append(row);
   main.append(h, box);
 }
+// ネオンの段階（design-spec-v2.1 1.6）。charTile（homeScreenと同じタイル）を2つの .grid に並べる。期待値は neonLevel を使わず、表を直接書く
+const NEON_LOW = [[0, 0], [1, 1], [2, 2], [3, 3], [5, 4], [8, 5], [12, 6], [18, 7], [28, 8], [45, 9], [70, 10]]; // 各段階の下限
+const NEON_REP = [[0, 0], [1, 1], [3, 3], [6, 4], [10, 5], [20, 7], [40, 8], [80, 10]]; // 代表値
+const neonGrid = (title, pairs, withKimberly) => {
+  const h = document.createElement('h2');
+  h.textContent = title;
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  const [ryu, kim] = ['ryu', 'kimberly'].map((id) => CHARACTERS.find((c) => c.id === id));
+  const tiles = pairs.map(([n, lv]) => { const t = charTile(ryu, n); t.expectLv = lv; return t; });
+  if (withKimberly) { const t = charTile(kim, 80); t.expectLv = 10; tiles.push(t); }
+  grid.append(...tiles);
+  const box = document.createElement('div');
+  box.className = 'nbox';
+  box.append(grid);
+  main.append(h, box);
+  return tiles;
+};
+const neonLow = neonGrid('ネオンの段階: 各段階の下限（RYU 0・1・2・3・5・8・12・18・28・45・70件）', NEON_LOW);
+const neonRep = neonGrid('ネオンの段階: 代表値（RYU 0・1・3・6・10・20・40・80件、KIMBERLY 80件）', NEON_REP, true);
+{
+  const h = document.createElement('h2');
+  h.textContent = 'ネオンの段階: ワードマーク（一覧の上部バーの英字。--bg の上。段階0〜10）';
+  const box = document.createElement('div');
+  box.className = 'nbox';
+  for (let lv = 0; lv <= 10; lv++) {
+    const row = document.createElement('div');
+    row.className = 'wmrow';
+    const wm = document.createElement('span');
+    wm.className = 'wm';
+    wm.dataset.lv = String(lv);
+    wm.textContent = 'RYU';
+    wm.expectLv = lv;
+    const small = document.createElement('small');
+    small.textContent = `段階${lv}`;
+    row.append(wm, small);
+    box.append(row);
+  }
+  main.append(h, box);
+}
+await document.fonts.load('20px "Tilt Neon"'); // 英字の幅の判定の前に、看板書体を読み込んでおく（未読込だと代替書体の幅で測ってしまう）
 const problems = [];
 const de = document.documentElement;
 if (de.scrollWidth > de.clientWidth) problems.push(`横スクロール scrollWidth=${de.scrollWidth} clientWidth=${de.clientWidth}`);
@@ -150,10 +195,69 @@ for (const e of document.querySelectorAll('.row.S, .row.S *')) if (glows(e)) pro
 const glowL = [...document.querySelectorAll('.row:not(.S) .sys-dr, .row:not(.S) .dot.od, .row:not(.S) .ltr.od')];
 if (!glowL.length || !glowL.every(glows)) problems.push('L寸法のDR・ODに発光がない');
 for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .sys-di, .row:not(.S) .sys-dp, .row:not(.S) .sys-mv, .row:not(.S) .dot:not(.od)')) if (glows(e)) problems.push(`L寸法で発光してはいけない要素 ${e.className}`);
+// ネオンの段階の判定
+{
+  const layers = (v) => (v === 'none' ? [] : v.split(/,(?![^(]*\))/).map((x) => x.trim()));
+  const nums = (x) => x.replace(/rgba?\([^)]*\)/, '').replace('inset', '').trim().split(/\s+/).map(parseFloat); // [x, y, blur, spread?]
+  const alpha = (x) => { const m = x.match(/rgba?\(([^)]*)\)/)[1].split(',').map(Number); return m.length === 4 ? m[3] : 1; };
+  const root = getComputedStyle(document.documentElement);
+  const hexRgb = (v) => v.trim().replace(/^#(..)(..)(..)$/, (_, a, b, c) => `rgb(${parseInt(a, 16)},${parseInt(b, 16)},${parseInt(c, 16)})`);
+  const bgBody = getComputedStyle(document.body).backgroundColor;
+  const minRatio = { plate: 99, wm: 99, press: 99 };
+  const tiles = [...neonLow, ...neonRep];
+  for (const t of tiles) {
+    const lv = t.dataset.lv, en = t.querySelector('.cell-en'), nEl = t.querySelector('.cell-n');
+    if (lv !== String(t.expectLv)) problems.push(`data-lv が期待値と違う ${lv} != ${t.expectLv}`);
+    const tcs = getComputedStyle(en);
+    const ts = layers(tcs.textShadow);
+    if (ts.length > 2) problems.push(`段階${lv}: text-shadow が3層以上`);
+    for (const x of ts) {
+      if (nums(x)[2] > 8) problems.push(`段階${lv}: text-shadow のぼかしが8pxを超える ${x}`);
+      if (alpha(x) > 0.8) problems.push(`段階${lv}: text-shadow のアルファが0.8を超える ${x}`);
+    }
+    if (ts.length > 1 && alpha(ts[1]) > 0.5) problems.push(`段階${lv}: にじみ（第2層）のアルファが0.5を超える ${ts[1]}`);
+    const bcs = getComputedStyle(t, '::before');
+    for (const x of layers(bcs.boxShadow)) if (!x.includes('inset') || nums(x)[2] !== 0) problems.push(`段階${lv}: 縁のぼかしが0でない・insetでない ${x}`);
+    if (layers(bcs.boxShadow).length > 1) problems.push(`段階${lv}: ::before の box-shadow が2層以上`);
+    for (const e of [t, en, nEl].filter(Boolean)) if (getComputedStyle(e).filter !== 'none' || getComputedStyle(e).backdropFilter !== 'none') problems.push(`段階${lv}: filter が none でない`);
+    if (bcs.filter !== 'none' || bcs.backdropFilter !== 'none') problems.push(`段階${lv}: ::before に filter`);
+    for (const e of [en, nEl].filter(Boolean)) {
+      const r = ratio(getComputedStyle(e).color, bcs.backgroundColor);
+      minRatio.plate = Math.min(minRatio.plate, r);
+      if (r < 4.5) problems.push(`段階${lv}: 文字と板の比が4.5未満 ${r.toFixed(2)}`);
+    }
+    // 押下中: 段階0〜2は英字が --lit、3以上は自分の色。板は --line（--tx-lit を含め、表の「押下中」列を再確認する）
+    const press = ratio(Number(lv) <= 2 ? hexRgb(root.getPropertyValue('--lit')) : tcs.color, hexRgb(root.getPropertyValue('--line')));
+    minRatio.press = Math.min(minRatio.press, press);
+    if (press < 4.5) problems.push(`段階${lv}: 押下中の文字と板の比が4.5未満 ${press.toFixed(2)}`);
+    if (en.scrollWidth > en.clientWidth) problems.push(`段階${lv}: 英字がタイルに収まらない ${en.textContent}`);
+  }
+  // 0件でも2行目の高さを確保し、英字の位置が全タイルで揃う
+  const tops = new Set(tiles.map((t) => Math.round((t.querySelector('.cell-en').getBoundingClientRect().top - t.getBoundingClientRect().top) * 10)));
+  if (tops.size !== 1) problems.push(`英字の縦位置がタイルでそろっていない ${[...tops]}`);
+  // 隣り合う段階で見た目が違う（英字の color か text-shadow）。0→1は影の有無、以降は色か影
+  const sig = (t) => { const cs = getComputedStyle(t.querySelector('.cell-en')); return `${cs.color}|${cs.textShadow}`; };
+  for (let i = 1; i < neonLow.length; i++) if (sig(neonLow[i]) === sig(neonLow[i - 1])) problems.push(`段階${i - 1}と${i}の見た目が同じ`);
+  if (new Set(neonLow.map(sig)).size !== 11) problems.push('11段階の見た目が重複している');
+  // ワードマーク: 0件はmuted・影なし。全段階で期待値、影の上限、bg との比
+  for (const wm of document.querySelectorAll('.wmrow .wm')) {
+    const lv = wm.dataset.lv, cs = getComputedStyle(wm);
+    if (lv !== String(wm.expectLv)) problems.push('ワードマークの data-lv が期待値と違う');
+    if (lv === '0' && (cs.color !== 'rgb(170, 166, 157)' || cs.textShadow !== 'none')) problems.push(`消灯のワードマークが muted・影なしでない ${cs.color} ${cs.textShadow}`);
+    if (lv !== '0' && cs.textShadow === 'none') problems.push(`段階${lv}のワードマークに発光がない`);
+    for (const x of layers(cs.textShadow)) if (nums(x)[2] > 8 || alpha(x) > 0.8) problems.push(`ワードマーク段階${lv}の影が上限超え ${x}`);
+    if (layers(cs.textShadow).length > 2 || cs.filter !== 'none') problems.push(`ワードマーク段階${lv}: 3層以上または filter`);
+    const r = ratio(cs.color, bgBody);
+    minRatio.wm = Math.min(minRatio.wm, r);
+    if (r < 4.5) problems.push(`ワードマーク段階${lv}と bg の比が4.5未満 ${r.toFixed(2)}`);
+  }
+  if (document.querySelectorAll('.wmrow .wm').length !== 11) problems.push('ワードマークが11段階そろっていない');
+  window.neonMin = `plate>=${minRatio.plate.toFixed(2)} press>=${minRatio.press.toFixed(2)} wm>=${minRatio.wm.toFixed(2)}`;
+}
 const rows = document.querySelectorAll('.row').length;
 document.getElementById('result').textContent = problems.length
   ? `CHECK-FAIL w=${window.innerWidth} rows=${rows} ${[...new Set(problems)].join(' / ')}`
-  : `CHECK-PASS w=${window.innerWidth} scrollWidth=${de.scrollWidth} rows=${rows}`;
+  : `CHECK-PASS w=${window.innerWidth} scrollWidth=${de.scrollWidth} rows=${rows} neon ${window.neonMin}`;
 </script>
 </body>
 </html>
