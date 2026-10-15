@@ -1786,6 +1786,7 @@ for (const width of [360, 430]) {
     await check(`${tag} 17a 英字の名前がタイル内に収まる（scrollWidth <= clientWidth）`, async () => {
       const over = await page.$$eval('.cell-en', (els) => els.filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent));
       assert.deepEqual(over, []);
+      await page.waitForFunction(() => document.getAnimations().length === 0); // 画面の入場アニメーション（160ms）の途中は、右へ24pxずれていて横スクロールに見える
       assert.ok(await noHScroll(page));
     });
     await check(`${tag} 17a 書体: Tilt Neon が読み込まれ、data URI の woff2 は12KB以下、OFLが同梱されている`, async () => {
