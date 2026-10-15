@@ -1,11 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 暫定アイコン: 単色の仮図形。デザイン刷新後に差し替える -->
+<!-- app/icon.svg（design-spec-v2 7章）の矢印と●。にじみはVectorDrawableで表せないため省く。
+     512の図案を安全円（全体108dpのうち中央66dp、半径205単位）に合わせて scale 0.161 で置く -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#F0D870"
-        android:pathData="M54,54m-19,0a19,19 0,1 1,38 0a19,19 0,1 1,-38 0" />
+    <group
+        android:translateX="12.8"
+        android:translateY="12.8"
+        android:scaleX="0.161"
+        android:scaleY="0.161">
+        <group
+            android:translateX="-5"
+            android:translateY="27">
+            <path
+                android:pathData="M128,120V236Q128,300 192,300H276"
+                android:strokeColor="#FFF4DE"
+                android:strokeWidth="40"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+            <path
+                android:pathData="M232,256L276,300L232,344"
+                android:strokeColor="#FFF4DE"
+                android:strokeWidth="40"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+            <path
+                android:fillColor="#F0D870"
+                android:pathData="M356,300m-58,0a58,58 0,1 1,116 0a58,58 0,1 1,-116 0" />
+            <group
+                android:translateX="298"
+                android:translateY="242"
+                android:scaleX="3.222"
+                android:scaleY="3.222">
+                <path
+                    android:pathData="M13,27V9h6a5,5 0,0 1,0 10h-6"
+                    android:strokeColor="#0E0F11"
+                    android:strokeWidth="4"
+                    android:strokeLineCap="square"
+                    android:strokeLineJoin="miter" />
+            </group>
+        </group>
+    </group>
 </vector>
