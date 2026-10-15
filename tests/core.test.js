@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CHARACTERS, PRESETS, NOTICE_TOO_LONG, applyPadInput, initialPadState, pendingMotion, isMotion, isValidToken, tokenLabel, describeRow, motionToArrows,
   validateDoc, parseDocText, exportDoc, mergeImport,
+  SECTION_PRESETS, addSection, renameSection, moveSection, deleteSection, sectionsOf,
 } from '../app/core.js';
 
 // requirements.md 4.5 のスラッグ順
@@ -442,4 +443,110 @@ test('往復: mergeImport(空, exportDoc(state)) は state と一致する', () 
   const again = mergeImport(r.doc, exportDoc(state));
   assert.deepEqual(again.doc, state);
   assert.deepEqual({ a: again.added, u: again.updated, n: again.unchanged }, { a: 0, u: 0, n: 4 });
+});
+
+// ===== セクション操作（T-009） =====
+const ID_OK = /^[A-Za-z0-9_-]{1,64}$/;
+const sec = (id, characterId, order) => ({ id, characterId, name: id, order, updatedAt: T0 });
+const combo = (id, characterId, sectionId) => ({ ...structuredClone(sampleState().combos[0]), id, characterId, sectionId });
+const valid = (st) => assert.deepEqual(validateDoc(exportDoc(st)), { ok: true });
+const orders = (st, cid) => sectionsOf(st, cid).map((s) => `${s.id}:${s.order}`);
+// ryu: a0,a1,a2 / ken: k0 / a1 に記録2件、k0 に ken の記録
+const secState = () => ({
+  sections: [sec('a0', 'ryu', 0), sec('a1', 'ryu', 1), sec('a2', 'ryu', 2), sec('k0', 'ken', 0)],
+  combos: [combo('c1', 'ryu', 'a1'), combo('c2', 'ryu', 'a1'), { ...combo('c3', 'ken', 'k0') }],
+});
+
+test('セクション候補は仕様の7件', () => {
+  assert.deepEqual(SECTION_PRESETS, ['通常', 'カウンター', 'パニッシュカウンター', 'インパクト壁やられ', 'スタン', '画面端', '起き攻め']);
+});
+
+test('addSection: 末尾に追加・idは規則どおり・キャラごとにorder・入力は不変', () => {
+  const before = secState();
+  const snap = structuredClone(before);
+  const a = addSection(before, 'ryu', '  新規  ', T0 + 5);
+  const b = addSection(a, 'luke', '通常', T0 + 6);
+  assert.deepEqual(before, snap);
+  valid(a); valid(b);
+  const added = a.sections.at(-1);
+  assert.match(added.id, ID_OK);
+  assert.deepEqual({ ...added, id: 0 }, { id: 0, characterId: 'ryu', name: '新規', order: 3, updatedAt: T0 + 5 });
+  assert.equal(b.sections.at(-1).order, 0); // 別キャラは0から
+  assert.notEqual(a.sections.at(-1).id, addSection(before, 'ryu', 'x', T0).sections.at(-1).id);
+  for (const bad of ['', '   ', 'あ'.repeat(51), null, 7]) assert.throws(() => addSection(before, 'ryu', bad, T0), /1〜50/);
+  assert.throws(() => addSection(before, 'nobody', 'x', T0), /キャラクター/);
+  assert.equal(addSection(before, 'ryu', 'あ'.repeat(50), T0).sections.length, 5);
+});
+
+test('renameSection: 名称とupdatedAtだけ変わる・不正は例外', () => {
+  const before = secState();
+  const snap = structuredClone(before);
+  const r = renameSection(before, 'a1', ' 改名 ', T0 + 1);
+  assert.deepEqual(before, snap);
+  valid(r);
+  assert.deepEqual(r.sections.find((s) => s.id === 'a1'), { id: 'a1', characterId: 'ryu', name: '改名', order: 1, updatedAt: T0 + 1 });
+  assert.deepEqual(r.sections.filter((s) => s.id !== 'a1'), snap.sections.filter((s) => s.id !== 'a1'));
+  assert.throws(() => renameSection(before, 'a1', '', T0), /1〜50/);
+  assert.throws(() => renameSection(before, 'zz', 'x', T0), /見つかりません/);
+});
+
+test('moveSection: 同キャラ内で移動し、orderを詰め直す。端は何もしない', () => {
+  const before = secState();
+  const snap = structuredClone(before);
+  const up = moveSection(before, 'a2', -1, T0 + 1);
+  assert.deepEqual(before, snap);
+  valid(up);
+  assert.deepEqual(orders(up, 'ryu'), ['a0:0', 'a2:1', 'a1:2']);
+  assert.deepEqual(orders(up, 'ken'), ['k0:0']);
+  // 変わったセクションだけ updatedAt が進む
+  assert.deepEqual(up.sections.filter((s) => s.updatedAt === T0 + 1).map((s) => s.id).sort(), ['a1', 'a2']);
+  assert.deepEqual(orders(moveSection(before, 'a0', 1, T0), 'ryu'), ['a1:0', 'a0:1', 'a2:2']);
+  assert.deepEqual(orders(moveSection(before, 'a0', 2, T0), 'ryu'), ['a1:0', 'a2:1', 'a0:2']);
+  assert.equal(moveSection(before, 'a0', -1, T0), before); // 先頭の上へ
+  assert.equal(moveSection(before, 'a2', 1, T0), before); // 末尾の下へ
+  // 欠番があっても詰め直す
+  const gap = { ...before, sections: [sec('a0', 'ryu', 0), sec('a1', 'ryu', 5), sec('a2', 'ryu', 9)] };
+  assert.deepEqual(orders(moveSection(gap, 'a2', -1, T0), 'ryu'), ['a0:0', 'a2:1', 'a1:2']);
+  assert.throws(() => moveSection(before, 'a0', 0.5, T0), /移動量/);
+});
+
+test('deleteSection: 空のセクションは即時削除でき、orderを詰める', () => {
+  const before = secState();
+  const snap = structuredClone(before);
+  const r = deleteSection(before, 'a0', null, T0 + 1);
+  assert.deepEqual(before, snap);
+  assert.equal(r.ok, true);
+  valid(r.state);
+  assert.deepEqual(orders(r.state, 'ryu'), ['a1:0', 'a2:1']);
+  assert.deepEqual(r.state.combos, snap.combos);
+  // 他にセクションがなくても、空なら削除できる
+  const only = deleteSection(r.state, 'k0', null, T0);
+  assert.equal(only.ok, false); // k0 は中身あり（c3）
+  const empty = { sections: [sec('x', 'ryu', 0)], combos: [] };
+  assert.deepEqual(deleteSection(empty, 'x', null, T0), { ok: true, state: { sections: [], combos: [] } });
+});
+
+test('deleteSection: 中身があれば同キャラの移動先が必須。他にセクションがなければ削除不可', () => {
+  const before = secState();
+  const snap = structuredClone(before);
+  assert.deepEqual(deleteSection(before, 'a1', null, T0), { ok: false, reason: '移動先を選んでください' });
+  assert.equal(deleteSection(before, 'a1', 'a1', T0).ok, false); // 自分自身
+  assert.equal(deleteSection(before, 'a1', 'k0', T0).ok, false); // 別キャラ
+  assert.equal(deleteSection(before, 'a1', 'zz', T0).ok, false);
+  assert.match(deleteSection(before, 'k0', 'a0', T0).reason, /他にセクションがない/); // ken は k0 のみ
+  assert.equal(deleteSection(before, 'nope', null, T0).ok, false);
+  assert.deepEqual(before, snap);
+
+  const r = deleteSection(before, 'a1', 'a2', T0 + 9);
+  assert.equal(r.ok, true);
+  valid(r.state);
+  assert.deepEqual(orders(r.state, 'ryu'), ['a0:0', 'a2:1']);
+  assert.deepEqual(r.state.combos.map((c) => [c.id, c.sectionId, c.updatedAt]), [['c1', 'a2', T0 + 9], ['c2', 'a2', T0 + 9], ['c3', 'k0', T0]]);
+  assert.deepEqual(before, snap);
+});
+
+test('方向5のラベルは「ニュートラル」、数字表記は「5」のまま', () => {
+  const t = { type: 'special', motion: '2565', key: 'P', str: 'H' };
+  assert.equal(tokenLabel(t), '↓ニュートラル→ニュートラル 強P');
+  assert.equal(tokenLabel(t, 'numpad'), '2565 強P');
 });

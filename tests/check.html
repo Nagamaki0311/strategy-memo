@@ -86,15 +86,25 @@ for (const u of document.querySelectorAll('use')) {
 const chips = document.querySelectorAll('.chip');
 if (!chips.length) problems.push('チップが描画されていない');
 for (const c of chips) if (c.getAttribute('role') !== 'img' || !c.getAttribute('aria-label')) problems.push('チップにrole=imgまたはaria-labelがない');
-// 方向1〜9の描画: 矢印は方向ごとの回転、5は中点（矢印にしない）
+// 方向1〜9の描画: 矢印は方向ごとの回転、5は素の文字「N」（矢印・中点にしない）
 const ANGLE = { 1: 135, 2: 90, 3: 45, 4: 180, 6: 0, 7: 225, 8: 270, 9: 315 };
+// 5: 「N」の文字、700、サイズ（L15px／S12px）、色fg、矢印の箱と同じ幅、中央寄せ
+const neutralOk = (n, row) => {
+  const cs = getComputedStyle(n);
+  const arrowW = parseFloat(getComputedStyle(row).getPropertyValue('--arrow'));
+  return n.classList.contains('neutral') && n.textContent === 'N' && !n.querySelector('svg')
+    && cs.fontWeight === '700' && cs.fontSize === (row.classList.contains('S') ? '12px' : '15px')
+    && cs.color === getComputedStyle(document.body).color && cs.textAlign === 'center'
+    && Math.abs(n.getBoundingClientRect().width - arrowW) < 0.5;
+};
 for (const row of dirRows) {
   DIRS.forEach(({ motion }, i) => {
     const parts = [...row.querySelectorAll('.chip')[i].children].slice(0, motion.length);
     const ok = parts.length === motion.length && [...motion].every((d, j) => d === '5'
-      ? parts[j].classList.contains('neutral') && !parts[j].querySelector('svg')
+      ? neutralOk(parts[j], row)
       : parts[j].classList.contains('arrow') && parts[j].style.transform === `rotate(${ANGLE[d]}deg)`);
     if (!ok) problems.push(`方向${motion}の描画が不正`);
+    if (motion.includes('5') && !row.querySelectorAll('.chip')[i].getAttribute('aria-label').includes('ニュートラル')) problems.push('方向5のaria-labelがニュートラルでない');
   });
 }
 const rows = document.querySelectorAll('.row').length;
