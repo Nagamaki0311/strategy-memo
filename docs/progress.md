@@ -19,6 +19,25 @@
 
 ---
 
+## 2026-10-15 T-003: 環境確認と土台
+
+### 実施内容
+- node v22.22.0、python3 3.13.16、ヘッドレスChromium（`/opt/pw-browsers/chromium`、v1194）の起動を確認した。
+- package.json（依存なし、`node --test`）、app/（index.html、app.js、core.js、styles.css）、tests/core.test.jsを作成した。core.jsにはD-010のキャラクターマスタ32件、styles.cssにはdocs/design-spec.md 2章の色トークンのみを置いた。
+
+### 結果
+- `npm test` は4テスト pass、fail 0、終了コード0（Managerが再実行して確認）。
+- `python3 -m http.server 8000` を起動して `curl -sf http://localhost:8000/app/` が200。ヘッドレスChromiumで `<span id="count">32</span>` の描画と、360×740のスクリーンショットでの表示を確認した。
+- ブラウザでの確認手順（`app/` を配信中に実行。stderrのdbus・socketエラーは無害なので `2>/dev/null` で除外する）:
+  - DOM取得: `/opt/pw-browsers/chromium/chrome-linux/chrome --headless --no-sandbox --disable-gpu --virtual-time-budget=3000 --dump-dom http://localhost:8000/app/`
+  - スクリーンショット: 上記に `--window-size=360,740 --screenshot=<path>` を付ける。
+- 別途Reviewerは通していない（マスタとスケルトンのみ。Managerがマスタの内容をD-010と照合）。
+
+### 次回開始位置
+- T-005（文書の検証と取り込みのマージ、app/core.js）とT-006（パッド入力の状態遷移とトークン表示、app/core.js）。D-004・D-005・D-006を先に読む。
+
+---
+
 ## 2026-10-15 Phase 0（T-001〜T-004）: 要件の洗い出し・調査・デザイン仕様
 
 ### 実施内容

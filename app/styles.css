@@ -1,0 +1,16 @@
+:root {
+  --bg: #16140F;
+  --surface: #22201A;
+  --key: #2E2B24;
+  --line: #3A372F;
+  --line-strong: #57524A;
+  --fg: #EDE8DC;
+  --fg-muted: #A8A397;
+  --conn: #8A867D;
+  --ink: #16140F;
+  --str-l: #8FD3F0;
+  --str-m: #F0D870;
+  --str-h: #F29A8E;
+  --od: #9ED8A0;
+  --scrim: rgba(0,0,0,.6);
+}
