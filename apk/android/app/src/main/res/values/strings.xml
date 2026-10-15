@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SF6戦略メモ</string>
+    <string name="title_activity_main">SF6戦略メモ</string>
+    <string name="package_name">io.github.nagamaki0311.sf6memo</string>
+    <string name="custom_url_scheme">io.github.nagamaki0311.sf6memo</string>
+</resources>

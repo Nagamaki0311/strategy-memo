@@ -255,3 +255,27 @@
 - 「LP or MP」などのor表記は強度の選択と解釈したが、ページ上に説明はない。
 
 ---
+
+## D-011: APK配布（Capacitorで包む）
+
+- 日付: 2026-10-15
+- 状態: 採用
+
+### 背景
+- ユーザーが、インストールアプリ（apk）としてダウンロードリンクを出せる準備を求めた。D-002は、apkが必要になったらPWAを後から包む形（TWAやCapacitor）で追加するとしている。
+
+### 決定
+- Capacitor（Android）で `app/` をそのまま同梱する。ビルド用の構成は `apk/`（package.json、capacitor.config.json、android/）と `.github/workflows/apk.yml` に置き、Webアプリ本体（`app/`）には依存を追加しない。
+- appIdは `io.github.nagamaki0311.sf6memo`、アプリ名は「SF6戦略メモ」、縦固定、バー色は `#16140F`。Capacitor 8 の要件により、Android SDK 36、JDK 21 を使う。
+- 署名は、環境変数（`KEYSTORE_FILE` ほか）があればリリース署名、なければデバッグ署名とする。配布前にユーザーがリリース鍵を作り、GitHubのSecrets（`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`）に登録する。鍵はリポジトリ外にバックアップする。
+- ワークフローは `workflow_dispatch` とタグ `v*` のpushで起動し、アーティファクトに加え、タグのときはGitHub Releaseに `sf6memo.apk` を添付する。ダウンロードリンクは `https://github.com/Nagamaki0311/strategy-memo/releases/latest/download/sf6memo.apk`（リポジトリが公開のとき有効）。
+- JSONの書き出しはAndroid WebViewで `<a download>` と `navigator.share` が使えないため、`window.Capacitor?.isNativePlatform?.()` が真のときだけ `@capacitor/filesystem` と `@capacitor/share` 経由にする（T-012で実装。呼び出し例は apk/README.md）。
+
+### 理由
+- TWAは、GitHub Pagesのプロジェクトサイトではドメイン直下にassetlinks.jsonを置けず検証できない（URLバーが残る）うえ、ホスティングとPWAが先に要る。Capacitorはオフラインで動き、ホスティングに依存しない。
+
+### 影響
+- 署名鍵を登録しないと、Actionsの実行ごとに別のデバッグ鍵で署名される。署名が変わると上書き更新できず、アンインストールで端末内のlocalStorageのデータが消える。配布前に必ず鍵を登録する。
+- ローカルでデバッグAPKとリリースAPKのビルドと中身の確認はできたが、実機での起動、Actionsの実行は未確認（T-016）。
+
+---
