@@ -107,6 +107,15 @@ docs/design-spec.md（v1）の章を差し替える改訂。ここに書かな�
 2. `pyftsubset` で `U+0020,U+002D,U+002E,U+0030-0039,U+0041-005A` に絞り、`--flavor=woff2 --layout-features=kern` を付ける。
 3. 出力をbase64にし、styles.cssの先頭の `@font-face { font-family:"Tilt Neon"; src:url(data:font/woff2;base64,…) format("woff2"); font-display:swap; }` に入れる。
 
+実際に使ったコマンド（2026-10-15、fonttools 4.67.0・brotli 1.2.0。入手元は `https://raw.githubusercontent.com/google/fonts/main/ofl/tiltneon/` の `TiltNeon[XROT,YROT].ttf` と `OFL.txt`。結果はwoff2 6,008バイト、base64で8,012文字）:
+
+```sh
+python3 -m pip install fonttools brotli
+fonttools varLib.instancer 'TiltNeon[XROT,YROT].ttf' XROT=0 YROT=0 -o tn-static.ttf
+pyftsubset tn-static.ttf --unicodes='U+0020,U+002D,U+002E,U+0030-0039,U+0041-005A' --flavor=woff2 --layout-features=kern --output-file=tn-sub.woff2
+base64 -w0 tn-sub.woff2   # styles.css 先頭の @font-face の src に入れる
+```
+
 data URIにする理由は、Service Workerの配信リストが変わらない、オフラインで確実に読める、取得待ちによる文字の切り替わりが出ない、の3点。ライセンスの扱い: `app/OFL-TiltNeon.txt` に著作権表示（Copyright 2019 The Tilt Project Authors）とOFLの全文を置く。`@font-face` の直前に1行のコメントで出典を書く。設定画面のバージョン行の下に「英字書体: Tilt Neon（SIL Open Font License 1.1）」を12px・mutedで1行出す。フォントの入手元はgoogle/fontsのofl/tiltneon。
 
 キャラ名の表記: 英字のワードマークを主にし、カナを従として必ず併記する。カナは読み上げ名を兼ねる。CHARACTERSマスタに `en` を足す。

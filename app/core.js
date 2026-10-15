@@ -1,38 +1,38 @@
 // ===== SECTION: キャラクターマスタ =====
-// キャラクターマスタ（D-010）。id＝公式URLのスラッグ、配列順＝公式の並び順。追加はここへ1行足すだけ。
+// キャラクターマスタ（D-010）。id＝公式URLのスラッグ、配列順＝公式の並び順。en＝看板の英字表記（design-spec-v2 2.4。日本版に合わせGOUKI・VEGA）。追加はここへ1行足すだけ。
 export const CHARACTERS = [
-  { id: 'ryu', name: 'リュウ' },
-  { id: 'luke', name: 'ルーク' },
-  { id: 'jamie', name: 'ジェイミー' },
-  { id: 'chunli', name: '春麗' },
-  { id: 'guile', name: 'ガイル' },
-  { id: 'kimberly', name: 'キンバリー' },
-  { id: 'juri', name: 'ジュリ' },
-  { id: 'ken', name: 'ケン' },
-  { id: 'blanka', name: 'ブランカ' },
-  { id: 'dhalsim', name: 'ダルシム' },
-  { id: 'ehonda', name: 'エドモンド本田' },
-  { id: 'deejay', name: 'ディージェイ' },
-  { id: 'manon', name: 'マノン' },
-  { id: 'marisa', name: 'マリーザ' },
-  { id: 'jp', name: 'JP' },
-  { id: 'zangief', name: 'ザンギエフ' },
-  { id: 'lily', name: 'リリー' },
-  { id: 'cammy', name: 'キャミィ' },
-  { id: 'rashid', name: 'ラシード' },
-  { id: 'aki', name: 'A.K.I.' },
-  { id: 'ed', name: 'ED' },
-  { id: 'gouki_akuma', name: '豪鬼' },
-  { id: 'vega_mbison', name: 'ベガ' },
-  { id: 'terry', name: 'テリー' },
-  { id: 'mai', name: '舞' },
-  { id: 'elena', name: 'エレナ' },
-  { id: 'sagat', name: 'サガット' },
-  { id: 'cviper', name: 'C.ヴァイパー' },
-  { id: 'alex', name: 'アレックス' },
-  { id: 'ingrid', name: 'イングリッド' },
-  { id: 'yasmine', name: 'ヤスミン' },
-  { id: 'arjun', name: 'アルジュン' },
+  { id: 'ryu', en: 'RYU', name: 'リュウ' },
+  { id: 'luke', en: 'LUKE', name: 'ルーク' },
+  { id: 'jamie', en: 'JAMIE', name: 'ジェイミー' },
+  { id: 'chunli', en: 'CHUN-LI', name: '春麗' },
+  { id: 'guile', en: 'GUILE', name: 'ガイル' },
+  { id: 'kimberly', en: 'KIMBERLY', name: 'キンバリー' },
+  { id: 'juri', en: 'JURI', name: 'ジュリ' },
+  { id: 'ken', en: 'KEN', name: 'ケン' },
+  { id: 'blanka', en: 'BLANKA', name: 'ブランカ' },
+  { id: 'dhalsim', en: 'DHALSIM', name: 'ダルシム' },
+  { id: 'ehonda', en: 'E.HONDA', name: 'エドモンド本田' },
+  { id: 'deejay', en: 'DEE JAY', name: 'ディージェイ' },
+  { id: 'manon', en: 'MANON', name: 'マノン' },
+  { id: 'marisa', en: 'MARISA', name: 'マリーザ' },
+  { id: 'jp', en: 'JP', name: 'JP' },
+  { id: 'zangief', en: 'ZANGIEF', name: 'ザンギエフ' },
+  { id: 'lily', en: 'LILY', name: 'リリー' },
+  { id: 'cammy', en: 'CAMMY', name: 'キャミィ' },
+  { id: 'rashid', en: 'RASHID', name: 'ラシード' },
+  { id: 'aki', en: 'A.K.I.', name: 'A.K.I.' },
+  { id: 'ed', en: 'ED', name: 'ED' },
+  { id: 'gouki_akuma', en: 'GOUKI', name: '豪鬼' },
+  { id: 'vega_mbison', en: 'VEGA', name: 'ベガ' },
+  { id: 'terry', en: 'TERRY', name: 'テリー' },
+  { id: 'mai', en: 'MAI', name: '舞' },
+  { id: 'elena', en: 'ELENA', name: 'エレナ' },
+  { id: 'sagat', en: 'SAGAT', name: 'サガット' },
+  { id: 'cviper', en: 'C.VIPER', name: 'C.ヴァイパー' },
+  { id: 'alex', en: 'ALEX', name: 'アレックス' },
+  { id: 'ingrid', en: 'INGRID', name: 'イングリッド' },
+  { id: 'yasmine', en: 'YASMINE', name: 'ヤスミン' },
+  { id: 'arjun', en: 'ARJUN', name: 'アルジュン' },
 ];
 
 // ===== SECTION: トークン定義 =====
@@ -264,12 +264,15 @@ export function describeRow(tokens, notation = 'arrow') {
 // ===== SECTION: 文書の検証 =====
 // ponytail: 上限値は個人利用の目安。実データで足りなくなったら調整する。
 export const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, name: 50, title: 100, tag: 30, memo: 2000 };
-const COMBO_KEYS = ['id', 'characterId', 'controlType', 'sectionId', 'title', 'position', 'tokens', 'memo', 'tags', 'favorite', 'createdAt', 'updatedAt'];
+const COMBO_KEYS = ['id', 'characterId', 'controlType', 'sectionId', 'title', 'position', 'tokens', 'memo', 'tags', 'favorite', 'createdAt', 'updatedAt', 'damage'];
 const POSITIONS = ['any', 'corner', 'midscreen'];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const isId = (v) => typeof v === 'string' && ID_RE.test(v);
 const isStr = (v, max, min = 0) => typeof v === 'string' && v.length >= min && v.length <= max;
 export const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
+export const DAMAGE_MAX = 99999;
+// damage は任意（D-012）。キーがあるときだけ 0〜99999 の整数。未入力はキー自体を持たない。
+export const isDamage = (v) => Number.isInteger(v) && v >= 0 && v <= DAMAGE_MAX;
 const isCharacter = (v) => CHARACTERS.some((c) => c.id === v);
 
 function docProblem(doc) {
@@ -316,6 +319,7 @@ function docProblem(doc) {
       ['favorite', typeof c.favorite === 'boolean'],
       ['createdAt', isTime(c.createdAt)],
       ['updatedAt', isTime(c.updatedAt)],
+      ['damage', !Object.hasOwn(c, 'damage') || isDamage(c.damage)],
     ].find(([, ok]) => !ok);
     if (!isObj(c) || bad) return `${i + 1}件目のcombosの${bad ? bad[0] : '形式'}が不正です`;
     if (comboIds.has(c.id)) return `combosのidが重複しています`;
@@ -467,6 +471,7 @@ export function sanitizeDraft(raw) {
     position: POSITIONS.includes(raw.position) ? raw.position : 'any',
     tokens: Array.isArray(raw.tokens) ? raw.tokens.filter(isValidToken).slice(0, LIMITS.tokens) : [],
     memo: str(raw.memo, LIMITS.memo),
+    ...(isDamage(raw.damage) && { damage: raw.damage }),
     tags: Array.isArray(raw.tags)
       ? raw.tags.filter((t) => typeof t === 'string' && t.length >= 1).map((t) => t.slice(0, LIMITS.tag)).slice(0, LIMITS.tags)
       : [],

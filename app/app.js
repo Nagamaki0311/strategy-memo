@@ -11,6 +11,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const ROTATE = { 6: 0, 3: 45, 2: 90, 1: 135, 4: 180, 7: 225, 8: 270, 9: 315 }; // i-arrow は右向き
 const STR_CLASS = { L: 'str-l', M: 'str-m', H: 'str-h' };
 const STR_TEXT = { L: '弱', M: '中', H: '強' };
+const SYS_KIND = { CDR: 'dr', RAW_DR: 'dr', DI: 'di', PARRY: 'dp', REVERSAL: 'dp' }; // システム技の種別。チップの色と枠の形（design-spec-v2 3章）
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -79,8 +80,8 @@ function chipNodes(token, label, notation) {
           : [dot(token.key, STR_CLASS[token.str], token.str)]),
       ];
     }
-    default: // system / sa。表示文字は読み上げ名と同じ（CDR、DI、DP、Dリバ、SA3）
-      return [document.createTextNode(label)];
+    default: // system / sa。表示文字は読み上げ名と同じ（CDR、DI、DP、Dリバ、SA3）。DR系だけ先頭に»を置く
+      return [...(SYS_KIND[token.id] === 'dr' ? [icon('i-rush', 'rush')] : []), document.createTextNode(label)];
   }
 }
 
@@ -111,7 +112,8 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
     grp = el('span', 'grp');
     for (const n of d.notes) grp.append(onChip ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
     if (d.token) {
-      const cls = d.token.type === 'system' || d.token.type === 'sa' ? 'chip sys' : 'chip';
+      const kind = d.token.type === 'sa' ? 'sa' : SYS_KIND[d.token.id]; // system・sa 以外は undefined
+      const cls = kind ? `chip sys sys-${kind}` : 'chip';
       const nodes = chipNodes(d.token, d.label, notation);
       if (onChip) grp.append(tapPart(cls, d.label, d.index, d.token, nodes, onChip));
       else {
@@ -156,6 +158,8 @@ const iconBtn = (id, label, onClick, attrs = {}, rotate = 0) => {
 };
 const pad2 = (n) => String(n).padStart(2, '0');
 const charName = (id) => CHARACTERS.find((c) => c.id === id)?.name;
+const charEn = (id) => CHARACTERS.find((c) => c.id === id)?.en;
+const fmtDamage = new Intl.NumberFormat('ja-JP');
 const byFk = (k) => document.querySelector(`[data-fk="${CSS.escape(k)}"]`);
 
 // ===== SECTION: 保存層 =====
@@ -516,21 +520,36 @@ const POS = { any: 'どこでも', corner: '画面端', midscreen: '画面中央
 function shell({ title, back, right = [], notices = [], main, bottom }) {
   const bar = h('header', 'topbar');
   if (back) bar.append(iconBtn('i-chev', back.label, () => goBack(back.to), {}, 180));
-  bar.append(at(h('h1', back ? '' : 'solo', title), { tabindex: '-1' }), ...right);
+  bar.append(at(h('h1', back ? '' : 'solo', ...[title].flat()), { tabindex: '-1' }), ...right);
   return h('div', 'screen', bar, ...notices, h('main', 'main', ...main), ...(bottom ? [bottom] : []));
 }
+
+// 起動時の点灯（design-spec-v2 6章）: アプリ起動後の最初のキャラ選択の描画で1回だけ、点灯タイル（記録あり）の先頭6件の英字を60msずつずらして点ける
+let bootPlayed = false;
+const BOOT_MAX = 6;
+// 360px幅の1列（英字の幅92px）で20pxだと収まらない名前（実測。KIMBERLY 93.5px。tests/e2e.mjs が360・390・430幅で収まりを確認する）
+const LONG_EN = new Set(['kimberly']);
 
 function homeScreen() {
   const counts = new Map();
   for (const c of data.combos) counts.set(c.characterId, (counts.get(c.characterId) ?? 0) + 1);
   const grid = at(h('nav', 'grid'), { 'aria-label': 'キャラクター' });
+  let booted = 0;
   for (const c of CHARACTERS) {
     const n = counts.get(c.id);
-    grid.append(at(h('a', 'cell', h('span', 'cell-name', c.name), ...(n ? [h('span', 'cell-n', `${n}件`)] : [])), { href: `#/c/${c.id}` }));
+    const cell = at(h('a', `cell${n ? ' lit' : ''}${LONG_EN.has(c.id) ? ' long' : ''}`,
+      at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' }), h('span', 'cell-name', c.name), ...(n ? [h('span', 'cell-n', `${n}件`)] : [])),
+    { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name });
+    if (n && !bootPlayed && booted < BOOT_MAX) {
+      cell.classList.add('boot');
+      cell.style.setProperty('--d', `${booted++ * 60}ms`);
+    }
+    grid.append(cell);
   }
+  bootPlayed = true;
   const recent = settings.recentCharacters;
   const bottom = h('footer', 'bottombar recent', ...(recent.length
-    ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'btn', charName(id)), { href: `#/c/${id}` }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
+    ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'rc', at(h('span', 'rc-en', charEn(id)), { 'aria-hidden': 'true' })), { href: `#/c/${id}`, 'aria-label': charName(id) }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
     : [h('p', 'hint', 'キャラクターを選ぶと記録を始められます')]));
   return shell({ title: 'SF6戦略メモ', right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], notices: banners(), main: [grid], bottom });
 }
@@ -540,7 +559,7 @@ function recordRow(c) {
   return at(h('a', 'item',
     ...(c.title ? [h('div', 'item-title', c.title)] : []),
     h('div', 'preview', renderRow(c.tokens, { size: 'S', notation: settings.notation, strengthLabels: settings.strengthLabels })),
-    h('div', 'item-meta', meta)), { href: `#/c/${c.characterId}/r/${c.id}` });
+    h('div', 'item-meta', h('span', 'meta-t', meta), ...(c.damage === undefined ? [] : [h('span', 'dmg', 'ダメージ ', h('b', '', fmtDamage.format(c.damage)))]))), { href: `#/c/${c.characterId}/r/${c.id}` });
 }
 
 function sectionHead(s, i, count, collapsed, canEdit) {
@@ -615,7 +634,7 @@ function listScreen({ cid }) {
       (() => { const b = btn('', [svgIcon('i-plus'), 'セクション'], () => addSectionSheet(b, cid), { 'data-fk': 'add-section' }); return b; })(),
       addRecord);
   }
-  return shell({ title: name, back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
+  return shell({ title: [at(h('span', 'wm', charEn(cid)), { 'aria-hidden': 'true' }), h('span', 'kn', name)], back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
 }
 
 // ===== SECTION: 凡例 =====
@@ -631,7 +650,10 @@ function legendTable() {
   const motion = (m) => h('div', 'row S', ...dirNodes(m, settings.notation));
   const diagram = () => h('div', 'diag', ...[7, 8, 9, 4, 5, 6, 1, 2, 3].map((d) => h('div', 'diag-c', arrow(String(d)), h('span', 'diag-n', String(d)))));
   const conn = () => h('div', 'row S', icon('i-conn', 'conn'));
-  const sys = (id) => [shape([{ type: 'system', id }]), `${SYS_FULL[id]}（${tokenLabel({ type: 'system', id })}）`, tokenLabel({ type: 'system', id })];
+  // システム技・SAは枠の形と発光が見分けの手がかりなので、実際のL寸法で出す（ODはL寸法だと幅が足りず折り返すためS）
+  const L = { size: 'L' };
+  const SYS_LOOK = { CDR: '緑の枠と»', RAW_DR: '緑の枠と»', DI: '角を切った銀の板', PARRY: '紺の二重枠', REVERSAL: '紺の二重枠' };
+  const sys = (id) => [shape([{ type: 'system', id }], L), `${SYS_FULL[id]}（${tokenLabel({ type: 'system', id })}）。${SYS_LOOK[id]}`, tokenLabel({ type: 'system', id })];
   const groups = [
     ['ボタン', [
       [shape([nm('stand', 'L', 'P')]), '水色の円＝弱。円の中の文字がP（パンチ）かK（キック）', '弱P'],
@@ -649,12 +671,12 @@ function legendTable() {
       [diagram(), '8方向とニュートラル（N）。数字はテンキーの位置', '1〜9（5はニュートラル）'],
     ]],
     ['モーションのプリセットと通称', PRESETS.map((m) => [motion(m), MOTION_MEANING[m] ?? MOTION_NAMES[m], m])],
-    ['OD', [[shape([{ type: 'special', motion: '236', key: 'P', str: 'OD' }]), 'OD必殺技。「OD」の文字とボタンの円2つ', 'OD236P']]],
+    ['OD', [[shape([{ type: 'special', motion: '236', key: 'P', str: 'OD' }]), 'OD必殺技。橙の「OD」の文字と、橙の●2つ（重ねて表示）', 'OD236P']]],
     ['システム技・SA', [
       ...['CDR', 'RAW_DR', 'DI', 'PARRY', 'REVERSAL'].map(sys),
-      [h('div', 'leg-sa', ...[1, 2, 3].map((level) => shape([{ type: 'sa', level }]))), 'スーパーアーツ1〜3', 'SA1〜SA3'],
+      [h('div', 'leg-sa', ...[1, 2, 3].map((level) => shape([{ type: 'sa', level }], L))), 'スーパーアーツ1〜3。白い枠', 'SA1〜SA3'],
     ]],
-    ['注記（直後の技に付く）', ['CH', 'PC'].map((id) => [shape([{ type: 'note', id }]), NOTE_FULL[id], id])],
+    ['注記（直後の技に付く）', ['CH', 'PC'].map((id) => [shape([{ type: 'note', id }]), `${NOTE_FULL[id]}。斜めの小さな板`, id])],
     ['つなぎ', [[conn(), '技と技のつなぎ。自動で入る', '▶']]],
   ];
   const table = h('table', 'leg', h('thead', '', h('tr', '', h('th', '', '形'), h('th', '', '意味'), h('th', '', '書き出し時の表記'))));
@@ -691,6 +713,7 @@ function detailScreen({ cid, rid }) {
   const main = h('div', 'detail',
     h('p', 'd-meta', [sec.name, POS[c.position], c.tags.join(' ')].filter(Boolean).join('・')),
     ...(c.title ? [h('h2', 'd-title', c.title)] : []),
+    ...(c.damage === undefined ? [] : [h('p', 'd-stat', h('span', 'd-stat-l', 'ダメージ'), h('b', 'd-stat-n', fmtDamage.format(c.damage)))]),
     h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip })),
     ...(c.memo ? [h('section', 'd-memo', h('h2', 'd-memo-h', 'メモ'), h('p', '', c.memo))] : []));
   const bottom = h('footer', 'bottombar', other, btn('', '複製', () => duplicate(c)), at(h('a', 'btn primary', '編集'), { href: `#/c/${cid}/r/${rid}/edit` }));
@@ -775,11 +798,11 @@ function buildPad(act, recents, notation, strengthLabels) {
     presetKeys.push([v, k]);
     return k;
   }));
-  const sysKey = (label, aria, action) => padKey('', aria, () => act(action), label);
+  const sysKey = (label, aria, action, band) => padKey(band ? `band band-${band}` : '', aria, () => act(action), label); // band: 下端の帯の色（種別。注記には付けない）
   const system = at(h('div', 'sys-keys',
-    ...['CDR', 'RAW_DR', 'DI'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id })),
-    ...[1, 2, 3].map((level) => sysKey(`SA${level}`, `スーパーアーツ${level}`, { type: 'sa', level })),
-    ...['PARRY', 'REVERSAL'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id })),
+    ...['CDR', 'RAW_DR', 'DI'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id }, SYS_KIND[id])),
+    ...[1, 2, 3].map((level) => sysKey(`SA${level}`, `スーパーアーツ${level}`, { type: 'sa', level }, 'sa')),
+    ...['PARRY', 'REVERSAL'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id }, SYS_KIND[id])),
     ...['CH', 'PC'].map((id) => sysKey(id, NOTE_FULL[id], { type: 'note', id }))), { role: 'group', 'aria-label': 'システム技' });
   const dirs = h('div', 'dirs', ...PAD_DIRS.map((d) => padKey('dkey', PAD_DIR_NAMES[d], () => act({ type: 'dir', value: d }), arrow(String(d)))));
   const stance = at(h('div', 'stance', ...[['stand', '立ち', '立ち'], ['crouch', 'しゃがみ', arrow('2')], ['jump', 'ジャンプ', 'J']].map(([v, label, face]) => {
@@ -1001,7 +1024,7 @@ function editScreen(route) {
 function placeholder({ title, backLabel, to, lines }) {
   return shell({
     title, back: { label: backLabel, to },
-    main: [h('div', 'placeholder', h('p', '', '次のタスクで実装します。'), ...lines.map((l) => h('p', 'muted', l)))],
+    main: [h('div', 'placeholder', h('p', '', '次のタスクで実装します。'), ...lines.map((l) => h('p', 'hint', l)))],
   });
 }
 
@@ -1011,7 +1034,8 @@ const SCREENS = {
   detail: detailScreen,
   edit: editScreen,
   new: editScreen,
-  settings: () => placeholder({ title: '設定', backLabel: 'キャラクター選択に戻る', to: '#/', lines: [] }),
+  // 書体の表記（OFL 1.1 の求める表示。design-spec-v2 2.4）。T-012 の設定画面ではバージョン行の下に置く
+  settings: () => placeholder({ title: '設定', backLabel: 'キャラクター選択に戻る', to: '#/', lines: ['英字書体: Tilt Neon（SIL Open Font License 1.1）'] }),
 };
 
 // ===== SECTION: ルーティング =====
