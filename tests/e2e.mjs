@@ -12,7 +12,8 @@
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
 import { chromium } from '/opt/node-tools/node_modules/playwright/index.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, readdirSync, existsSync, statSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, statSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,7 +29,7 @@ const N = (stance, str, key) => ({ type: 'normal', stance, key, str });
 const SP = (motion, str, key) => ({ type: 'special', motion, key, str });
 const combo = (id, sectionId, title, tokens, extra = {}) => ({
   id, characterId: 'ryu', controlType: 'classic', sectionId, title, position: 'any', tokens, memo: '', tags: [], favorite: false,
-  createdAt: T0 + Number(id.slice(1)), updatedAt: T0, ...extra,
+  createdAt: T0 - 1000 + Number(id.slice(1)), updatedAt: T0, ...extra, // createdAt <= updatedAt（validateDoc）。idの数字で作成順を表す
 });
 const LONG = Array.from({ length: 12 }, () => [N('crouch', 'M', 'K'), SP('236', 'H', 'P')]).flat();
 const seedState = () => ({
@@ -44,7 +45,7 @@ const failures = [];
 let checks = 0;
 // 想定外の例外（待機のタイムアウトなど）でも、それまでの不合格を表示してから終了コード1で終わる
 process.on('uncaughtException', (e) => {
-  console.log(`e2e: 中断 ${String(e.message).split('\n')[0]}\n${failures.map((f) => `FAIL ${f}`).join('\n')}`);
+  console.log(`e2e: 中断 ${String(e.message).split('\n')[0]} @ ${String(e.stack).split('\n').find((l) => l.includes('e2e.mjs'))}\n${failures.map((f) => `FAIL ${f}`).join('\n')}`);
   process.exit(1);
 });
 async function check(name, fn) {
@@ -88,23 +89,27 @@ const gotoHash = async (page, h) => { await page.evaluate((x) => { location.hash
 // 機内モードは context.setOffline(true) に加えて、サーバー側で接続を切って再現する（setOffline は Service Worker の fetch を止めないため。
 // キャッシュに無いファイルがあっても、setOffline だけではネットワークから取れてしまい、検出できない）。
 // prefix='/strategy-memo/' で、GitHub Pagesのプロジェクトサイトと同じサブパス配信を再現する。
-// 配信する版数。見た目・アイコン・キャッシュ対象を変えるデプロイでは sw.js の CACHE を上げ、ここも合わせる（T-019: アイコン・ネオン・ロゴで v1 → v2）。上げ忘れを検出する
-const EXPECT_CACHE = 'sf6memo-v2';
+// 版数 CACHE はデプロイ時に pages.yml が app/ の内容ハッシュへ置き換える（リポジトリ内の値はローカル開発用）。ここでは形式と、置き換えの仕組みを検査する（19b）
+const CACHE_RE = /^sf6memo-[A-Za-z0-9]+$/;
+const cacheOf = (dir) => readFileSync(path.join(dir, 'sw.js'), 'utf8').match(/^const CACHE = '([^']*)'/m)[1];
 const SW_APP = path.resolve(process.env.SW_APP ?? new URL('../app', import.meta.url).pathname);
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 async function serveApp(dir, prefix = '/') {
   const root = path.resolve(dir) + path.sep;
-  // sw: sw.js の本文を書き換える（版数の変更用）。down: 真のあいだは接続を切る（機内モード）。切られたあとに来た要求は downHits に残る
-  const s = { misses: [], downHits: [], down: false, sw: (t) => t };
+  // sw・appjs: sw.js・app.js の本文を書き換える（版数の変更・デプロイの再現用）。down: 真のあいだは接続を切る（機内モード）。切られたあとに来た要求は downHits に残る
+  // 配信には GitHub Pages と同じ Cache-Control: max-age=600 を付ける（HTTPキャッシュの古い版を新しい版のキャッシュへ入れないことの検査用）
+  const s = { misses: [], downHits: [], down: false, sw: (t) => t, appjs: (t) => t };
   s.server = createServer((req, res) => {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (s.down) { s.downHits.push(p); req.socket.destroy(); return; }
+    // ブラウザ自身のSW更新確認（/sw.js）は切断中でも飛んでくる。アプリが取りに行った要求だけを downHits に残す
+    if (s.down) { if (!p.endsWith('/sw.js')) s.downHits.push(p); req.socket.destroy(); return; }
     const rel = p.startsWith(prefix) ? p.slice(prefix.length) || 'index.html' : null;
     const file = rel === null ? null : path.join(dir, rel.endsWith('/') ? `${rel}index.html` : rel);
     if (!file || !file.startsWith(root) || !existsSync(file) || statSync(file).isDirectory()) { s.misses.push(p); res.writeHead(404); res.end(); return; }
     let body = readFileSync(file);
     if (rel === 'sw.js') body = s.sw(body.toString());
-    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+    if (rel === 'app.js') body = s.appjs(body.toString());
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'max-age=600' });
     res.end(body);
   });
   await new Promise((ok) => s.server.listen(0, ok));
@@ -222,8 +227,32 @@ for (const width of [360, 430]) {
       for (const [src, px] of [['icon-192.png', 192], ['icon-512.png', 512]]) assert.deepEqual(await pngSize(`${root.origin()}${src}`), [200, 'PNG', px, px], src);
       assert.equal((await fetch(`${root.origin()}icon.svg`)).status, 200);
     });
-    await check(`${tag} 19b sw.js の CACHE が ${EXPECT_CACHE}（T-019で上げた版。上げないと利用者の端末が古いアイコン・見た目のまま）`, async () => {
-      assert.equal(readFileSync(path.join(SW_APP, 'sw.js'), 'utf8').match(/const CACHE = '([^']*)'/)[1], EXPECT_CACHE);
+    await check(`${tag} 19b sw.js の CACHE は sf6memo-英数字 の形（配信時に内容ハッシュへ置き換わる。リポジトリ内の値はローカル開発用）`, async () => {
+      assert.match(cacheOf(SW_APP), CACHE_RE);
+    });
+    await check(`${tag} 19b 配信時の版数: pages.yml の置き換えコマンドで CACHE が app/ の内容ハッシュ（sf6memo-8桁）になり、sw.js 以外を変えると変わり、変えなければ変わらない`, async () => {
+      // pages.yml の run をそのまま、app/ のコピー（cwd 直下に app/）に対して実行する
+      const stamp = readFileSync(new URL('../.github/workflows/pages.yml', import.meta.url), 'utf8').match(/- name: SWの版数[^\n]*\n\s+run: \|\n((?: {10}[^\n]*\n)+)/)[1].replace(/^ {10}/gm, '');
+      const work = mkdtempSync(path.join(tmpdir(), 'sf6-stamp-'));
+      try {
+        cpSync(SW_APP, path.join(work, 'app'), { recursive: true });
+        const run = () => { execFileSync('bash', ['-e', '-c', stamp], { cwd: work }); return cacheOf(path.join(work, 'app')); };
+        const v1 = run();
+        assert.match(v1, /^sf6memo-[0-9a-f]{8}$/);
+        assert.equal(run(), v1, '内容が同じなら同じ版数（sw.js 自身の書き換えは版数に入らない）');
+        for (const f of readdirSync(path.join(work, 'app')).filter((x) => x !== 'sw.js')) {
+          const before = readFileSync(path.join(work, 'app', f));
+          writeFileSync(path.join(work, 'app', f), Buffer.concat([before, Buffer.from('\n')]));
+          assert.notEqual(run(), v1, `${f} を変えたのに版数が変わらない`);
+          writeFileSync(path.join(work, 'app', f), before);
+          assert.equal(run(), v1, `${f} を戻したら版数も戻る`);
+        }
+        // sw.js のコメントなど CACHE 以外を変えても、版数は内容ハッシュのまま（sw.js 自身は入力に含めない）
+        writeFileSync(path.join(work, 'app', 'sw.js'), `${readFileSync(path.join(work, 'app', 'sw.js'), 'utf8')}// x\n`);
+        assert.equal(run(), v1);
+      } finally {
+        rmSync(work, { recursive: true });
+      }
     });
     await check(`${tag} 19b アイコンのPNGは新しい図案（背景・●・管の芯の3点の色。192と512）`, async () => {
       const px = (src, pts) => page.evaluate(async ([u, pts]) => {
@@ -293,17 +322,24 @@ for (const width of [360, 430]) {
     });
     await page.reload(); // 現行版に制御されたタブ
     const v1 = (await cacheKeys(page)).filter((k) => k.startsWith('sf6memo-') && k !== 'sf6memo-v0');
+    // デプロイの再現: app.js が変わり（印を足す）、CACHE が変わる。サーバーは max-age=600 を付けているので、HTTPキャッシュの古い app.js を新しいキャッシュへ入れると印が無い
     root.sw = (t) => t.replace(/const CACHE = '[^']*'/, "const CACHE = 'sf6memo-v3'");
+    root.appjs = (t) => `${t}\n// DEPLOY-2 MARKER\n`;
     await page.evaluate(async () => { await (await navigator.serviceWorker.ready).update(); });
-    await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state === 'installed');
+    await page.waitForFunction(async () => (await caches.keys()).includes('sf6memo-v3'), null, { timeout: 8000 }); // 新版のインストール（プリキャッシュ）が始まった
+    await page.waitForTimeout(1500); // skipWaiting があれば、この間に有効化されて旧キャッシュが消える
     await check(`${tag} 19d 更新: 新版はプリキャッシュして待機するだけ（skipWaitingなし）。旧版のキャッシュは残り、開いているタブは動き続ける`, async () => {
+      assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state), 'installed');
       assert.deepEqual(v1.length, 1);
-      assert.equal(v1[0], EXPECT_CACHE);
+      assert.equal(v1[0], cacheOf(SW_APP));
       assert.deepEqual(await cacheKeys(page), ['other-app-v1', 'sf6memo-v0', v1[0], 'sf6memo-v3'].sort());
       assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.state), 'activated');
       await page.locator('.cell[aria-label^="ケン"]').click();
       await page.waitForFunction(() => location.hash === '#/c/ken');
       assert.deepEqual(page.errors, []);
+    });
+    await check(`${tag} 19d 更新: 新しいキャッシュには、HTTPキャッシュ（max-age=600）の古い版でなく、サーバーの新しい app.js が入る（cache: 'reload'）`, async () => {
+      assert.equal(await page.evaluate(async () => (await (await (await caches.open('sf6memo-v3')).match('app.js')).text()).includes('DEPLOY-2 MARKER')), true);
     });
     await page.close(); // 開いているタブがなくなる
     const next = await page.context().newPage();
@@ -315,6 +351,7 @@ for (const width of [360, 430]) {
     });
     await next.context().close();
     root.sw = (t) => t;
+    root.appjs = (t) => t;
   }
 
   await root.close();
@@ -368,11 +405,11 @@ for (const width of [360, 430]) {
     await page.getByRole('button', { name: 'セクション', exact: true }).click();
     await page.getByRole('button', { name: 'スタン' }).click();
     await page.waitForSelector('.err');
-    await check(`${tag} 2 保存失敗でその場にエラーが出て、メモリ上の状態は保たれる`, async () => {
+    await check(`${tag} 2 保存失敗でその場にエラーが出て、操作は巻き戻る（画面にもメモリにも残らない）`, async () => {
       const t = await page.locator('.err').innerText();
       assert.match(t, /保存できませんでした/);
-      assert.match(t, /保存領域がいっぱいです。入力内容はこの画面に残っています。/);
-      assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め', 'スタン']);
+      assert.match(t, /端末の保存領域がいっぱいです。変更は保存されませんでした。/);
+      assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め']);
       assert.equal(await page.locator('.err[role=alert]').count(), 1); // 読み上げられる
       assert.equal(await page.locator('#toast .toast').count(), 0); // 保存に失敗した操作に［元に戻す］は出さない
     });
@@ -383,7 +420,7 @@ for (const width of [360, 430]) {
     await check(`${tag} 2 保存に失敗した削除には［元に戻す］を出さず、エラーを出す`, async () => {
       assert.equal(await page.locator('#toast .toast').count(), 0);
       assert.equal(await page.locator('.err').count(), 1);
-      assert.deepEqual(await names(page), ['通常', '画面端', 'スタン']);
+      assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め']);
     });
     await page.reload();
     await check(`${tag} 2 再読み込み後にデータが変わっていない`, async () => {
@@ -742,12 +779,12 @@ for (const width of [360, 430]) {
     await denied.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('denied', 'SecurityError'); }; });
     await denied.getByRole('button', { name: 'セクション', exact: true }).click();
     await denied.getByRole('button', { name: 'スタン', exact: true }).click();
-    await check(`${tag} 7 非quotaの保存失敗（SecurityError）は別の文言で、メモリは保たれる`, async () => {
+    await check(`${tag} 7 非quotaの保存失敗（SecurityError）は別の文言で、操作は巻き戻る`, async () => {
       await denied.waitForSelector('.err');
       const t = await denied.locator('.err').innerText();
-      assert.match(t, /ブラウザが保存を許可していません。変更はこの画面にだけ残っています。/);
+      assert.match(t, /ブラウザが保存を許可していません。変更は保存されませんでした。/);
       assert.doesNotMatch(t, /保存領域がいっぱい/);
-      assert.equal((await names(denied)).includes('スタン'), true);
+      assert.equal((await names(denied)).includes('スタン'), false);
     });
     await denied.context().close();
 
@@ -1347,7 +1384,7 @@ for (const width of [360, 430]) {
     await page.waitForFunction(() => location.hash === '#/c/ryu/r/c1');
     await check(`${tag} 14 編集の保存: updatedAtのみ更新し、セクション・位置・タグ・メモが反映される`, async () => {
       const c = (await stored(page)).combos.find((x) => x.id === 'c1');
-      assert.equal(c.createdAt, T0 + 1);
+      assert.equal(c.createdAt, T0 - 999);
       assert.ok(c.updatedAt > T0);
       assert.deepEqual([c.sectionId, c.position, c.tags, c.memo, c.title], ['s2', 'corner', ['基本', '練習用'], 'ここで\n改行', '基本コンボ']);
       assert.equal(c.tokens.length, 7);
@@ -2123,9 +2160,9 @@ for (const width of [360, 430]) {
       const original = await stored(page);
       const t0 = Date.now();
       const out = await downloadVia(page, () => page.getByRole('button', { name: 'JSONを書き出す' }).click());
-      await check(`${tag} 18a 書き出し: ファイル名・整形JSON・内容が保存データと一致・lastExportAt更新・トースト`, async () => {
+      await check(`${tag} 18a 書き出し: ファイル名・整形なしのJSON・内容が保存データと一致・lastExportAt更新・トースト`, async () => {
         assert.match(out.name, FILE_RE);
-        assert.ok(out.text.includes('\n  "sections"'), '整形されている');
+        assert.ok(!out.text.includes('\n'), '整形なし（取り込み上限との食い違いを小さくする）');
         assert.deepEqual(JSON.parse(out.text), original);
         await page.waitForSelector('#toast .toast');
         assert.deepEqual(await toast(page), ['書き出しました']);
@@ -2143,7 +2180,7 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet');
       await check(`${tag} 18a 取り込みの確認シート: 件数・注記・［やめる］［取り込む］`, async () => {
         const t = await sheetText(page);
-        assert.match(t, /^取り込みの確認 追加 6件 ／ 更新 0件 ／ 変更なし 0件 同じ記録は更新日時が新しい方を残します/);
+        assert.match(t, /^取り込みの確認 記録 追加 3件 ／ 更新 0件 ／ 変更なし 0件 セクション 追加 3件 ／ 更新 0件 ／ 変更なし 0件 同じ記録は更新日時が新しい方を残します/);
         assert.deepEqual(await page.locator('.sheet-foot .btn').allInnerTexts(), ['やめる', '取り込む']);
         assert.equal(await storedRaw(page), null); // 確認前は書かない
         assert.ok(await noHScroll(page));
@@ -2152,7 +2189,7 @@ for (const width of [360, 430]) {
       await page.getByRole('button', { name: '取り込む', exact: true }).click();
       await gone(page);
       await check(`${tag} 18a 取り込み後: トーストと、元のデータとの一致（sections・combos）`, async () => {
-        assert.deepEqual(await toast(page), ['取り込みました（追加6・更新0）']);
+        assert.deepEqual(await toast(page), ['取り込みました（記録 追加3・更新0、セクション 追加3・更新0）']);
         const now = await stored(page);
         assert.deepEqual(now.sections, original.sections);
         assert.deepEqual(now.combos, original.combos);
@@ -2203,7 +2240,7 @@ for (const width of [360, 430]) {
         await importFile(page, good);
         await page.waitForSelector('.sheet');
         assert.equal(await page.locator('.set-err .err').count(), 0);
-        assert.match(await sheetText(page), /追加 0件 ／ 更新 0件 ／ 変更なし 6件/);
+        assert.match(await sheetText(page), /記録 追加 0件 ／ 更新 0件 ／ 変更なし 3件 セクション 追加 0件 ／ 更新 0件 ／ 変更なし 3件/);
         assert.match(await sheetText(page), /追加・更新はありません/); // 0件でも確認シートは出す
         await page.getByRole('button', { name: '取り込む', exact: true }).click();
         await gone(page);
@@ -2233,7 +2270,7 @@ for (const width of [360, 430]) {
       });
       await importFile(page, incoming);
       await page.waitForSelector('.sheet');
-      await check(`${tag} 18c 確認シートの件数: 追加2・更新1・変更なし5`, async () => assert.match(await sheetText(page), /追加 2件 ／ 更新 1件 ／ 変更なし 5件/));
+      await check(`${tag} 18c 確認シートの件数は記録とセクションに分かれる（記録: 追加1・更新1・変更なし2、セクション: 追加1・変更なし3）`, async () => assert.match(await sheetText(page), /記録 追加 1件 ／ 更新 1件 ／ 変更なし 2件 セクション 追加 1件 ／ 更新 0件 ／ 変更なし 3件/));
       await page.getByRole('button', { name: 'やめる' }).click();
       await gone(page);
       await check(`${tag} 18c ［やめる］ではデータもトーストも変わらない`, async () => {
@@ -2244,13 +2281,13 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet');
       await page.getByRole('button', { name: '取り込む', exact: true }).click();
       await gone(page);
-      await check(`${tag} 18c 新しい方が残り、端末のみの記録も残る。トースト（追加2・更新1）`, async () => {
+      await check(`${tag} 18c 新しい方が残り、端末のみの記録も残る。トースト（記録 追加1・更新1、セクション 追加1・更新0）`, async () => {
         const d = await stored(page);
         const title = (id) => d.combos.find((c) => c.id === id)?.title;
         assert.deepEqual(['c1', 'c2', 'c3', 'c4', 'c5'].map(title), ['新しい方', '長いコンボ', '', '追加分', '端末のみ']);
         assert.equal(d.combos.find((c) => c.id === 'c1').updatedAt, T0 + 1000);
         assert.deepEqual(d.sections.map((s) => s.id), ['s1', 's2', 's3', 's4']);
-        assert.deepEqual(await toast(page), ['取り込みました（追加2・更新1）']);
+        assert.deepEqual(await toast(page), ['取り込みました（記録 追加1・更新1、セクション 追加1・更新0）']);
       });
       await check(`${tag} 18c ページエラーなし`, async () => assert.deepEqual(page.errors, []));
       await page.context().close();
@@ -2431,6 +2468,8 @@ for (const width of [360, 430]) {
         const t = await page.locator('.banners').innerText();
         assert.match(t, /保存データを読み込めませんでした/);
         assert.match(t, /保存できませんでした/);
+        assert.match(t, /取り込みは保存されませんでした。保存領域を確認してください。/);
+        assert.doesNotMatch(t, /入力内容はこの画面に残っています/);
         assert.equal(await storedRaw(page), '{broken');
         assert.equal(await page.getByRole('button', { name: 'JSONを書き出す' }).count(), 0);
         assert.deepEqual(await toast(page), []);
@@ -2441,7 +2480,7 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet');
       await check(`${tag} 18f 確認シートに「置き換える」旨と件数が出る`, async () => {
         const t = await sheetText(page);
-        assert.match(t, /追加 6件 ／ 更新 0件 ／ 変更なし 0件/);
+        assert.match(t, /記録 追加 3件 ／ 更新 0件 ／ 変更なし 0件 セクション 追加 3件 ／ 更新 0件 ／ 変更なし 0件/);
         assert.match(t, /現在の保存データは読み込めないため、取り込んだ内容で置き換えます/);
       });
       await shot(page, '26-import-confirm-replace', width);
@@ -2856,7 +2895,7 @@ for (const width of [360, 430]) {
       for (const [cid, n] of counts) {
         if (!n) continue;
         d.sections.push(sec(`s-${cid}`, cid, '通常', 0));
-        for (let i = 0; i < n; i++) d.combos.push({ ...combo(`x${d.combos.length + 1}`, `s-${cid}`, `r${i}`, [N('stand', 'L', 'P')]), characterId: cid });
+        for (let i = 0; i < n; i++) d.combos.push({ ...combo(`x${d.combos.length + 1}`, `s-${cid}`, `r${i}`, [N('stand', 'L', 'P')], { createdAt: T0 }), characterId: cid });
       }
       return d;
     };
@@ -3037,6 +3076,205 @@ for (const width of [360, 430]) {
         assert.ok(st.frames >= 120, `フレーム数が少ない ${st.frames}`);
         assert.ok(st.fps >= 55, JSON.stringify(st));
       });
+      await page.context().close();
+    }
+  }
+
+  // 22. T-015 修正（データ・保存）: 他タブとトースト・設定の読み直し・変更日時・下書き・巻き戻し・200手の上限
+  {
+    const setting = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('sf6memo.settings') ?? 'null'));
+    const addSec = async (p, name) => {
+      await p.getByRole('button', { name: 'セクション', exact: true }).click();
+      await p.getByRole('button', { name, exact: true }).click();
+      await p.waitForSelector('.sheet', { state: 'detached' });
+    };
+    const tabs = async (seed, hashes, blockStorage = []) => { // 同じコンテキスト（同じlocalStorage）の複数タブ。blockStorage[i] が真ならそのタブは storage イベントを受け取れない
+      const ctx = await browser.newContext({ viewport: { width, height: 740 }, acceptDownloads: true });
+      const ps = [];
+      for (const [i, h] of hashes.entries()) {
+        const p = await ctx.newPage();
+        p.errors = [];
+        p.on('pageerror', (e) => p.errors.push(e.message));
+        if (blockStorage[i]) await p.addInitScript(() => addEventListener('storage', (e) => e.stopImmediatePropagation()));
+        await p.goto(BASE);
+        if (i === 0) { await p.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(seed)); await p.reload(); } // 起動時に読ませてから画面を移す
+        await gotoHash(p, h);
+        ps.push(p);
+      }
+      return [ctx, ...ps];
+    };
+
+    // 22a A-M1: 他タブが書いたら、取り消しトーストを閉じる。残すと古いスナップショットを書き戻して他タブの変更を消す
+    {
+      const [ctx, a, b] = await tabs(seedState(), ['#/c/ryu/r/c3', '#/c/ryu']);
+      await a.getByRole('button', { name: 'その他…' }).click();
+      await a.getByRole('button', { name: '削除' }).click();
+      await a.waitForSelector('#toast .toast');
+      await addSec(b, 'スタン');
+      await check(`${tag} 22a 他タブの変更でトースト（［元に戻す］）が閉じ、他タブの追加も削除も残る`, async () => {
+        await a.waitForFunction(() => document.querySelectorAll('#toast .toast').length === 0);
+        assert.equal(await a.getByRole('button', { name: '元に戻す' }).count(), 0);
+        const d = await stored(a);
+        assert.equal(d.sections.some((s) => s.name === 'スタン'), true);
+        assert.equal(d.combos.some((c) => c.id === 'c3'), false);
+      });
+      await check(`${tag} 22a ページエラーなし`, async () => assert.deepEqual([...a.errors, ...b.errors], []));
+      await ctx.close();
+    }
+
+    // 22b A-M3: 他タブの settings を読み直す（storageイベント）。さらに、イベントを取りこぼした古いタブの保存も、他タブが書いたキーを消さない
+    {
+      const [ctx, a, b, stale] = await tabs(seedState(), ['#/settings', '#/c/ryu/r/c1', '#/settings'], [false, false, true]);
+      await a.getByRole('radio', { name: '数字' }).check();
+      const [dl] = await Promise.all([a.waitForEvent('download'), a.getByRole('button', { name: 'JSONを書き出す' }).click()]);
+      await dl.path();
+      await a.waitForSelector('#toast .toast');
+      await check(`${tag} 22b 他タブの表示設定が、再読み込みなしで次の描画から反映される`, async () => {
+        await b.waitForTimeout(300);
+        await gotoHash(b, '#/c/ryu/r/c1/edit'); // 一覧は描画のたびに settings を書き、そのとき最新を読むので、書かない画面で確かめる
+        assert.ok((await b.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')))).some((l) => /236/.test(l)), '数字表記になっている');
+      });
+      await stale.getByRole('radio', { name: 'オン' }).check(); // 古いタブ（表記=矢印、書き出し日なしの状態で開いたまま）が別のキーを変える
+      await check(`${tag} 22b 古いタブの保存が、他タブの表記と最終書き出し日を消さない（変えたキーだけ書く）`, async () => {
+        const s = await setting(a);
+        assert.equal(s.strengthLabels, true);
+        assert.equal(s.notation, 'numpad');
+        assert.ok(Number.isSafeInteger(s.lastExportAt), String(s.lastExportAt));
+      });
+      await check(`${tag} 22b ページエラーなし`, async () => assert.deepEqual([...a.errors, ...b.errors, ...stale.errors], []));
+      await ctx.close();
+    }
+
+    // 22c A-M4: 保存操作で settings の lastChangeAt（毎回）と firstChangeAt（初回のみ）が時刻で入る
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu');
+      const t0 = Date.now();
+      await addSec(page, 'スタン');
+      const s1 = await setting(page);
+      await page.waitForTimeout(30);
+      await addSec(page, 'カウンター');
+      const s2 = await setting(page);
+      await check(`${tag} 22c 保存操作で lastChangeAt・firstChangeAt が現在時刻で入る`, async () => {
+        assert.ok(s1.lastChangeAt >= t0 && s1.lastChangeAt <= Date.now(), String(s1.lastChangeAt));
+        assert.equal(s1.firstChangeAt, s1.lastChangeAt);
+      });
+      await check(`${tag} 22c 2回目以降は lastChangeAt だけ進み、firstChangeAt は初回のまま`, async () => {
+        assert.ok(s2.lastChangeAt > s1.lastChangeAt, `${s2.lastChangeAt} > ${s1.lastChangeAt}`);
+        assert.equal(s2.firstChangeAt, s1.firstChangeAt);
+      });
+      await page.context().close();
+    }
+
+    // 22d A-M2: 下書きを書けなかったときは、離れても「残しました」と言わず、エラー帯も消さない
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+      await page.getByRole('button', { name: '中P', exact: true }).click();
+      await check(`${tag} 22d 下書きの書き込みに失敗するとエラー帯が出る`, async () => assert.equal(await page.locator('.err').count(), 1));
+      await gotoHash(page, '#/c/ryu');
+      await check(`${tag} 22d 離れると「下書きを保存できませんでした」が出て、「下書きを残しました」は出ず、エラー帯が残る`, async () => {
+        const t = await page.locator('#toast').innerText();
+        assert.match(t, /下書きを保存できませんでした/);
+        assert.doesNotMatch(t, /下書きを残しました/);
+        assert.equal(await page.locator('.err').count(), 1);
+        assert.match(await page.locator('.err').innerText(), /変更は保存されませんでした/);
+        assert.equal(await storedRaw(page, 'sf6memo.drafts'), null);
+      });
+      await page.context().close();
+    }
+
+    // 22e A-L1: 壊れた下書きは空の記録として復元しない。形の違う項目は保存済みの値で補う
+    {
+      const seed = seedState();
+      seed.combos[0].position = 'corner';
+      const page = await newPage(width, seed);
+      const putDrafts = (o) => page.evaluate((d) => localStorage.setItem('sf6memo.drafts', JSON.stringify(d)), o);
+      await putDrafts({ 'new:s1': { tokens: 'x' }, 'edit:c1': { tokens: [N('stand', 'L', 'P')], title: 5, position: 'zzz', tags: 'x', memo: null } });
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await check(`${tag} 22e tokens が配列でない下書きは捨てる（お知らせなし・空の編集画面）`, async () => {
+        assert.equal(await page.locator('.notice').count(), 0);
+        assert.equal(await page.locator('.cmd .chip').count(), 0);
+        assert.equal(await page.getByLabel('タイトル（任意）').inputValue(), '');
+      });
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      await check(`${tag} 22e 形の違う項目は保存済みの値（タイトル・位置・タグ）で補い、tokens は下書きのまま`, async () => {
+        assert.equal(await page.locator('.notice').count(), 1);
+        assert.equal(await page.getByLabel('タイトル（任意）').inputValue(), '基本コンボ');
+        assert.deepEqual(await page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label'))), ['立ち弱P']);
+        assert.equal(await page.getByRole('radio', { name: '画面端', exact: true }).isChecked(), true);
+        assert.deepEqual(await page.$$eval('.tag-list .pill', (els) => els.map((e) => e.textContent.trim())), ['基本']);
+      });
+      await page.context().close();
+    }
+
+    // 22f A-L5: 保存に失敗した操作はすべて巻き戻す（画面からも消え、リロードとの食い違いがない）
+    {
+      const fail = (p) => p.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+      const listCount = async (p) => { await gotoHash(p, '#/c/ryu'); return p.locator('.item').count(); };
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await fail(page);
+      await page.getByRole('button', { name: '複製' }).click();
+      await check(`${tag} 22f 複製の保存に失敗: 詳細のまま、エラー帯が出て、一覧に複製が残らない`, async () => {
+        await page.waitForSelector('.err');
+        assert.equal(await hash(page), '#/c/ryu/r/c1');
+        assert.equal(await listCount(page), 3);
+      });
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await page.getByRole('button', { name: 'その他…' }).click();
+      await page.getByRole('button', { name: '削除' }).click();
+      await check(`${tag} 22f 削除の保存に失敗: 記録が消えず、［元に戻す］も出ない`, async () => {
+        await page.waitForSelector('.err');
+        assert.equal(await page.locator('#toast .toast').count(), 0);
+        assert.equal(await listCount(page), 3);
+      });
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await page.getByRole('button', { name: '中K', exact: true }).click();
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await check(`${tag} 22f 記録の保存に失敗: 入力は画面に残り、一覧には新しい記録が出ない`, async () => {
+        await page.waitForSelector('.err');
+        assert.equal(await page.locator('.cmd .chip').count(), 1);
+        assert.equal(await listCount(page), 3);
+      });
+      await page.context().close();
+    }
+
+    // 22g A-L5・A-Nit: 取り込みの保存に失敗: 専用の文言で、データは変わらない
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/settings');
+      const incoming = exportDoc({ sections: [...seedState().sections, sec('s4', 'ryu', '新しい状況', 3)], combos: seedState().combos });
+      await page.locator('input[type=file]').setInputFiles({ name: 'in.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(incoming)) });
+      await page.waitForSelector('.sheet');
+      await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); }; });
+      await page.getByRole('button', { name: '取り込む', exact: true }).click();
+      await page.waitForSelector('.err');
+      await check(`${tag} 22g 取り込みの保存に失敗: 「取り込みは保存されませんでした」と出て（入力内容の文言は出ない）、追加したセクションは残らない`, async () => {
+        const t = await page.locator('.banners').innerText();
+        assert.match(t, /端末の保存領域がいっぱいです。取り込みは保存されませんでした。保存領域を確認してください。/);
+        assert.doesNotMatch(t, /入力内容/);
+        await gotoHash(page, '#/c/ryu');
+        assert.deepEqual(await names(page), ['通常', '画面端', '起き攻め']);
+      });
+      await page.context().close();
+    }
+
+    // 22h A-L7: 編集画面のトークンは200手まで。201手目はトーストで断り、列は変わらない
+    {
+      const full = seedState();
+      full.combos.push(combo('c9', 's1', '200手', Array.from({ length: 200 }, () => N('stand', 'L', 'P'))));
+      const page = await newPage(width, full);
+      await gotoHash(page, '#/c/ryu/r/c9/edit');
+      const n = () => page.locator('.cmd .chip').count();
+      await page.getByRole('button', { name: '中K', exact: true }).click();
+      await check(`${tag} 22h 200手のときに足すと「1つの記録に入れられるのは200手までです」が出て、手数は200のまま`, async () => {
+        assert.equal(await n(), 200);
+        assert.match(await page.locator('#toast').innerText(), /1つの記録に入れられるのは200手までです/);
+        assert.equal(await page.locator('.cmd .chip').last().getAttribute('aria-label'), '立ち弱P');
+      });
+      await check(`${tag} 22h ページエラーなし`, async () => assert.deepEqual(page.errors, []));
       await page.context().close();
     }
   }

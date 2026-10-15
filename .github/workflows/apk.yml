@@ -6,16 +6,21 @@ on:
   push:
     tags: ['v*']
 
+# 既定は読み取りだけ。Release を作る release ジョブにだけ書き込みを与える
 permissions:
-  contents: write # タグのときGitHub Releaseを作るため
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -43,6 +48,10 @@ jobs:
               echo "KEY_ALIAS=$KEY_ALIAS_SECRET"
               echo "KEY_PASSWORD=$KEY_PASSWORD_SECRET"
             } >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            # デバッグ署名のAPKを配布物(Release)にしない。署名が実行ごとに変わり、利用者が上書き更新できなくなる
+            echo "::error::ANDROID_KEYSTORE_BASE64 が未設定のため、タグのビルドを失敗させる。リリース鍵を登録してからタグを打ち直す(apk/README.md「署名」)"
+            exit 1
           else
             echo "::warning::ANDROID_KEYSTORE_BASE64 未設定のためデバッグ署名でビルドする。実行ごとに署名が変わり、上書き更新できない(apk/README.md)"
           fi
@@ -54,7 +63,7 @@ jobs:
       - name: Build
         working-directory: apk
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npm run build:release
           cp android/app/build/outputs/apk/release/app-release.apk sf6memo.apk
       - name: APKにapp/が同梱されていることを確認
@@ -66,10 +75,23 @@ jobs:
         with:
           name: sf6memo-apk
           path: apk/sf6memo.apk
+
+  # Release の作成だけが書き込み権限を持つ。ビルド(依存の取得とgradle)のジョブには与えない
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sf6memo-apk
+          path: dist
       - name: GitHub Release
-        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" apk/sf6memo.apk --title "$GITHUB_REF_NAME" --generate-notes \
-            || gh release upload "$GITHUB_REF_NAME" apk/sf6memo.apk --clobber
+          gh release create "$GITHUB_REF_NAME" dist/sf6memo.apk --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" dist/sf6memo.apk --clobber

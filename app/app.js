@@ -211,13 +211,22 @@ function loadData() {
   else loadError = r.reason;
 }
 
-function loadSettings() {
-  let raw = null;
+// 保存済みの settings を読む。読めない・壊れている settings は既定値で続行する（dataは別キーで検証する）
+function readSettings() {
   try {
     const st = localStorage.getItem(KEYS.settings);
-    if (st !== null) raw = JSON.parse(st);
-  } catch { /* 読めない・壊れている settings は既定値で続行する（dataは別キーで検証する） */ }
-  settings = sanitizeSettings(raw);
+    return sanitizeSettings(st === null ? null : JSON.parse(st));
+  } catch {
+    return sanitizeSettings(null);
+  }
+}
+
+// 最後に読んだ・書いた settings のキーごとのJSON。saveSettings が「このタブで変えたキー」を見分ける基準
+let settingsBase;
+const snapSettings = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, JSON.stringify(v)]));
+function loadSettings() {
+  settings = readSettings();
+  settingsBase = snapSettings(settings);
 }
 
 // 成功なら null、失敗なら例外を返す。永続化の要求は、データの初回保存成功時だけ行う。
@@ -233,13 +242,20 @@ function write(key, value) {
   }
   return null;
 }
-// settings の保存失敗は握りつぶす（メモリ上の値は保つ。画面のエラーはデータの失敗だけに出す）
-const saveSettings = () => write(KEYS.settings, JSON.stringify(settings));
+// 他タブが書いた最新の settings に、このタブで変えたキーだけを重ねて書く（古い値で全体を上書きしない）。
+// 保存失敗は握りつぶす（メモリ上の値は保つ。画面のエラーはデータの失敗だけに出す）。
+// ponytail: マージの粒度はキー単位。collapsed の中身は同時に別タブで変えるとこのタブの値が勝つ。
+function saveSettings() {
+  const latest = readSettings();
+  for (const k of Object.keys(settings)) if (JSON.stringify(settings[k]) !== settingsBase[k]) latest[k] = settings[k];
+  settings = latest;
+  if (!write(KEYS.settings, JSON.stringify(settings))) settingsBase = snapSettings(settings); // 失敗したら基準を進めず、次の保存でもう一度重ねる
+}
 
 // 変更を確定してメモリに反映し、保存する。成功したら true。
 // - 検証に通らない state は書かず、メモリも変えない。
 // - 他タブが書いていた場合は上書きせず、他タブの内容を読み直す（変更は破棄）。
-// - 保存だけ失敗した場合はメモリ上の状態を保つ。いずれの失敗も saveError を画面に出す。
+// - 保存だけ失敗した場合もメモリは変えない（画面とリロード後の内容を食い違わせない）。いずれの失敗も saveError を画面に出す。
 function commit(next) {
   if (loadError) return false;
   dismissToast(); // 取り消しの対象は直前の1操作だけにする
@@ -253,10 +269,10 @@ function commit(next) {
     saveError = { conflict: true };
     return false;
   }
-  data = next;
-  const text = JSON.stringify(exportDoc(data));
+  const text = JSON.stringify(exportDoc(next));
   saveError = write(KEYS.data, text);
   if (saveError) return false;
+  data = next;
   lastSeen = text;
   settings.lastChangeAt = Date.now(); // D-006: 書き出し案内の判定用
   settings.firstChangeAt ??= settings.lastChangeAt;
@@ -275,9 +291,9 @@ function banners() {
   if (saveError?.conflict) out.push(errorBox('保存しませんでした', '他のタブで変更されたため、最新の内容を読み込み直しました。もう一度操作してください。'));
   else if (saveError?.invalid) out.push(errorBox('保存できませんでした', `この変更は保存できないデータになるため、行いませんでした（${saveError.invalid}）。`));
   else if (saveError) {
-    out.push(errorBox('保存できませんでした', isQuota(saveError)
-      ? '端末の保存領域がいっぱいです。入力内容はこの画面に残っています。'
-      : 'ブラウザが保存を許可していません。変更はこの画面にだけ残っています。'));
+    const name = currentRoute?.name;
+    const tail = name === 'edit' || name === 'new' ? '入力内容はこの画面に残っています。' : name === 'settings' ? '取り込みは保存されませんでした。保存領域を確認してください。' : '変更は保存されませんでした。';
+    out.push(errorBox('保存できませんでした', (isQuota(saveError) ? '端末の保存領域がいっぱいです。' : 'ブラウザが保存を許可していません。') + tail));
   }
   return out.length ? [h('div', 'banners', ...out)] : [];
 }
@@ -790,7 +806,7 @@ function initEdit({ cid, rid, sid }, secs) {
     : { sectionId: secs.some((s) => s.id === sid) ? sid : secs[0].id, title: '', position: 'any', tokens: [], memo: '', tags: [] };
   const draftKey = base ? `edit:${rid}` : `new:${fresh.sectionId}`;
   const all = readDrafts();
-  const draft = Object.hasOwn(all, draftKey) ? sanitizeDraft(all[draftKey]) : null;
+  const draft = Object.hasOwn(all, draftKey) ? sanitizeDraft(all[draftKey], fresh) : null;
   const { tokens, ...f } = draft ? { ...fresh, damage: undefined, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
   saveError = null;
   return { cid, rid, draftKey, ...f, pad: initialPadState(tokens), padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
@@ -1020,14 +1036,12 @@ function editScreen(route) {
     const base = rid ? data.combos.find((c) => c.id === rid) : null;
     const edited = { sectionId: ed.sectionId, title: ed.title.trim(), position: ed.position, tokens: structuredClone(ed.pad.tokens), memo: ed.memo, tags: [...ed.tags], ...(ed.damage !== undefined && { damage: ed.damage }) };
     const combo = base
-      ? { ...base, ...edited, updatedAt: t }
+      ? { ...base, ...edited, updatedAt: Math.max(t, base.createdAt) } // 端末の時計が戻っていても createdAt <= updatedAt を保つ
       : { id: newId(), characterId: cid, controlType: 'classic', ...edited, favorite: false, createdAt: t, updatedAt: t };
     if (edited.damage === undefined) delete combo.damage; // 空は未入力（キーを持たせない）。元の値を {...base} から引き継がない
     const combos = base ? data.combos.map((c) => (c.id === base.id ? combo : c)) : [...data.combos, combo];
-    const prev = data;
     if (!commit({ sections: data.sections, combos })) {
-      if (data.combos === combos) data = prev; // 書き込みだけ失敗したときは、保存されていない記録を他の画面に出さない（入力は ed と下書きに残る）
-      updateNotices(); // 画面は移らず、入力内容はそのまま
+      updateNotices(); // 画面は移らず、入力内容はそのまま（ed と下書きに残る）
       return;
     }
     ed.saved = true;
@@ -1087,7 +1101,7 @@ async function saveFile(text, name) {
 
 // 全データの書き出し。書き出したら lastExportAt を更新して true。キャンセルは更新せず false（保存先に渡っていないため）。
 async function exportData() {
-  if (!await saveFile(JSON.stringify(exportDoc(data), null, 2), exportFilename(now()))) return false;
+  if (!await saveFile(JSON.stringify(exportDoc(data)), exportFilename(now()))) return false;
   settings.lastExportAt = now();
   saveSettings();
   showToast('書き出しました', { ms: 2500 });
@@ -1117,6 +1131,8 @@ function remindBar() {
     h('div', 'remind-btns', go, later))];
 }
 
+const changed = (m) => m.sections.added + m.sections.updated + m.combos.added + m.combos.updated;
+
 // 取り込みの確認シート。m は mergeImport の成功結果。loadError のときは保存データがないものとして置き換える。
 function confirmImport(opener, m) {
   const replace = !!loadError;
@@ -1124,24 +1140,23 @@ function confirmImport(opener, m) {
   sh.closeLabel = 'やめる';
   const note = (t) => h('p', 'note', t);
   sh.show('取り込みの確認', h('div', 'sheet-body',
-    h('p', 'imp-count', `追加 ${m.added}件 ／ 更新 ${m.updated}件 ／ 変更なし ${m.unchanged}件`),
+    ...[['記録', m.combos], ['セクション', m.sections]].map(([k, c]) => h('p', 'imp-count', `${k} 追加 ${c.added}件 ／ 更新 ${c.updated}件 ／ 変更なし ${c.unchanged}件`)),
     note('同じ記録は更新日時が新しい方を残します'),
     ...(replace ? [note('現在の保存データは読み込めないため、取り込んだ内容で置き換えます')]
-      : m.added + m.updated === 0 ? [note('追加・更新はありません。取り込んでもデータは変わりません')] : [])),
+      : changed(m) === 0 ? [note('追加・更新はありません。取り込んでもデータは変わりません')] : [])),
   btn('primary', '取り込む', () => sh.close(() => applyImport(m))));
 }
 
 function applyImport(m) {
   const lost = loadError;
-  const prev = data;
-  if (!lost && m.added + m.updated === 0) { showToast('取り込みました（追加0・更新0）'); return; } // 書き込まない（変更日時を動かさない）
+  if (!lost && changed(m) === 0) { showToast('取り込みました（追加0・更新0）'); return; } // 書き込まない（変更日時を動かさない）
   loadError = null; // commit は読み取り専用では書かない
   if (!commit(m.doc)) {
-    if (!saveError?.conflict) { loadError = lost; data = prev; } // 他タブの変更の読み直し（conflict）は loadData が決めた状態を使う
+    if (!saveError?.conflict) loadError = lost; // 他タブの変更の読み直し（conflict）は loadData が決めた状態を使う
     render({ keepScroll: true, focus: ['import'] });
     return;
   }
-  showToast(`取り込みました（追加${m.added}・更新${m.updated}）`);
+  showToast(`取り込みました（記録 追加${m.combos.added}・更新${m.combos.updated}、セクション 追加${m.sections.added}・更新${m.sections.updated}）`);
   render({ keepScroll: true, focus: ['import'] });
 }
 
@@ -1339,8 +1354,9 @@ function navigate() {
   if (currentHash !== null) scrollPos.set(currentHash, window.scrollY);
   activeSheet?.dispose();
   if (currentRoute?.name === 'edit' || currentRoute?.name === 'new') { // 編集画面を離れる。保存せずに離れたら下書きが残る
-    if (ed?.dirty && !ed.saved) showToast('下書きを残しました', { ms: 3000 });
-    saveError = null;
+    const failed = ed?.dirty && !ed.saved && ed.draftFailed; // 下書きを書けなかったなら、エラーも消さずに残す
+    if (ed?.dirty && !ed.saved) showToast(failed ? '下書きを保存できませんでした' : '下書きを残しました', { ms: failed ? 6000 : 3000 });
+    if (!failed) saveError = null;
   }
   ed = null;
   const dir = currentRoute ? (DEPTH[route.name] >= DEPTH[currentRoute.name] ? 'fwd' : 'back') : null;
@@ -1366,7 +1382,10 @@ function start() {
   });
   // 他タブがデータを書いたら読み直して描画する（開いているシートは古い内容を前提にしているので閉じる）
   addEventListener('storage', (e) => {
-    if (e.storageArea !== localStorage || (e.key !== KEYS.data && e.key !== null)) return;
+    if (e.storageArea !== localStorage) return;
+    if (e.key === KEYS.settings || e.key === null) loadSettings(); // 表示設定は次の描画から反映する（ここで描画すると、別タブと設定を書き合って止まらなくなる）
+    if (e.key !== KEYS.data && e.key !== null) return;
+    dismissToast(); // 取り消しは古いスナップショットを書き戻すので、他タブの変更を消してしまう
     loadData();
     activeSheet?.close();
     render({ keepScroll: true });

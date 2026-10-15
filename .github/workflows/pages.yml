@@ -8,21 +8,43 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # テストに通らない版は公開しない
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # sw.js 以外の app/ の内容ハッシュを CACHE にする(コミットはしない。配信物だけ)。app/ を変えれば版数が必ず変わり、上げ忘れで端末が古いまま動く事故が起きない。tests/e2e.mjs 19b がこのコマンドをそのまま実行して検査する
+      - name: SWの版数を内容ハッシュにする
+        run: |
+          h=$(find app -type f ! -name sw.js -print0 | LC_ALL=C sort -z | xargs -0 cat | sha256sum | cut -c1-8)
+          sed -i "s/^const CACHE = .*/const CACHE = 'sf6memo-$h';/" app/sw.js
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: app

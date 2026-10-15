@@ -4,6 +4,8 @@
 
 - アプリ ID: `io.github.nagamaki0311.sf6memo`（変更すると別アプリ扱いになり、保存データが引き継がれない）
 - 画面向き: 縦固定。ステータスバー/ナビゲーションバー背景: `#0E0F11`
+- データは端末内（localStorage）だけに置く（サーバーなし）。`android:allowBackup="false"` で端末のバックアップ（Googleのクラウド・端末間コピー）にも出さない。機種変更・再インストール・アンインストールでは引き継がれないので、アプリの設定の「JSONを書き出す」「JSONを取り込む」で移す
+- 権限は `INTERNET` を残してある（`androidScheme` のオリジン `https://localhost` の WebView で必要かを実機で未確認のため）。実機確認後に削除を検討する
 - オリジンは `https://localhost`（`capacitor.config.json` の `androidScheme`）。localStorage はこのオリジンに保存され、アプリを更新しても残る。アンインストールすると消える
 - minSdk 24（Android 7.0）、targetSdk 36。Java 21、Node 22、Android SDK `platforms;android-36` と `build-tools;36.0.0` が要る
 - アイコンは `app/icon.svg`（design-spec-v2.1 5章「看板と●」。傾けたネオン管の枠と●P）の図案。アダプティブアイコンの前景は `drawable-v24/ic_launcher_foreground.xml`（管の枠・●・Pの形のみ。VectorDrawableはにじみを表せないので省く。安全円に収めてある）、背景は `values/ic_launcher_background.xml`（`#0E0F11` の単色）。旧端末用の `mipmap-*/ic_launcher*.png` は `app/icon-512.png` の縮小（round は円形に切り抜き）。図案を変えたらこの3種を作り直す。スプラッシュ（Android 12 以降）は `#0E0F11` 地に同じ前景、それ以前は `capacitor.config.json` の `backgroundColor`（`#0E0F11`）
@@ -26,24 +28,42 @@ https://github.com/Nagamaki0311/strategy-memo/releases/latest/download/sf6memo.a
 
 ## 署名
 
+> **署名鍵（`.jks`・`.keystore`・`.p12`・base64化したもの）をリポジトリに入れない。** ルートの `.gitignore` が拡張子で除外しているが、保証ではない。鍵はリポジトリの外（例: `~/keys/`）で作り、置く。公開リポジトリに鍵が入ると、他人が同じ署名のAPKを作れる。
+
 署名鍵が Android の更新可否を決める。**署名が違う APK は上書きインストールできず、アンインストールが要る。アンインストールすると端末内のデータ（localStorage）が消える**。
 
-- 鍵を登録しないと、Actions は実行ごとに新しいデバッグ鍵で署名する。毎回署名が変わるため、2 回目以降は上書き更新できない。試し用にだけ使う。
-- 配布するなら先にリリース鍵を作る。鍵とパスワードは紛失すると更新できなくなるので、リポジトリ外にバックアップする。リポジトリにはコミットしない。
+- 鍵を登録しないと、手動実行（`workflow_dispatch`）は実行ごとに新しいデバッグ鍵で署名したアーティファクトだけを作る。毎回署名が変わるため、試し用にだけ使う。**タグ（`v*`）の実行は、`ANDROID_KEYSTORE_BASE64` が空ならエラーで失敗し、Release を作らない。**
+- 配布するなら先にリリース鍵を作る。**鍵とパスワードを紛失すると、以後の更新は上書きインストールできない**（別の鍵で署名したAPKは別物として扱われ、アンインストールが要る）。リポジトリ外にバックアップする。
 
 ```
-keytool -genkeypair -keystore release.jks -alias sf6memo -keyalg RSA -keysize 2048 -validity 10000
-base64 -w0 release.jks     # この出力を ANDROID_KEYSTORE_BASE64 に登録する
+mkdir -p ~/keys
+keytool -genkeypair -keystore ~/keys/sf6memo-release.jks -alias sf6memo -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 ~/keys/sf6memo-release.jks     # この出力を ANDROID_KEYSTORE_BASE64 に登録する
 ```
+
+`keytool` は PKCS12 形式の鍵ストアを作る。PKCS12 では**鍵のパスワードをキーストアのパスワードと同じにする**（別にすると署名に失敗することがある。`keytool` が鍵のパスワードを聞いてきたら Enter で同じにする）。したがって下の `ANDROID_KEYSTORE_PASSWORD` と `ANDROID_KEY_PASSWORD` には同じ値を登録する。
 
 Settings > Secrets and variables > Actions に次の 4 つを登録する。
 
 | Secret | 内容 |
 | --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | `release.jks` を base64 にした文字列 |
+| `ANDROID_KEYSTORE_BASE64` | `sf6memo-release.jks` を base64 にした文字列 |
 | `ANDROID_KEYSTORE_PASSWORD` | キーストアのパスワード |
 | `ANDROID_KEY_ALIAS` | 上の例では `sf6memo` |
-| `ANDROID_KEY_PASSWORD` | 鍵のパスワード |
+| `ANDROID_KEY_PASSWORD` | 鍵のパスワード（PKCS12 ではキーストアと同じ） |
+
+### 旧APK（デバッグ署名）からリリース署名のAPKへ移る
+
+これまでに配った APK（デバッグ署名）は、リリース署名の APK で上書きインストールできない。データを移すには次の順に行う。
+
+1. 旧アプリの「設定」>「JSONを書き出す」で書き出し、ファイルを端末の外（ドライブなど）に保存する。
+2. 旧アプリをアンインストールする（端末内のデータは消える）。
+3. リリース署名の新しい APK をインストールする。
+4. 新しいアプリの「設定」>「JSONを取り込む」で、手順1のファイルを取り込む。
+
+注意:
+- 書き出し機能が入る前のビルドの旧 APK からは書き出せない。その場合、アンインストールするとデータは戻せない。アンインストールする前に、旧 APK と同じデバッグ鍵で署名した書き出し機能入りの APK があれば、上書きインストールしてから書き出す（Actions のデバッグ署名は実行ごとに変わるので、その APK は使えない）。なければ、データは諦める。
+- 版2（前ステ・バクステ、強度なし、ダメージを含みうるデータ）で書き出したファイルは、版1のアプリには取り込めない。必ず新しい版のアプリへ取り込む。
 
 `versionCode` は Actions の実行番号、`versionName` はタグ（`v0.1.0` なら `0.1.0`）から自動で決まる。
 

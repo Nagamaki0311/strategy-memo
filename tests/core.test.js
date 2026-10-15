@@ -306,6 +306,10 @@ test('validateDocは不正な文書を例外なしで拒否し、意図した理
     ['updatedAtがNaN', mut((d) => { d.combos[0].updatedAt = NaN; }), 'updatedAtが不正'],
     ['sectionのorderが負', mut((d) => { d.sections[0].order = -1; }), 'orderが不正'],
     ['sectionのnameが空', mut((d) => { d.sections[0].name = ''; }), 'nameが不正'],
+    ['sectionのnameが空白のみ', mut((d) => { d.sections[0].name = '  \u3000 '; }), 'nameが不正'],
+    ['tagが空白のみ', mut((d) => { d.combos[0].tags = ['   ']; }), 'tagsが不正'],
+    ['createdAtがupdatedAtより後', mut((d) => { d.combos[0].createdAt = T0 + 1; }), 'updatedAtが不正'],
+    ['updatedAtがDateの最大値超え', mut((d) => { d.combos[0].createdAt = 8.64e15 + 1; d.combos[0].updatedAt = 8.64e15 + 2; }), 'createdAtが不正'],
     ['comboがnull', mut((d) => { d.combos[0] = null; }), '1件目のcombosの形式が不正'],
     ['文書に未知のキー', mut((d) => { d.extra = 1; }), '文書に未対応の項目'],
     ['sectionに未知のキー', mut((d) => { d.sections[1].extra = 1; }), '2件目のsectionsに未対応の項目'],
@@ -403,7 +407,8 @@ test('mergeImport: 追加・更新・同時刻は端末側・端末のみは残�
   assert.equal(r.ok, true);
   assert.deepEqual(local, lSnap);
   assert.deepEqual(incoming, iSnap);
-  assert.deepEqual({ a: r.added, u: r.updated, n: r.unchanged }, { a: 1, u: 1, n: 3 }); // n: s1(古い)・s2(同時刻)・c1(同時刻)
+  // 記録とセクションの内訳は別々に数える。unchanged: s1(古い)・s2(同時刻)、c1(同時刻)
+  assert.deepEqual({ c: r.combos, s: r.sections }, { c: { added: 1, updated: 1, unchanged: 1 }, s: { added: 0, updated: 0, unchanged: 2 } });
   assert.equal(r.doc.combos.find((c) => c.id === 'c1').title, '基本');
   assert.equal(r.doc.combos.find((c) => c.id === 'c2').title, '取り込み側(新しい)');
   assert.equal(r.doc.combos.find((c) => c.id === 'c9').title, '端末のみ');
@@ -421,6 +426,7 @@ test('mergeImport: マージ結果が参照整合を崩す場合は ok:false で
   inc1.sections[0].characterId = 'luke';
   inc1.sections[0].updatedAt = T0 + 1;
   inc1.combos[0].characterId = 'luke'; // 取り込み側の文書単体は整合している
+  inc1.combos[0].createdAt = T0 - 1;
   inc1.combos[0].updatedAt = T0 - 1; // コンボは端末側が残る -> ryuのコンボがlukeのセクションを指す
   assert.deepEqual(validateDoc(inc1), { ok: true });
   const r1 = mergeImport(local, inc1);
@@ -452,10 +458,10 @@ test('往復: mergeImport(空, exportDoc(state)) は state と一致する', () 
   const r = mergeImport({ sections: [], combos: [] }, JSON.parse(JSON.stringify(exportDoc(state))));
   assert.equal(r.ok, true);
   assert.deepEqual(r.doc, state);
-  assert.deepEqual({ a: r.added, u: r.updated, n: r.unchanged }, { a: 4, u: 0, n: 0 });
+  assert.deepEqual([r.sections, r.combos], [{ added: 2, updated: 0, unchanged: 0 }, { added: 2, updated: 0, unchanged: 0 }]);
   const again = mergeImport(r.doc, exportDoc(state));
   assert.deepEqual(again.doc, state);
-  assert.deepEqual({ a: again.added, u: again.updated, n: again.unchanged }, { a: 0, u: 0, n: 4 });
+  assert.deepEqual([again.sections, again.combos], [{ added: 0, updated: 0, unchanged: 2 }, { added: 0, updated: 0, unchanged: 2 }]);
 });
 
 // ===== セクション操作（T-009） =====
@@ -571,8 +577,16 @@ test('newId: 32桁の16進でid規則を満たし、衝突しない', () => {
 });
 
 test('isTime: 0以上の安全な整数だけ', () => {
-  for (const v of [0, 1, T0]) assert.equal(isTime(v), true);
-  for (const v of [-1, 1.5, NaN, '1', null, undefined, Number.MAX_SAFE_INTEGER + 1]) assert.equal(isTime(v), false);
+  for (const v of [0, 1, T0, 8.64e15]) assert.equal(isTime(v), true);
+  for (const v of [-1, 1.5, NaN, '1', null, undefined, Number.MAX_SAFE_INTEGER + 1, 8.64e15 + 1]) assert.equal(isTime(v), false);
+});
+
+test('isTime の上限は Date の最大値: 通る値は dateText・exportFilename が NaN にならず、超える値は拒否する', () => {
+  for (const t of [0, 8.64e15]) {
+    assert.doesNotMatch(dateText(t), /NaN/);
+    assert.doesNotMatch(exportFilename(t), /NaN/);
+  }
+  assert.match(dateText(8.64e15 + 1), /NaN/); // 上限を超えると Invalid Date。isTime が止めている
 });
 
 test('セクションは1000件まで: 1001個目を足した state は validateDoc を通らない（commit が保存を拒否する根拠）', () => {
@@ -684,8 +698,12 @@ test('sanitizeDraft: 正しい形はそのまま、壊れた項目は捨てる�
   const ok = { sectionId: 's1', title: 'a', position: 'corner', tokens: [N('stand', 'L', 'P')], memo: 'm', tags: ['x'], savedAt: 5 };
   assert.deepEqual(sanitizeDraft(ok), ok);
   for (const bad of [null, 5, 'x', [], undefined]) assert.equal(sanitizeDraft(bad), null);
-  const r = sanitizeDraft({ sectionId: 3, title: 9, position: 'zzz', tokens: [{ type: 'bad' }, N('stand', 'L', 'P')], memo: null, tags: ['', 5, 'ok'], savedAt: -1 });
+  const r = sanitizeDraft({ sectionId: 3, title: 9, position: 'zzz', tokens: [{ type: 'bad' }, N('stand', 'L', 'P')], memo: null, tags: ['', '  ', 5, 'ok'], savedAt: -1 });
   assert.deepEqual(r, { sectionId: null, title: '', position: 'any', tokens: [N('stand', 'L', 'P')], memo: '', tags: ['ok'], savedAt: null });
+  // 形の違う項目は fresh（新規または保存済みの値）で補う
+  const fresh = { sectionId: 's9', title: '保存済み', position: 'corner', memo: 'メモ', tags: ['t'] };
+  assert.deepEqual(sanitizeDraft({ sectionId: 3, title: 9, position: 'zzz', tokens: [], memo: null, tags: 'x' }, fresh), { ...fresh, tokens: [], savedAt: null });
+  assert.equal(sanitizeDraft({ tokens: [], title: '' }, fresh).title, ''); // 空文字は有効な入力（タイトルを消した下書き）
   const big = sanitizeDraft({ title: 'a'.repeat(500), tokens: Array.from({ length: 300 }, () => N('stand', 'L', 'P')), tags: Array.from({ length: 50 }, (_, i) => `t${i}`) });
   assert.equal(big.title.length, LIMITS.title);
   assert.equal(big.tokens.length, LIMITS.tokens);
@@ -779,6 +797,8 @@ test('move・Nを含む文書: 書き出し→JSON→取り込みの往復で一
   assert.equal(r.doc.schemaVersion, 2);
   assert.deepEqual(mergeImport({ sections: [], combos: [] }, r.doc).doc, state);
   assert.deepEqual(duplicateCombo(state.combos[0], 5).tokens, state.combos[0].tokens);
+  // 主項目 tokens が配列でない壊れた下書きは捨てる（空の記録として復元しない）
+  for (const bad of [{ tokens: 'x' }, { title: 'a' }, { tokens: null }, { tokens: {} }]) assert.equal(sanitizeDraft(bad), null, JSON.stringify(bad));
   const draft = sanitizeDraft({ tokens: [MV('FWD_STEP'), MV('X'), N('stand', 'N', 'K'), N('stand', 'Z', 'K')] });
   assert.deepEqual(draft.tokens, [MV('FWD_STEP'), N('stand', 'N', 'K')]);
 });
@@ -820,9 +840,9 @@ test('damage: 書き出し→JSON→取り込みの往復で値が一致し、�
   assert.deepEqual(merged.doc.combos, state.combos);
   assert.equal(duplicateCombo(state.combos[0], 5).damage, 3240);
   assert.equal('damage' in duplicateCombo(state.combos[1], 5), false);
-  assert.equal(sanitizeDraft({ damage: 3240 }).damage, 3240);
-  for (const bad of [-1, 100000, 1.5, '3240', null, NaN]) assert.equal('damage' in sanitizeDraft({ damage: bad }), false, String(bad));
-  assert.equal('damage' in sanitizeDraft({}), false);
+  assert.equal(sanitizeDraft({ tokens: [], damage: 3240 }).damage, 3240);
+  for (const bad of [-1, 100000, 1.5, '3240', null, NaN]) assert.equal('damage' in sanitizeDraft({ tokens: [], damage: bad }), false, String(bad));
+  assert.equal('damage' in sanitizeDraft({ tokens: [] }), false);
 });
 
 // ---- 書き出しの案内・ファイル名（T-012） ----
