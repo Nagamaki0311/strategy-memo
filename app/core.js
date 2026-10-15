@@ -517,3 +517,23 @@ export function mergeImport(local, incoming) {
   const result = validateDoc(exportDoc(doc));
   return result.ok ? { ok: true, doc, ...stats } : result;
 }
+
+// ===== SECTION: 書き出しの案内 =====
+// D-006: 最終書き出しから14日以上経ち、かつその後に変更があるときだけ案内する。時刻はエポックミリ秒、日付と時刻の表記は端末のローカル時刻。
+const DAY = 86_400_000;
+const REMIND_AFTER = 14 * DAY;
+const p2 = (n) => String(n).padStart(2, '0');
+export const dateText = (t) => { const d = new Date(t); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`; };
+// tag は別種のファイルを見分けるための印（例: '-raw'）
+export const exportFilename = (t, tag = '') => { const d = new Date(t); return `sf6-memo${tag}-${dateText(t).replaceAll('-', '')}-${p2(d.getHours())}${p2(d.getMinutes())}.json`; };
+export const daysSince = (t, now) => Math.max(0, Math.floor((now - t) / DAY));
+export const snoozeUntil = (now) => now + 7 * DAY;
+
+// settings: { lastExportAt, lastChangeAt, firstChangeAt, remindSnoozeUntil }（いずれも null か時刻）。doc: { combos }。
+// 一度も書き出していないときは、記録が1件以上あり、最初の変更から14日以上経っていれば案内する。
+export function shouldRemindExport(settings, doc, now) {
+  const { lastExportAt, lastChangeAt, firstChangeAt, remindSnoozeUntil } = settings;
+  if (remindSnoozeUntil !== null && now < remindSnoozeUntil) return false;
+  if (lastExportAt === null) return doc.combos.length > 0 && firstChangeAt !== null && now - firstChangeAt >= REMIND_AFTER;
+  return lastChangeAt !== null && lastChangeAt > lastExportAt && now - lastExportAt >= REMIND_AFTER;
+}

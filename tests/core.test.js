@@ -5,6 +5,7 @@ import {
   validateDoc, parseDocText, exportDoc, mergeImport,
   SECTION_PRESETS, newId, isTime, addSection, renameSection, moveSection, deleteSection, sectionsOf,
   LIMITS, strengthChoices, changeStrength, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft, isDamage, DAMAGE_MAX,
+  exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
 } from '../app/core.js';
 
 // requirements.md 4.5 のスラッグ順
@@ -725,4 +726,50 @@ test('damage: 書き出し→JSON→取り込みの往復で値が一致し、�
   assert.equal(sanitizeDraft({ damage: 3240 }).damage, 3240);
   for (const bad of [-1, 100000, 1.5, '3240', null, NaN]) assert.equal('damage' in sanitizeDraft({ damage: bad }), false, String(bad));
   assert.equal('damage' in sanitizeDraft({}), false);
+});
+
+// ---- 書き出しの案内・ファイル名（T-012） ----
+const D = 86_400_000;
+const NOW = new Date(2026, 9, 15, 9, 5).getTime(); // ローカル時刻 2026-10-15 09:05
+const settingsOf = (o = {}) => ({ lastExportAt: null, lastChangeAt: null, firstChangeAt: null, remindSnoozeUntil: null, ...o });
+const withCombos = { combos: [{}] };
+
+test('exportFilename: sf6-memo-YYYYMMDD-HHMM.json（ローカル時刻、ゼロ埋め）。tag は日付の前に入る', () => {
+  assert.equal(exportFilename(NOW), 'sf6-memo-20261015-0905.json');
+  assert.equal(exportFilename(new Date(2027, 0, 2, 23, 59).getTime()), 'sf6-memo-20270102-2359.json');
+  assert.equal(exportFilename(NOW, '-raw'), 'sf6-memo-raw-20261015-0905.json');
+  assert.equal(dateText(NOW), '2026-10-15');
+});
+
+test('daysSince: 日数は切り捨て。未来の時刻は0', () => {
+  assert.equal(daysSince(NOW - 21 * D, NOW), 21);
+  assert.equal(daysSince(NOW - 21 * D + 1, NOW), 20);
+  assert.equal(daysSince(NOW + D, NOW), 0);
+  assert.equal(snoozeUntil(NOW) - NOW, 7 * D);
+});
+
+test('shouldRemindExport: 書き出し済みは14日以上かつその後に変更があるときだけ（境界: 13日・14日）', () => {
+  const s = (days, changeDaysAgo) => settingsOf({ lastExportAt: NOW - days * D, lastChangeAt: changeDaysAgo === null ? null : NOW - changeDaysAgo * D });
+  assert.equal(shouldRemindExport(s(13, 1), withCombos, NOW), false, '13日');
+  assert.equal(shouldRemindExport(s(14, 1), withCombos, NOW), true, '14日ちょうど');
+  assert.equal(shouldRemindExport({ ...s(14, 1), lastExportAt: NOW - 14 * D + 1 }, withCombos, NOW), false, '14日に1ms足りない');
+  assert.equal(shouldRemindExport(s(30, 40), withCombos, NOW), false, '書き出し後に変更なし');
+  assert.equal(shouldRemindExport(s(30, null), withCombos, NOW), false, '変更の記録なし');
+  assert.equal(shouldRemindExport(settingsOf({ lastExportAt: NOW - 30 * D, lastChangeAt: NOW - 30 * D }), withCombos, NOW), false, '変更と書き出しが同時刻');
+  assert.equal(shouldRemindExport(s(30, 1), { combos: [] }, NOW), true, '書き出し済みなら記録が0件でも変更があれば案内（削除の控え）');
+});
+
+test('shouldRemindExport: 未書き出しは記録1件以上かつ最初の変更から14日以上', () => {
+  const s = (days) => settingsOf({ firstChangeAt: NOW - days * D, lastChangeAt: NOW });
+  assert.equal(shouldRemindExport(s(13), withCombos, NOW), false, '13日');
+  assert.equal(shouldRemindExport(s(14), withCombos, NOW), true, '14日');
+  assert.equal(shouldRemindExport(s(30), { combos: [] }, NOW), false, '記録0件');
+  assert.equal(shouldRemindExport(settingsOf(), withCombos, NOW), false, '変更の記録なし');
+});
+
+test('shouldRemindExport: スヌーズ中は出さず、期限が来たら出す', () => {
+  const base = { lastExportAt: NOW - 30 * D, lastChangeAt: NOW - D };
+  assert.equal(shouldRemindExport(settingsOf({ ...base, remindSnoozeUntil: NOW + 1 }), withCombos, NOW), false);
+  assert.equal(shouldRemindExport(settingsOf({ ...base, remindSnoozeUntil: NOW }), withCombos, NOW), true);
+  assert.equal(shouldRemindExport(settingsOf({ ...base, remindSnoozeUntil: snoozeUntil(NOW - 7 * D) }), withCombos, NOW), true, '7日前のあとで');
 });

@@ -532,3 +532,24 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
   }
   .cell.boot .cell-en { animation: none; } /* 遅延も付くので止める（最終状態で表示） */
 }
+
+/* ===== 設定とデータ（design-spec 6.5、v2 5.5）===== */
+.set-head { display: flex; align-items: center; gap: var(--s2); height: 44px; margin: 0; padding: 0 var(--s4); background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.set-head .sec-name { flex: 1; }
+.set-body { display: flex; flex-direction: column; gap: var(--s4); padding: var(--s4); }
+.set-body .note { margin: 0; color: var(--fg-muted); }
+.set-last { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+.set-k { font: var(--t-xs) var(--font); color: var(--fg-muted); }
+.set-v { font: 700 var(--t-md) var(--font); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.set-btns { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.set-err:not(:empty) { margin-top: calc(var(--s2) * -1); }
+.set-sample { margin-top: var(--s2); padding: var(--s3); background: var(--surface); border-radius: var(--r-key); }
+.set-foot { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s5) var(--s4) var(--s6); border-top: 1px solid var(--line); color: var(--fg-muted); font: var(--t-sm) var(--font); }
+.set-foot p { margin: 0; }
+.set-font { font: var(--t-xs) var(--font); }
+.imp-count { margin: 0 0 var(--s3); font: 700 var(--t-md) var(--font); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* 書き出しの案内（キャラ選択。surface 地、主ボタンにしない） */
+.notice.remind { flex-wrap: wrap; row-gap: var(--s2); margin-bottom: var(--s2); }
+.remind-t { flex: 1 1 auto; min-width: 0; }
+.remind-btns { display: flex; gap: var(--s2); margin-left: auto; }

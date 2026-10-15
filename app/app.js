@@ -2,6 +2,7 @@ import {
   CHARACTERS, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
   sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
   applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
+  mergeImport, exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
 } from './core.js';
 
 // ===== SECTION: コマンド列の描画 =====
@@ -173,7 +174,7 @@ let saveError = null; // 直近のデータ保存の失敗（Error、{ invalid }
 let lastSeen = null; // sf6memo.data を最後に読んだ・書いた文字列。他タブの書き込みの検出に使う
 let persisted = false;
 
-const DEFAULT_SETTINGS = () => ({ notation: 'arrow', strengthLabels: false, recentCharacters: [], lastExportAt: null, lastChangeAt: null, collapsed: {} });
+const DEFAULT_SETTINGS = () => ({ notation: 'arrow', strengthLabels: false, recentCharacters: [], lastExportAt: null, lastChangeAt: null, firstChangeAt: null, remindSnoozeUntil: null, collapsed: {} });
 
 // settings は端末ごとの表示設定。壊れていても既定値で起動し、必要なフィールドだけ型を確かめて取り込む。
 function sanitizeSettings(raw) {
@@ -184,7 +185,7 @@ function sanitizeSettings(raw) {
   if (Array.isArray(raw.recentCharacters)) {
     out.recentCharacters = [...new Set(raw.recentCharacters.filter((id) => charName(id)))].slice(0, 3);
   }
-  for (const k of ['lastExportAt', 'lastChangeAt']) if (isTime(raw[k])) out[k] = raw[k];
+  for (const k of ['lastExportAt', 'lastChangeAt', 'firstChangeAt', 'remindSnoozeUntil']) if (isTime(raw[k])) out[k] = raw[k];
   for (const [cid, map] of Object.entries(raw.collapsed ?? {})) {
     if (!charName(cid) || map === null || typeof map !== 'object') continue;
     out.collapsed[cid] = Object.fromEntries(Object.keys(map).filter((id) => map[id] === true).map((id) => [id, true]));
@@ -257,6 +258,7 @@ function commit(next) {
   if (saveError) return false;
   lastSeen = text;
   settings.lastChangeAt = Date.now(); // D-006: 書き出し案内の判定用
+  settings.firstChangeAt ??= settings.lastChangeAt;
   saveSettings();
   return true;
 }
@@ -334,12 +336,13 @@ function openSheet(opener, { pop = false } = {}) {
   const sheet = {
     closing: false,
     then: null,
+    closeLabel: '閉じる', // show() の前に変えられる（取り込みの確認は［やめる］）
     // body は本体のノード。actions は下端の［閉じる］の右に並べるボタン（主ボタンを最後に）
     show(title, body, ...actions) {
       box.replaceChildren(
         at(h('h2', '', title), { id: 'sheet-title' }),
         body,
-        h('div', 'sheet-foot', btn('', '閉じる', () => sheet.close()), ...actions),
+        h('div', 'sheet-foot', btn('', sheet.closeLabel, () => sheet.close()), ...actions),
       );
       (body.querySelector(FOCUSABLE) ?? box.querySelector(FOCUSABLE))?.focus();
     },
@@ -551,7 +554,7 @@ function homeScreen() {
   const bottom = h('footer', 'bottombar recent', ...(recent.length
     ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'rc', at(h('span', 'rc-en', charEn(id)), { 'aria-hidden': 'true' })), { href: `#/c/${id}`, 'aria-label': charName(id) }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
     : [h('p', 'hint', 'キャラクターを選ぶと記録を始められます')]));
-  return shell({ title: 'SF6戦略メモ', right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], notices: banners(), main: [grid], bottom });
+  return shell({ title: 'SF6戦略メモ', right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], notices: [...banners(), ...remindBar()], main: [grid], bottom });
 }
 
 function recordRow(c) {
@@ -1037,11 +1040,193 @@ function editScreen(route) {
   return screen;
 }
 
-// ponytail: 実装前の仮画面。設定は T-012 で置き換える（置き換えたらこの関数と SCREENS の呼び出しを削除する）。
-function placeholder({ title, backLabel, to, lines }) {
+// ===== SECTION: 設定とデータ =====
+// 書き出し・取り込み（D-006）と表示設定。書き出しの案内（remindBar）もここに置く。
+const APP_VERSION = 'v0.1.0';
+const IMPORT_MAX = 5 * 1024 * 1024; // 書き出しJSONは2MB想定（D-003）。それを大きく超えるファイルは別のファイルとみなして断る
+const isNative = () => !!window.Capacitor?.isNativePlatform?.(); // APK内（apk/README.md）
+
+// 端末に保存する。保存したら true、共有シートを閉じただけ（Share canceled）なら false。失敗は例外を投げる。
+async function saveFile(text, name) {
+  if (isNative()) {
+    const { Filesystem, Share } = window.Capacitor.Plugins;
+    const { uri } = await Filesystem.writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
+    try {
+      await Share.share({ title: name, files: [uri], dialogTitle: '書き出し' });
+    } catch (e) {
+      if (/cancel/i.test(e?.message)) return false;
+      throw e;
+    }
+    return true;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = at(h('a'), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
+}
+
+// 全データの書き出し。書き出したら lastExportAt を更新して true。キャンセルは更新せず false（保存先に渡っていないため）。
+async function exportData() {
+  if (!await saveFile(JSON.stringify(exportDoc(data), null, 2), exportFilename(now()))) return false;
+  settings.lastExportAt = now();
+  saveSettings();
+  showToast('書き出しました', { ms: 2500 });
+  return true;
+}
+
+// キャラ選択画面の案内（design-spec 6.1）。上部バーの下、surface 地、主ボタンにしない。
+function remindBar() {
+  if (loadError || !shouldRemindExport(settings, data, now())) return [];
+  const last = settings.lastExportAt;
+  const go = btn('', '書き出す', async () => {
+    go.disabled = true;
+    try {
+      if (await exportData()) render({ keepScroll: true, focus: [] });
+    } catch (e) {
+      showToast(`書き出せませんでした（${e?.message || '原因不明のエラー'}）`);
+    }
+    go.disabled = false;
+  });
+  const later = btn('', 'あとで', () => {
+    settings.remindSnoozeUntil = snoozeUntil(now());
+    saveSettings();
+    render({ keepScroll: true, focus: [] });
+  });
+  return [h('div', 'notice remind',
+    h('span', 'remind-t', last === null ? 'まだ一度も書き出していません' : `最後の書き出しから${daysSince(last, now())}日たちました`),
+    h('div', 'remind-btns', go, later))];
+}
+
+// 取り込みの確認シート。m は mergeImport の成功結果。loadError のときは保存データがないものとして置き換える。
+function confirmImport(opener, m) {
+  const replace = !!loadError;
+  const sh = openSheet(opener);
+  sh.closeLabel = 'やめる';
+  const note = (t) => h('p', 'note', t);
+  sh.show('取り込みの確認', h('div', 'sheet-body',
+    h('p', 'imp-count', `追加 ${m.added}件 ／ 更新 ${m.updated}件 ／ 変更なし ${m.unchanged}件`),
+    note('同じ記録は更新日時が新しい方を残します'),
+    ...(replace ? [note('現在の保存データは読み込めないため、取り込んだ内容で置き換えます')]
+      : m.added + m.updated === 0 ? [note('追加・更新はありません。取り込んでもデータは変わりません')] : [])),
+  btn('primary', '取り込む', () => sh.close(() => applyImport(m))));
+}
+
+function applyImport(m) {
+  const lost = loadError;
+  const prev = data;
+  if (!lost && m.added + m.updated === 0) { showToast('取り込みました（追加0・更新0）'); return; } // 書き込まない（変更日時を動かさない）
+  loadError = null; // commit は読み取り専用では書かない
+  if (!commit(m.doc)) {
+    if (!saveError?.conflict) { loadError = lost; data = prev; } // 他タブの変更の読み直し（conflict）は loadData が決めた状態を使う
+    render({ keepScroll: true, focus: ['import'] });
+    return;
+  }
+  showToast(`取り込みました（追加${m.added}・更新${m.updated}）`);
+  render({ keepScroll: true, focus: ['import'] });
+}
+
+// 取り込むファイルを読み、検証とマージまで終える。不正なら理由を message に持つ例外を投げる（データは変えない）。
+async function readImport(file) {
+  if (file.size > IMPORT_MAX) throw new Error(`ファイルが大きすぎます（${IMPORT_MAX / 1048576}MBまで）`);
+  const text = await file.text().catch(() => { throw new Error('ファイルを読めませんでした'); });
+  const parsed = parseDocText(text);
+  if (!parsed.ok) throw new Error(parsed.reason);
+  const m = mergeImport(loadError ? { sections: [], combos: [] } : data, parsed.doc);
+  if (!m.ok) throw new Error(m.reason);
+  return m;
+}
+
+const SAMPLE_NOTATION = [{ type: 'normal', stance: 'stand', dir: 4, key: 'P', str: 'H' }, { type: 'special', motion: '236', key: 'P', str: 'H' }, { type: 'special', motion: '623', key: 'K', str: 'OD' }];
+const SAMPLE_STRENGTH = [{ type: 'normal', stance: 'stand', key: 'P', str: 'L' }, { type: 'normal', stance: 'stand', key: 'K', str: 'M' }, { type: 'normal', stance: 'stand', key: 'P', str: 'H' }];
+
+// 2択のラジオ（編集画面の位置と同じ .seg）。選ぶと即時に保存して描画し直す
+function choice(legend, name, current, options, sample, onPick) {
+  const set = h('fieldset', 'seg', h('legend', 'field-label', legend), ...options.map(([v, text]) => {
+    const r = at(h('input'), { type: 'radio', name, 'data-fk': `${name}:${v}` });
+    r.checked = current === v;
+    r.addEventListener('change', () => onPick(v));
+    return h('label', 'seg-item', r, h('span', '', text));
+  }));
+  return h('div', 'fld', set, h('div', 'set-sample', sample));
+}
+
+const setHead = (no, name) => h('h2', 'set-head', at(h('span', 'sec-no', no), { 'aria-hidden': 'true' }), h('span', 'sec-name', name));
+
+function settingsScreen() {
+  const errSlot = h('div', 'set-err');
+  const fail = (title, body) => errSlot.replaceChildren(errorBox(title, body));
+  const last = settings.lastExportAt;
+
+  const exportBtn = btn('primary', 'JSONを書き出す', async () => {
+    errSlot.replaceChildren();
+    exportBtn.disabled = true;
+    try {
+      if (await exportData()) render({ keepScroll: true, focus: ['export'] });
+    } catch (e) {
+      fail('書き出せませんでした', e?.message || '原因不明のエラー');
+    }
+    exportBtn.disabled = false;
+  }, { 'data-fk': 'export' });
+
+  // 読み込みエラーで読み取り専用のときの救済: 検証に通らない保存データを、中身を変えずに控えとして書き出す
+  const rawBtn = btn('primary', '保存データをそのまま書き出す', async () => {
+    errSlot.replaceChildren();
+    try {
+      const raw = localStorage.getItem(KEYS.data);
+      if (raw === null) throw new Error('保存データが見つかりません');
+      if (await saveFile(raw, exportFilename(now(), '-raw'))) showToast('保存データをそのまま書き出しました', { ms: 2500 });
+    } catch (e) {
+      fail('書き出せませんでした', e?.message || '原因不明のエラー');
+    }
+  }, { 'data-fk': 'export-raw' });
+
+  const fileIn = at(h('input'), { type: 'file', accept: 'application/json,.json', hidden: '', tabindex: '-1', 'aria-hidden': 'true' });
+  const importBtn = btn('', 'JSONを取り込む', () => fileIn.click(), { 'data-fk': 'import' });
+  fileIn.addEventListener('change', async () => {
+    const file = fileIn.files[0];
+    if (!file) return;
+    errSlot.replaceChildren();
+    importBtn.disabled = true;
+    importBtn.textContent = '読み込み中…';
+    let m = null;
+    try {
+      m = await readImport(file);
+    } catch (e) {
+      fail('取り込めませんでした（データは変更していません）', e.message);
+    }
+    fileIn.value = '';
+    importBtn.disabled = false;
+    importBtn.textContent = 'JSONを取り込む';
+    if (m) confirmImport(importBtn, m);
+  });
+
+  const pick = (key, name) => (v) => { settings[key] = v; saveSettings(); render({ keepScroll: true, focus: [`${name}:${v}`] }); };
+  const days = last === null ? 0 : daysSince(last, now());
+  const legendBtn = btn('', '凡例を見る', () => openLegend(legendBtn), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
+  const view = { size: 'L', notation: settings.notation, strengthLabels: settings.strengthLabels };
+
   return shell({
-    title, back: { label: backLabel, to },
-    main: [h('div', 'placeholder', h('p', '', '次のタスクで実装します。'), ...lines.map((l) => h('p', 'hint', l)))],
+    title: '設定', back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(),
+    main: [
+      setHead('01', 'データ'),
+      h('div', 'set-body',
+        h('p', 'set-last', h('span', 'set-k', '最後の書き出し'), h('span', 'set-v', last === null ? 'まだ書き出していません' : `${dateText(last)}（${days === 0 ? '今日' : `${days}日前`}）`)),
+        ...(loadError ? [h('p', 'note', '保存データを読み込めないため、通常の書き出しは止めています。取り込む前に、いまの保存データをそのまま書き出して控えを取れます。')] : []),
+        h('div', 'set-btns', loadError ? rawBtn : exportBtn, importBtn, fileIn),
+        errSlot),
+      setHead('02', '表示'),
+      h('div', 'set-body',
+        choice('方向の表記', 'notation', settings.notation, [['arrow', '矢印'], ['numpad', '数字']], renderRow(SAMPLE_NOTATION, view), pick('notation', 'notation')),
+        choice('ボタンの補助文字', 'strength', settings.strengthLabels, [[false, 'オフ'], [true, 'オン']], renderRow(SAMPLE_STRENGTH, view), pick('strengthLabels', 'strength')),
+        h('div', 'set-btns', legendBtn)),
+      h('div', 'set-foot',
+        h('p', 'set-unofficial', '非公式アプリです。Capcomとは関係ありません。'),
+        h('p', '', `バージョン ${APP_VERSION}`),
+        h('p', 'set-font', '英字書体: Tilt Neon（SIL Open Font License 1.1）')), // OFL 1.1 の求める表示（design-spec-v2 2.4）
+    ],
   });
 }
 
@@ -1051,8 +1236,7 @@ const SCREENS = {
   detail: detailScreen,
   edit: editScreen,
   new: editScreen,
-  // 書体の表記（OFL 1.1 の求める表示。design-spec-v2 2.4）。T-012 の設定画面ではバージョン行の下に置く
-  settings: () => placeholder({ title: '設定', backLabel: 'キャラクター選択に戻る', to: '#/', lines: ['英字書体: Tilt Neon（SIL Open Font License 1.1）'] }),
+  settings: settingsScreen,
 };
 
 // ===== SECTION: ルーティング =====
