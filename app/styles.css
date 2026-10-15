@@ -322,6 +322,7 @@ a { color: inherit; }
 .screen.edit .main { min-height: 0; overflow: auto; }
 .screen.edit .banners { position: static; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin: var(--s2) var(--s4) 0; padding: var(--s2) var(--s3); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-key); font-size: 14px; }
+.notice .btn { flex: none; white-space: nowrap; }
 .draft-time { min-height: 17px; margin: var(--s1) var(--s4) 0; text-align: right; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .cmd { box-sizing: border-box; min-height: 96px; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
 .cursor { flex: none; width: 3px; height: 34px; border-radius: 1.5px; background: var(--fg); }
@@ -366,8 +367,9 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .leg th { text-align: left; font: var(--t-xs) var(--font); color: var(--fg-muted); padding: var(--s1) var(--s2) var(--s1) 0; }
 .leg th.leg-g { padding-top: var(--s4); font: 700 var(--t-sm) var(--font); color: var(--fg); }
 .leg td { padding: var(--s2) var(--s2) var(--s2) 0; border-top: 1px solid var(--line); vertical-align: middle; font-size: 14px; line-height: 1.5; }
+.leg-shape { width: 1%; }
 .leg-shape .row { flex-wrap: nowrap; }
-.leg-out { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.leg-out { width: 72px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .leg-sa { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .diag { display: grid; grid-template-columns: repeat(3, 40px); gap: 2px; --arrow: 22px; --fs: 15px; }
 .diag-c { display: flex; flex-direction: column; align-items: center; }

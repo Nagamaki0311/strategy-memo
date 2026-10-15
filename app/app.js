@@ -627,10 +627,10 @@ const nm = (stance, str, key, dir) => ({ type: 'normal', stance, ...(dir && { di
 const MOTION_MEANING = { 22: '下下（下を2回）', 63214: '通称なし（右・右下・下・左下・左）', '[4]6': '溜め横（左を溜めて右）', '[2]8': '溜め縦（下を溜めて上）' };
 
 function legendTable() {
-  const shape = (tokens, o = {}) => renderRow(tokens, { size: 'L', notation: settings.notation, strengthLabels: settings.strengthLabels, ...o });
-  const motion = (m) => h('div', 'row L', ...dirNodes(m, settings.notation));
+  const shape = (tokens, o = {}) => renderRow(tokens, { size: 'S', notation: settings.notation, strengthLabels: settings.strengthLabels, ...o });
+  const motion = (m) => h('div', 'row S', ...dirNodes(m, settings.notation));
   const diagram = () => h('div', 'diag', ...[7, 8, 9, 4, 5, 6, 1, 2, 3].map((d) => h('div', 'diag-c', arrow(String(d)), h('span', 'diag-n', String(d)))));
-  const conn = () => h('div', 'row L', icon('i-conn', 'conn'));
+  const conn = () => h('div', 'row S', icon('i-conn', 'conn'));
   const sys = (id) => [shape([{ type: 'system', id }]), `${SYS_FULL[id]}（${tokenLabel({ type: 'system', id })}）`, tokenLabel({ type: 'system', id })];
   const groups = [
     ['ボタン', [
