@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- design-spec-v2 7章。ネオン管の矢印と●。にじみのfilterはPNG書き出し用の例外（アプリの画面ではfilterを使わない） -->
+  <defs>
+    <filter id="g-arrow" filterUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><feGaussianBlur stdDeviation="10"/></filter>
+    <filter id="g-dot" filterUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><feGaussianBlur stdDeviation="14"/></filter>
+    <g id="arrow" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="40">
+      <path d="M128 120V236Q128 300 192 300H276"/>
+      <path d="M232 256L276 300L232 344"/>
+    </g>
+  </defs>
+  <rect width="512" height="512" fill="#0E0F11"/>
+  <g transform="translate(-5,27)">
+    <use href="#arrow" stroke="#FFB870" opacity=".55" filter="url(#g-arrow)"/>
+    <circle cx="356" cy="300" r="62" fill="#F0D870" opacity=".45" filter="url(#g-dot)"/>
+    <use href="#arrow" stroke="#FFF4DE"/>
+    <circle cx="356" cy="300" r="58" fill="#F0D870"/>
+    <path transform="translate(298,242) scale(3.222)" d="M13 27V9h6a5 5 0 0 1 0 10h-6" fill="none" stroke="#0E0F11" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>
+  </g>
+</svg>
