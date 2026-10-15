@@ -36,6 +36,8 @@
   - tasks.md: タスクと状態管理
   - progress.md: 作業履歴
   - decisions.md: 設計判断の記録
+  - requirements.md: アプリの指示書（要件・表記仕様・受け入れ基準）
+  - design-spec.md: デザイン仕様（トークン、チップ、パッド、画面）
   - agents.md: Agent構成・モデル構成・Hook/Status Line構成の詳細
   - agent-reach.md: [Agent-Reach](https://github.com/Panniantong/Agent-Reach) 対応（Optional Dependency、検出・フォールバック方針）
   - code-review-graph.md: [Code Review Graph](https://github.com/tirth8205/code-review-graph) 対応（Optional Dependency、影響範囲解析）
