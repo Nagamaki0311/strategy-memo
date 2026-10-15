@@ -4,6 +4,7 @@ import {
   CHARACTERS, PRESETS, NOTICE_TOO_LONG, applyPadInput, initialPadState, pendingMotion, isMotion, isValidToken, tokenLabel, describeRow, motionToArrows,
   validateDoc, parseDocText, exportDoc, mergeImport,
   SECTION_PRESETS, newId, isTime, addSection, renameSection, moveSection, deleteSection, sectionsOf,
+  LIMITS, strengthChoices, changeStrength, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
 } from '../app/core.js';
 
 // requirements.md 4.5 のスラッグ順
@@ -571,4 +572,109 @@ test('セクションは1000件まで: 1001個目を足した state は validate
   const r = validateDoc(exportDoc(over));
   assert.equal(r.ok, false);
   assert.match(r.reason, /sectionsが多すぎます/);
+});
+
+// ===== 編集画面の補助（T-010・T-011） =====
+const SPc = (motion, str, key) => ({ type: 'special', motion, key, str });
+const mkCombo = (id, tokens, extra = {}) => ({
+  id, characterId: 'ryu', controlType: 'classic', sectionId: 's1', title: 't', position: 'any', tokens, memo: '', tags: [], favorite: false, createdAt: 1, updatedAt: 1, ...extra,
+});
+
+test('strengthChoices: 通常技=弱中強、必殺技=OD付き、SA=1〜3、システム技・注記は空', () => {
+  assert.deepEqual(strengthChoices(N('stand', 'M', 'P')), ['L', 'M', 'H']);
+  assert.deepEqual(strengthChoices(SPc('236', 'H', 'P')), ['L', 'M', 'H', 'OD']);
+  assert.deepEqual(strengthChoices({ type: 'sa', level: 1 }), [1, 2, 3]);
+  assert.deepEqual(strengthChoices({ type: 'system', id: 'CDR' }), []);
+  assert.deepEqual(strengthChoices({ type: 'note', id: 'CH' }), []);
+});
+
+test('changeStrength: 強度だけ置き換え、元は変えない。結果は常に有効なトークン', () => {
+  const t = SPc('236', 'H', 'P');
+  const od = changeStrength(t, 'OD');
+  assert.deepEqual(od, SPc('236', 'OD', 'P'));
+  assert.equal(t.str, 'H');
+  assert.ok(isValidToken(od));
+  assert.deepEqual(changeStrength({ ...N('crouch', 'M', 'K', 4) }, 'L'), N('crouch', 'L', 'K', 4));
+  assert.deepEqual(changeStrength({ type: 'sa', level: 3 }, 1), { type: 'sa', level: 1 });
+  assert.throws(() => changeStrength(N('stand', 'M', 'P'), 'OD')); // 通常技にODはない
+  assert.throws(() => changeStrength({ type: 'sa', level: 1 }, 'L'));
+  assert.throws(() => changeStrength({ type: 'system', id: 'DI' }, 'L'));
+});
+
+test('applyPadInput strength: 指定位置だけ置き換える（カーソル・ペンディングは保つ）', () => {
+  const s0 = run([stance('crouch'), btn('M', 'K'), preset('236'), btn('H', 'P'), stance('jump')]);
+  const s1 = applyPadInput(s0, { type: 'strength', index: 1, value: 'OD' });
+  assert.deepEqual(s1.tokens, [N('crouch', 'M', 'K'), SPc('236', 'OD', 'P')]);
+  assert.equal(s1.cursor, 2);
+  assert.equal(s1.pending.stance, 'jump');
+  assert.equal(s0.tokens[1].str, 'H');
+  assert.throws(() => applyPadInput(s0, { type: 'strength', index: 2, value: 'L' }));
+  assert.throws(() => applyPadInput(s0, { type: 'strength', index: 0, value: 'OD' }));
+});
+
+test('applyPadInput remove: 指定位置を消し、カーソルが後ろにあれば1つ詰める', () => {
+  const s0 = run([btn('L', 'P'), btn('M', 'P'), btn('H', 'P')]);
+  const mid = applyPadInput(s0, { type: 'remove', index: 1 });
+  assert.deepEqual(mid.tokens.map((t) => t.str), ['L', 'H']);
+  assert.equal(mid.cursor, 2);
+  const s1 = applyPadInput(s0, { type: 'cursor', index: 1 });
+  assert.equal(applyPadInput(s1, { type: 'remove', index: 2 }).cursor, 1); // カーソルより後ろの削除
+  assert.equal(applyPadInput(s1, { type: 'remove', index: 0 }).cursor, 0); // 前の削除
+  assert.throws(() => applyPadInput(s0, { type: 'remove', index: 3 }));
+  assert.equal(s0.tokens.length, 3);
+});
+
+test('recentTokens: 最新の記録の後ろの技から、重複・注記を除いて最大8件。他キャラは含めない', () => {
+  const a = mkCombo('a', [N('stand', 'L', 'P'), SPc('236', 'H', 'P'), { type: 'system', id: 'CDR' }], { updatedAt: 5 });
+  const b = mkCombo('b', [{ type: 'note', id: 'CH' }, SPc('236', 'H', 'P'), { type: 'sa', level: 3 }], { updatedAt: 9 });
+  const other = { ...mkCombo('o', [N('stand', 'H', 'K')], { updatedAt: 99 }), characterId: 'ken' };
+  const r = recentTokens([a, b, other], 'ryu');
+  assert.deepEqual(r.map((t) => tokenLabel(t)), ['SA3', '波動 ↓↘→ 強P', 'CDR', '立ち弱P']);
+  const many = mkCombo('m', [1, 3, 4, 6, 7, 8, 9].flatMap((d) => [N('stand', 'L', 'P', d), N('crouch', 'L', 'P', d)]));
+  assert.equal(recentTokens([many], 'ryu').length, 8);
+  assert.equal(recentTokens([many], 'ryu', 3).length, 3);
+  r[0].level = 1;
+  assert.equal(b.tokens[2].level, 3); // 複製を返す
+});
+
+test('tagCandidates: そのキャラのタグ（多い順）、続けて他キャラのタグ。重複なし', () => {
+  const c = [
+    mkCombo('1', [], { tags: ['基本', '画面端'] }), mkCombo('2', [], { tags: ['基本'] }),
+    { ...mkCombo('3', [], { tags: ['画面端', '起き攻め'] }), characterId: 'ken' },
+  ];
+  assert.deepEqual(tagCandidates(c, 'ryu'), ['基本', '画面端', '起き攻め']);
+  assert.deepEqual(tagCandidates(c, 'ken'), ['画面端', '起き攻め', '基本']);
+  assert.deepEqual(tagCandidates([], 'ryu'), []);
+});
+
+test('duplicateCombo: 新しいid・日時、同じセクション、タイトルは「のコピー」。上限を超えない', () => {
+  const src = mkCombo('src', [SPc('236', 'H', 'P')], { title: '基本', tags: ['x'], createdAt: 1, updatedAt: 2 });
+  const d = duplicateCombo(src, 777);
+  assert.notEqual(d.id, 'src');
+  assert.equal(d.title, '基本のコピー');
+  assert.equal(d.sectionId, 's1');
+  assert.deepEqual([d.createdAt, d.updatedAt], [777, 777]);
+  assert.deepEqual(d.tokens, src.tokens);
+  d.tokens[0].str = 'L';
+  d.tags.push('y');
+  assert.equal(src.tokens[0].str, 'H'); // 深い複製
+  assert.deepEqual(src.tags, ['x']);
+  assert.equal(duplicateCombo(mkCombo('e', [], { title: '' }), 1).title, 'コピー');
+  const long = duplicateCombo(mkCombo('l', [], { title: 'あ'.repeat(LIMITS.title) }), 1);
+  assert.equal(long.title.length, LIMITS.title);
+  assert.ok(long.title.endsWith('のコピー'));
+  const doc = { sections: [{ id: 's1', characterId: 'ryu', name: 'n', order: 0, updatedAt: 1 }], combos: [src, d, long] };
+  assert.ok(validateDoc(exportDoc(doc)).ok);
+});
+
+test('sanitizeDraft: 正しい形はそのまま、壊れた項目は捨てる、オブジェクト以外はnull', () => {
+  const ok = { sectionId: 's1', title: 'a', position: 'corner', tokens: [N('stand', 'L', 'P')], memo: 'm', tags: ['x'], savedAt: 5 };
+  assert.deepEqual(sanitizeDraft(ok), ok);
+  for (const bad of [null, 5, 'x', [], undefined]) assert.equal(sanitizeDraft(bad), null);
+  const r = sanitizeDraft({ sectionId: 3, title: 9, position: 'zzz', tokens: [{ type: 'bad' }, N('stand', 'L', 'P')], memo: null, tags: ['', 5, 'ok'], savedAt: -1 });
+  assert.deepEqual(r, { sectionId: null, title: '', position: 'any', tokens: [N('stand', 'L', 'P')], memo: '', tags: ['ok'], savedAt: null });
+  const big = sanitizeDraft({ title: 'a'.repeat(500), tokens: Array.from({ length: 300 }, () => N('stand', 'L', 'P')), tags: Array.from({ length: 50 }, (_, i) => `t${i}`) });
+  assert.equal(big.title.length, LIMITS.title);
+  assert.equal(big.tokens.length, LIMITS.tokens);
+  assert.equal(big.tags.length, LIMITS.tags);
 });

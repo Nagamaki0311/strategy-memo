@@ -89,6 +89,14 @@ h1, h2 { word-break: auto-phrase; }
   white-space: nowrap;
 }
 .chip > * { flex: none; }
+/* 編集・詳細では技とタグが <button>。見た目は span と同じにし、タップ領域は透明の ::after で44pxに広げる */
+:where(button).chip, :where(button).tag {
+  position: relative; margin: 0; padding: 0; border: 0; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer;
+}
+button.chip::after { content: ''; position: absolute; inset: -5px; }
+button.tag::after { content: ''; position: absolute; inset: -12px -2px; }
+button.chip:active, button.tag:active { background: var(--line-strong); }
+.chip.sel, .tag.sel { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 6px; }
 
 .dot {
   position: relative;
@@ -300,6 +308,122 @@ a { color: inherit; }
 .radio { display: flex; align-items: center; gap: var(--s3); min-height: 48px; border-top: 1px solid var(--line); }
 .radio input { width: 20px; height: 20px; margin: 0; accent-color: var(--fg); }
 .radio-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+/* ===== 詳細画面 ===== */
+.detail { padding: var(--s4); }
+.d-meta { margin: 0; font: var(--t-sm) var(--font); color: var(--fg-muted); overflow-wrap: anywhere; }
+.d-title { margin: var(--s2) 0 0; font: 700 var(--t-lg) var(--font); overflow-wrap: anywhere; }
+.d-cmd { margin: var(--s5) 0; }
+.d-memo-h { margin: 0 0 var(--s1); font: var(--t-sm) var(--font); color: var(--fg-muted); }
+.d-memo p { margin: 0; font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ===== 編集画面 ===== */
+.screen.edit { height: 100dvh; min-height: 0; overflow: hidden; }
+.screen.edit .main { min-height: 0; overflow: auto; }
+.screen.edit .banners { position: static; }
+.notice { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin: var(--s2) var(--s4) 0; padding: var(--s2) var(--s3); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-key); font-size: 14px; }
+.notice .btn { flex: none; white-space: nowrap; }
+.draft-time { min-height: 17px; margin: var(--s1) var(--s4) 0; text-align: right; font: var(--t-xs) var(--font); color: var(--fg-muted); }
+.cmd { box-sizing: border-box; min-height: 96px; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
+.cursor { flex: none; width: 3px; height: 34px; border-radius: 1.5px; background: var(--fg); }
+.cmd-hint { color: var(--fg-muted); }
+.pend-sym { display: inline-flex; align-items: center; gap: var(--in); opacity: .6; }
+.ghost { box-sizing: border-box; flex: none; width: var(--dot); height: var(--dot); border: 1.5px solid var(--fg-muted); border-radius: 50%; }
+.to-end { margin-left: auto; }
+.fields { display: flex; flex-direction: column; gap: var(--s4); padding: var(--s4); }
+.fld { min-width: 0; }
+select.field { appearance: auto; }
+textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertical; }
+.seg { display: flex; gap: var(--s1); min-width: 0; margin: 0; padding: 0; border: 0; }
+.seg legend { padding: 0; }
+.seg-item { position: relative; flex: 1; }
+.seg-item input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; }
+.seg-item span { box-sizing: border-box; display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--line-strong); border-radius: var(--r-key); background: var(--key); font: 700 14px var(--font); }
+.seg-item input:checked + span { box-shadow: inset 0 0 0 3px var(--fg); }
+.seg-item input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: 2px; }
+.tag-list, .suggest { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.tag-list:not(:empty) { margin-bottom: var(--s2); }
+.suggest:not(:empty) { margin-top: var(--s2); }
+.tag-add { display: flex; gap: var(--s2); }
+.pill { padding: 0 var(--s3); font-size: 14px; }
+.pill .ic { width: 16px; height: 16px; }
+
+/* ポップオーバー（チップの近く）。暗幕なし */
+.scrim.pop { display: block; background: none; animation: none; }
+.popover { position: fixed; box-sizing: border-box; max-width: 320px; padding: var(--s2); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-key); }
+.pop-note { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; min-height: 24px; margin-bottom: var(--s2); color: var(--fg-muted); font: var(--t-xs) var(--font);
+  --arrow: 14px; --num: 13px; --br-sw: 3; --in: 1px; }
+.pop-row { display: flex; gap: var(--s1); }
+.pop-row + .pop-row { margin-top: var(--s1); }
+.opt { flex: 1; padding: 0 var(--s2); }
+.opt[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--fg); }
+.opt .dot { --dot: 22px; }
+.opt .ltr.od { --fs: 15px; }
+
+/* 凡例（高さ90dvh。下端に［閉じる］を固定） */
+.sheet.tall { height: 90dvh; }
+.sheet.tall .sheet-body { flex: 1; min-height: 0; }
+.leg { width: 100%; border-collapse: collapse; }
+.leg th { text-align: left; font: var(--t-xs) var(--font); color: var(--fg-muted); padding: var(--s1) var(--s2) var(--s1) 0; }
+.leg th.leg-g { padding-top: var(--s4); font: 700 var(--t-sm) var(--font); color: var(--fg); }
+.leg td { padding: var(--s2) var(--s2) var(--s2) 0; border-top: 1px solid var(--line); vertical-align: middle; font-size: 14px; line-height: 1.5; }
+.leg-shape { width: 1%; }
+.leg-shape .row { flex-wrap: nowrap; }
+.leg-out { width: 72px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.leg-sa { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.diag { display: grid; grid-template-columns: repeat(3, 40px); gap: 2px; --arrow: 22px; --fs: 15px; }
+.diag-c { display: flex; flex-direction: column; align-items: center; }
+.diag-n { font: var(--t-xs) var(--font); color: var(--fg-muted); }
+
+/* ===== パッド（design-spec 4章。高さ368px＋下の安全領域） ===== */
+.pad {
+  flex: none; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 5px 6px calc(6px + env(safe-area-inset-bottom));
+  background: var(--surface); border-top: 1px solid var(--line); touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.pad[hidden] { display: none; }
+.key {
+  box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; padding: 0;
+  border: 1px solid var(--line-strong); border-radius: var(--r-key); background: var(--key); color: var(--fg);
+  font: 700 14px/1.2 var(--font); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  --arrow: 18px; --fs: 15px;
+  transition: background 80ms linear;
+}
+.key:active { background: var(--line-strong); transition: none; }
+.key[aria-checked="true"], .key[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--fg); }
+.pad :focus-visible { outline-offset: -3px; }
+.recent-keys, .sys-keys { display: flex; gap: 4px; height: 44px; overflow-x: auto; scrollbar-width: none; }
+.recent-keys { scroll-snap-type: x proximity; }
+.recent-keys .key { flex: none; flex-direction: row; min-width: 44px; padding: 0 8px; scroll-snap-align: start; }
+.recent-keys .row { flex-wrap: nowrap; pointer-events: none; }
+.recent-empty { display: flex; align-items: center; height: 44px; padding: 0 8px; color: var(--fg-muted); font: var(--t-xs) var(--font); }
+.preset-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; height: 46px; }
+.pk-arrows { display: flex; align-items: center; gap: 1px; height: 14px; --arrow: 13px; --in: 1px; --br-sw: 4; --num: 14px; }
+.pk-name { min-height: 14px; font: 12px/1.2 var(--font); color: var(--fg-muted); }
+.sys-keys .key { flex: none; flex-direction: row; min-width: 44px; padding: 0 6px; }
+.lower { display: grid; grid-template-columns: 140px 1fr; column-gap: 12px; height: 156px; margin-top: 4px; }
+.dirs { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 48px); gap: 6px 4px; }
+.dkey .ltr { --fs: 14px; color: var(--fg-muted); }
+.btns { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 48px); gap: 6px 4px; min-width: 0; }
+.stance { grid-column: 1 / 4; display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 4px; min-width: 0; }
+.undo-t { font-size: 12px; }
+.bkey .dot { --dot: 30px; }
+.okey { gap: 1px; --ov: 8px; --fs: 13px; }
+.okey .dots { display: flex; }
+.okey .dot { --dot: 20px; }
+
+/* トーストはパッドの上に出す（パッドが流れの中に戻る低い画面では既定の位置） */
+@media (min-height: 561px) {
+  body:has(.screen.edit .pad:not([hidden])) #toast { bottom: calc(368px + env(safe-area-inset-bottom) + var(--s4)); }
+}
+/* 横持ちなど高さが足りないときは、パッドを縦flexから外してコマンド列の下に通常の流れで置く */
+@media (max-height: 560px) {
+  .screen.edit { height: auto; min-height: 100dvh; overflow: visible; }
+  .screen.edit .main { display: contents; }
+  .screen.edit .cmd { order: 1; }
+  .screen.edit .pad { order: 2; }
+  .screen.edit .fields { order: 3; }
+  .screen.edit .banners { position: sticky; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
