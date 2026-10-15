@@ -1355,6 +1355,14 @@ function start() {
     render({ keepScroll: true });
   });
   navigate();
+  registerSw();
+}
+
+// オフライン起動用のService Worker（sw.js）。APK（Capacitor）は app/ を同梱して動くので登録しない。Capacitorのオリジンも https://localhost なので、判定は isNativePlatform で行う。
+// `https:` か `localhost` 以外（LANのhttpなど）は、ブラウザ側でも使えない。失敗してもアプリの動作には影響させない
+function registerSw() {
+  const ok = 'serviceWorker' in navigator && !window.Capacitor?.isNativePlatform?.() && (location.protocol === 'https:' || location.hostname === 'localhost');
+  if (ok) navigator.serviceWorker.register('./sw.js', { scope: './' }).catch((e) => console.warn('Service Workerを登録できませんでした', e));
 }
 
 // tests/check.html は renderRow だけを使うため #app が無ければ起動しない

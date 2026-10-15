@@ -19,6 +19,24 @@
 
 ---
 
+## 2026-10-15 T-013: PWAと配信
+
+### 実施内容
+- `app/manifest.webmanifest`、`app/sw.js`（App Shellのプリキャッシュ、cache-first、`skipWaiting` なし）、ネオン版アイコン（`app/icon.svg`、`icon-192.png`、`icon-512.png`。maskable対応）、`.github/workflows/pages.yml`（`app/` をGitHub Pagesに配信。公式アクションをコミットSHAで固定）を追加した。SWは `https:` または `localhost` で、Capacitorのネイティブ環境以外のときだけ登録する。
+- index.htmlに `<link rel="manifest">` と `<link rel="icon">` を追加した（manifestのlinkがないとChromeがmanifestを読まないため、指示より増やした）。
+- アイコンの書き出し手順: `app/icon.svg` を作り、Playwrightのchromiumで `deviceScaleFactor: size/512` として描画して192と512のPNGを撮る（スクリプトは scratchpad/export-icons.mjs。リポジトリには入れていない）。
+
+### 結果
+- `npm test` は58テスト pass、fail 0、終了コード0（Managerが再実行）。e2e（`FAST=1`）は570件すべて合格（19章がPWAの42件）。受け入れ基準7.3-5（オフライン起動）を、ルート配信とサブパス `/strategy-memo/` 配信の両方で、接続を切った状態の再読み込み・記録の作成・保存・閲覧まで確認した。CDPの `Page.getAppManifest` はエラー・警告なし、`Page.getInstallabilityErrors` は空。actionlint は `pages.yml` と `apk.yml` で終了コード0。変異テスト6種が失敗側に動いた。
+- ブラウザでの注意: `context.setOffline(true)` はService Worker自身のfetchを止めないため、機内モードの検証は、テスト用サーバーの接続切断と併用している。
+- 手動の版数管理（`ponytail:` コメント済み）: `app/` を変えてデプロイするたびに `sw.js` の `CACHE` の版数を上げ、`app/` にファイルを足したら `FILES` にも足す（足し忘れはe2e 19bが検出）。新版は全タブを閉じた次回起動で切り替わる。
+- 未確認: Pages本番のデプロイ、実機（Android Chrome）でのインストールとオフライン起動、アイコンの実機での見え方。ホーム画面のアプリとChromeのタブで保存データが別領域になるかどうかは実機で確認する。
+
+### 次回開始位置
+- T-014（実機での受け入れ。ユーザーが行う: リポジトリを公開、Settings→Pagesの SourceをGitHub Actionsにする、`pages` ワークフローの実行、`https://nagamaki0311.github.io/strategy-memo/` をAndroid Chromeで開いて確認）。APKのアイコンとバー色の更新（apk/）、敵対的レビュー（T-015。ユーザーが後追いで指示）。
+
+---
+
 ## 2026-10-15 T-012: 設定とデータ（書き出し・取り込み・表示設定・書き出しの案内）
 
 ### 実施内容

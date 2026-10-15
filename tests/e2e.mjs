@@ -5,11 +5,17 @@
 //      - Playwright は /opt/node-tools/node_modules のグローバル版（1.56.1）を使う。リポジトリには依存を足さない。`playwright install` は不要。
 //      - FAST=1 を付けると、時間のかかるトーストの一時停止の検証（約30秒）を省く。
 //      - SHOTS=<dir> を指定すると360幅のスクリーンショットを保存する（目視用。判定には使わない）。
+//      - Service Worker（19章）は、このファイルが立てる専用の静的サーバー（localhost、ルートとサブパス）で検証する。BASE は使わない。
+//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ実行する。
+//      - 既存の検証は、Service Worker を無効にして動かす（browser.newContext の既定が serviceWorkers: 'block'）。
 //   3. 終わったらサーバーを止める（kill %1）。
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
 import { chromium } from '/opt/node-tools/node_modules/playwright/index.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, existsSync, statSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { exportDoc, CHARACTERS } from '../app/core.js';
 
 const BASE = process.env.BASE ?? 'http://localhost:8000/app/index.html';
@@ -51,6 +57,10 @@ async function check(name, fn) {
 }
 
 const browser = await chromium.launch();
+{ // 既存の検証はService Workerなしで動かす。19章だけ serviceWorkers: 'allow' を渡す
+  const open = browser.newContext.bind(browser);
+  browser.newContext = (o) => open({ serviceWorkers: 'block', ...o });
+}
 async function newPage(width, seed, ctxOpts = {}, init = null) {
   const ctx = await browser.newContext({ viewport: { width, height: 740 }, deviceScaleFactor: 1, ...ctxOpts });
   const page = await ctx.newPage();
@@ -72,6 +82,228 @@ const names = (page) => page.$$eval('.sec-name', (els) => els.map((e) => e.textC
 const noHScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 const shot = async (page, name, width) => { if (SHOTS && width === 360) await page.waitForTimeout(350); if (SHOTS && width === 360) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
 const gotoHash = async (page, h) => { await page.evaluate((x) => { location.hash = x; }, h); await page.waitForTimeout(250); };
+
+// ===== SECTION: 19 Service Worker・manifest・配信（T-013） =====
+// 本物のオリジン（localhost）が要るので、python の http.server とは別に、app/ だけを配信する静的サーバーを立てる。
+// 機内モードは context.setOffline(true) に加えて、サーバー側で接続を切って再現する（setOffline は Service Worker の fetch を止めないため。
+// キャッシュに無いファイルがあっても、setOffline だけではネットワークから取れてしまい、検出できない）。
+// prefix='/strategy-memo/' で、GitHub Pagesのプロジェクトサイトと同じサブパス配信を再現する。
+const SW_APP = path.resolve(process.env.SW_APP ?? new URL('../app', import.meta.url).pathname);
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
+async function serveApp(dir, prefix = '/') {
+  const root = path.resolve(dir) + path.sep;
+  // sw: sw.js の本文を書き換える（版数の変更用）。down: 真のあいだは接続を切る（機内モード）。切られたあとに来た要求は downHits に残る
+  const s = { misses: [], downHits: [], down: false, sw: (t) => t };
+  s.server = createServer((req, res) => {
+    const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (s.down) { s.downHits.push(p); req.socket.destroy(); return; }
+    const rel = p.startsWith(prefix) ? p.slice(prefix.length) || 'index.html' : null;
+    const file = rel === null ? null : path.join(dir, rel.endsWith('/') ? `${rel}index.html` : rel);
+    if (!file || !file.startsWith(root) || !existsSync(file) || statSync(file).isDirectory()) { s.misses.push(p); res.writeHead(404); res.end(); return; }
+    let body = readFileSync(file);
+    if (rel === 'sw.js') body = s.sw(body.toString());
+    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+    res.end(body);
+  });
+  await new Promise((ok) => s.server.listen(0, ok));
+  s.port = s.server.address().port;
+  s.origin = (host = 'localhost') => `http://${host}:${s.port}${prefix}`;
+  s.close = () => new Promise((ok) => s.server.close(ok));
+  return s;
+}
+async function swPage(width, init) {
+  const ctx = await browser.newContext({ viewport: { width, height: 740 }, serviceWorkers: 'allow' });
+  if (init) await ctx.addInitScript(init);
+  const page = await ctx.newPage();
+  page.errors = [];
+  page.failed = [];
+  page.on('pageerror', (e) => page.errors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') page.errors.push(m.text()); });
+  page.on('requestfailed', (r) => page.failed.push(r.url()));
+  return page;
+}
+// 登録した Service Worker が activated（install のプリキャッシュ完了後）になるまで待つ
+const swActivated = (page) => page.evaluate(async () => {
+  const r = await navigator.serviceWorker.ready;
+  if (r.active.state !== 'activated') await new Promise((ok) => r.active.addEventListener('statechange', () => r.active.state === 'activated' && ok()));
+  return r.active.state;
+});
+const swRegs = async (page) => { await page.waitForSelector('.cell'); await page.waitForTimeout(500); return page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length); };
+const cacheKeys = (page) => page.evaluate(async () => (await caches.keys()).sort());
+const pngSize = async (url) => { const r = await fetch(url); const b = Buffer.from(await r.arrayBuffer()); return [r.status, b.subarray(1, 4).toString(), b.readUInt32BE(16), b.readUInt32BE(20)]; };
+
+for (const width of [360, 430]) {
+  const tag = `[${width}]`;
+  const root = await serveApp(SW_APP);
+  const copy = mkdtempSync(path.join(tmpdir(), 'sf6-pages-'));
+  cpSync(SW_APP, copy, { recursive: true }); // 別ディレクトリ（app/ の中身だけ）を、サブパスで配信する
+  const sub = await serveApp(copy, '/strategy-memo/');
+
+  // 19a. 受け入れ基準7.3-5: 機内モードで、起動・閲覧・編集・保存ができる
+  for (const [label, srv] of [['ルート', root], ['サブパス /strategy-memo/', sub]]) {
+    const page = await swPage(width);
+    await page.goto(srv.origin());
+    await check(`${tag} 19a ${label}: 初回アクセスでService Workerが登録され、activated になる`, async () => {
+      assert.equal(await swActivated(page), 'activated');
+      assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.ready).scope), srv.origin());
+    });
+    await page.context().setOffline(true);
+    srv.down = true;
+    await page.reload().catch(() => {}); // キャッシュに無いと失敗する。次の検証で不合格として報告する
+    await check(`${tag} 19a ${label}: 機内モードで再読み込みしても起動し、キャラ選択32件・CSS適用・SW経由・ネットワークへの要求なし`, async () => {
+      assert.equal(await page.locator('.cell').count(), 32);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(14, 15, 17)'); // styles.css（--bg）が読めている
+      assert.equal(await page.evaluate(() => document.fonts.check('20px "Tilt Neon"')), true);
+      assert.equal(await page.evaluate(() => navigator.serviceWorker.controller !== null), true);
+      assert.deepEqual(srv.downHits, []);
+      assert.deepEqual(page.failed, []);
+      assert.deepEqual(page.errors, []);
+    });
+    await check(`${tag} 19a ${label}: 機内モードで、クエリ付き・index.html直指定のURLでも起動する`, async () => {
+      for (const u of [`${srv.origin()}?gray=1`, `${srv.origin()}index.html`, `${srv.origin()}#/settings`]) {
+        await page.goto(u);
+        await page.waitForSelector('#app *');
+        assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(14, 15, 17)', u);
+      }
+      await page.goto(srv.origin());
+      assert.deepEqual(srv.downHits, []);
+    });
+    // 機内モードで、セクション追加 -> 記録の作成・保存 -> 閲覧
+    await page.locator('.cell', { hasText: 'リュウ' }).click();
+    await page.locator('.empty .chips .btn', { hasText: /^通常$/ }).click();
+    await page.getByRole('link', { name: '記録', exact: true }).click();
+    await page.waitForSelector('.pad');
+    for (const n of ['中K', '波動 236', '強P']) await page.getByRole('button', { name: n, exact: true }).click();
+    await page.getByLabel('タイトル（任意）').fill('機内モード');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.waitForFunction(() => /^#\/c\/ryu\/r\/[0-9a-f]{32}$/.test(location.hash));
+    await check(`${tag} 19a ${label}: 機内モードで、セクション追加・記録の作成・保存ができ、詳細で読める`, async () => {
+      assert.equal(await page.locator('.d-title').innerText(), '機内モード');
+      assert.equal(await page.locator('.d-cmd .chip').count(), 2);
+      const d = await stored(page);
+      assert.deepEqual([d.sections.map((x) => x.name), d.combos.map((x) => x.title)], [['通常'], ['機内モード']]);
+    });
+    await page.reload();
+    await check(`${tag} 19a ${label}: 機内モードの再読み込みのあとも、保存した記録を一覧と詳細で閲覧できる`, async () => {
+      await page.waitForSelector('.d-cmd .row');
+      assert.equal(await page.locator('.d-title').innerText(), '機内モード');
+      await gotoHash(page, '#/c/ryu');
+      assert.equal(await page.locator('.item').count(), 1);
+      assert.deepEqual(srv.downHits, []);
+      assert.deepEqual(page.failed, []);
+      assert.deepEqual(page.errors, []);
+    });
+    srv.down = false;
+    await page.context().close();
+  }
+
+  // 19b. manifest とアイコン
+  {
+    const page = await swPage(width);
+    await page.goto(root.origin());
+    await check(`${tag} 19b manifest: 項目が仕様どおり（name・start_url・scope・display・orientation・lang・色）`, async () => {
+      const m = await page.evaluate(async () => (await fetch('manifest.webmanifest')).json());
+      assert.deepEqual(
+        Object.fromEntries(['name', 'short_name', 'start_url', 'scope', 'display', 'orientation', 'lang', 'theme_color', 'background_color'].map((k) => [k, m[k]])),
+        { name: 'SF6戦略メモ', short_name: '戦略メモ', start_url: './', scope: './', display: 'standalone', orientation: 'portrait', lang: 'ja', theme_color: '#0E0F11', background_color: '#0E0F11' },
+      );
+      assert.equal(await page.locator('meta[name=theme-color]').getAttribute('content'), m.theme_color);
+      assert.equal(await page.locator('link[rel=manifest]').getAttribute('href'), 'manifest.webmanifest');
+      assert.equal(await page.locator('link[rel=icon]').getAttribute('href'), 'icon.svg');
+    });
+    await check(`${tag} 19b manifest: iconsは192・512のそれぞれが purpose any と maskable の2項目（併記しない）で、ファイルは200のPNGで宣言どおりの寸法`, async () => {
+      const m = await page.evaluate(async () => (await fetch('manifest.webmanifest')).json());
+      assert.deepEqual(m.icons.map((i) => [i.src, i.sizes, i.type, i.purpose]), [
+        ['icon-192.png', '192x192', 'image/png', 'any'], ['icon-192.png', '192x192', 'image/png', 'maskable'],
+        ['icon-512.png', '512x512', 'image/png', 'any'], ['icon-512.png', '512x512', 'image/png', 'maskable'],
+      ]);
+      for (const [src, px] of [['icon-192.png', 192], ['icon-512.png', 512]]) assert.deepEqual(await pngSize(`${root.origin()}${src}`), [200, 'PNG', px, px], src);
+      assert.equal((await fetch(`${root.origin()}icon.svg`)).status, 200);
+    });
+    await check(`${tag} 19b sw.js の FILES が、配信する app/ のファイル（sw.js・ライセンス文書を除く）と一致し、すべて取得できる`, async () => {
+      const files = [...readFileSync(path.join(SW_APP, 'sw.js'), 'utf8').match(/const FILES = \[(.*)\]/)[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+      assert.deepEqual(files, readdirSync(SW_APP).filter((f) => f !== 'sw.js' && f !== 'OFL-TiltNeon.txt').sort());
+      for (const f of files) assert.equal((await fetch(`${root.origin()}${f}`)).status, 200, f);
+    });
+    await check(`${tag} 19b 404がなく、サブパス配信（app/ の中身だけをルートに置く）でも絶対パス参照がない`, async () => {
+      assert.deepEqual(root.misses, []);
+      assert.deepEqual(sub.misses, []);
+    });
+    await page.context().close();
+  }
+
+  // 19c. 登録する条件
+  {
+    const stubs = [
+      ['Capacitorのネイティブ環境（isNativePlatform: () => true）', root.origin(), () => { window.Capacitor = { isNativePlatform: () => true }; }, 0],
+      ['Capacitorのブラウザ環境（isNativePlatform: () => false）は登録する', root.origin(), () => { window.Capacitor = { isNativePlatform: () => false }; }, 1],
+      ['localhost以外のhttp（LANのアドレス相当、127.0.0.1）', root.origin('127.0.0.1'), null, 0],
+      ['localhostのhttp（対照）', root.origin(), null, 1],
+    ];
+    for (const [label, url, init, regs] of stubs) {
+      const page = await swPage(width, init);
+      await page.goto(url);
+      await check(`${tag} 19c 登録数が ${regs}: ${label}`, async () => {
+        assert.equal(await swRegs(page), regs);
+        assert.equal(await page.locator('.cell').count(), 32); // 登録しなくてもアプリは動く
+        assert.deepEqual(page.errors, []);
+      });
+      await page.context().close();
+    }
+    const fail = await swPage(width, () => { navigator.serviceWorker.register = () => Promise.reject(new Error('stub')); });
+    const warns = [];
+    fail.on('console', (m) => { if (m.type() === 'warning') warns.push(m.text()); });
+    await fail.goto(root.origin());
+    await check(`${tag} 19c 登録に失敗してもコンソールに出すだけで、アプリは動く`, async () => {
+      await fail.waitForSelector('.cell');
+      await fail.waitForTimeout(300);
+      assert.equal(await fail.locator('.cell').count(), 32);
+      assert.deepEqual(fail.errors, []);
+      assert.equal(warns.length, 1, warns.join('|'));
+    });
+    await fail.context().close();
+  }
+
+  // 19d. 更新: 版数を変えた sw.js を配信し直す。開いているタブは旧版で動き続け、タブを閉じると新版が有効になって旧キャッシュを消す
+  {
+    const page = await swPage(width);
+    await page.goto(root.origin());
+    await swActivated(page);
+    await page.evaluate(async () => { // 旧版の残骸と、同じオリジンの他アプリのキャッシュ
+      await (await caches.open('sf6memo-v0')).put('/x', new Response('old'));
+      await (await caches.open('other-app-v1')).put('/x', new Response('other'));
+    });
+    await page.reload(); // 旧版（v1）に制御されたタブ
+    const v1 = (await cacheKeys(page)).filter((k) => k.startsWith('sf6memo-') && k !== 'sf6memo-v0');
+    root.sw = (t) => t.replace(/const CACHE = '[^']*'/, "const CACHE = 'sf6memo-v2'");
+    await page.evaluate(async () => { await (await navigator.serviceWorker.ready).update(); });
+    await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state === 'installed');
+    await check(`${tag} 19d 更新: 新版はプリキャッシュして待機するだけ（skipWaitingなし）。旧版のキャッシュは残り、開いているタブは動き続ける`, async () => {
+      assert.deepEqual(v1.length, 1);
+      assert.notEqual(v1[0], 'sf6memo-v2');
+      assert.deepEqual(await cacheKeys(page), ['other-app-v1', 'sf6memo-v0', v1[0], 'sf6memo-v2'].sort());
+      assert.equal(await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.state), 'activated');
+      await page.locator('.cell', { hasText: 'ケン' }).click();
+      await page.waitForFunction(() => location.hash === '#/c/ken');
+      assert.deepEqual(page.errors, []);
+    });
+    await page.close(); // 開いているタブがなくなる
+    const next = await page.context().newPage();
+    await next.goto(root.origin());
+    await check(`${tag} 19d 更新: タブを閉じたあと新版が有効になり、sf6memo- の旧キャッシュだけが消える（他アプリのキャッシュは残る）`, async () => {
+      await next.waitForFunction(async () => (await caches.keys()).includes('sf6memo-v2') && !(await caches.keys()).includes('sf6memo-v0'), null, { timeout: 8000 });
+      assert.deepEqual(await cacheKeys(next), ['other-app-v1', 'sf6memo-v2']);
+      assert.equal(await next.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.scriptURL), `${root.origin()}sw.js`);
+    });
+    await next.context().close();
+    root.sw = (t) => t;
+  }
+
+  await root.close();
+  await sub.close();
+  rmSync(copy, { recursive: true });
+}
+if (process.env.ONLY_SW) await finish();
 
 for (const width of [360, 430]) {
   const tag = `[${width}]`;
@@ -2287,9 +2519,13 @@ for (const width of [360, 430]) {
   }
 }
 
-await browser.close();
-console.log(`e2e: ${checks - failures.length}/${checks} checks passed`);
-if (failures.length) {
-  console.log(failures.map((f) => `FAIL ${f}`).join('\n'));
-  process.exit(1);
+await finish();
+async function finish() {
+  await browser.close();
+  console.log(`e2e: ${checks - failures.length}/${checks} checks passed`);
+  if (failures.length) {
+    console.log(failures.map((f) => `FAIL ${f}`).join('\n'));
+    process.exit(1);
+  }
+  process.exit(0);
 }
