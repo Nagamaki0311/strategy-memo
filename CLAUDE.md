@@ -41,3 +41,13 @@ Skills（`.claude/skills/`配下のSKILL.md）は、再利用可能な具体的�
 - docs/decisions.md: 設計判断、採用理由、変更履歴
 - docs/agents.md: Agent構成、モデル構成、オーケストレーションルール、Hook構成
 - docs/status-line.md: サブエージェント進捗の可視化（Status Line）の仕様
+
+## デザイントークン
+
+正本は docs/design-spec.md 2章。ダーク固定。
+
+- 色: `--bg` #16140F / `--surface` #22201A / `--key` #2E2B24 / `--line` #3A372F / `--line-strong` #57524A / `--fg` #EDE8DC / `--fg-muted` #A8A397 / `--conn` #8A867D / `--ink` #16140F / `--str-l` #8FD3F0 / `--str-m` #F0D870 / `--str-h` #F29A8E / `--od` #9ED8A0 / `--scrim` rgba(0,0,0,.6)
+- 文字: system-ui, "Noto Sans CJK JP", "Noto Sans JP", sans-serif。太さ400と700のみ。`--t-xs` 12px/1.4、`--t-sm` 13px/1.4、`--t-md` 15px/1.5、`--t-lg` 17px/1.4
+- 余白: `--s1`〜`--s6` = 4 / 8 / 12 / 16 / 24 / 32px
+- 角丸: `--r-tag` 2px、`--r-chip` 6px、`--r-key` 8px、`--r-sheet` 12px（上2角のみ）、円は●だけ
+- 影・グロー・グラデーション・すりガラスなし

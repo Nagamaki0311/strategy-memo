@@ -19,6 +19,26 @@
 
 ---
 
+## 2026-10-15 T-007: デザイントークンの記録とコマンド列の描画
+
+### 実施内容
+- CLAUDE.mdに「デザイントークン」の節（値のみ、正本はdocs/design-spec.md 2章）を追加した。
+- app/styles.cssに全トークンとチップのスタイル（L・S、折り返し、補助文字、数字表記、reduced-motion）、app/index.htmlにSVGスプライト、app/app.jsに `renderRow(tokens, {size, notation, strengthLabels})` を実装した。tests/check.htmlは全種類のチップを並べる検証用ハーネスで、`?gray=1` でグレースケールになる。
+- 未認識トークンの描画は未実装（core.jsが未知のtypeでthrowするため。CSSと静的サンプルのみ）。待ち・移動チップはPhase 2。
+
+### 結果
+- `npm test` は31テスト pass、fail 0、終了コード0。
+- ヘッドレスで幅360・390・430（高さ740）の `CHECK-PASS`（横スクロールなし、scrollWidthは各幅-15で、縦スクロールバー分）。幅120では `CHECK-FAIL` になり、判定が失敗側にも動くことを確認した。
+- Managerがスクリーンショット（`?gray=1` を含む）を目視した。グレースケールでも●（塗りのある円）、矢印（軸のある線）、▶（軸のない小さな三角）、システム技（実線枠）、注記タグ（枠なしの灰色）、360（塗りのない円弧）を形で区別できる。
+- ブラウザでの確認手順の訂正: フル版chromeは `--window-size` が500未満にならないため、幅の確認には `/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`（同じオプション）を使う。T-003の記載も訂正した。
+- 実機（Android Chrome）でのフォント・アウトラインの描画は未確認（T-014）。
+- Reviewerのレビュー（Critical/Highなし、Medium2件、Low6件）を受けて修正した。方向5（ニュートラル）には小さな中点を描く（M1。design-spec 3章に5の描画規則がなかったため、Managerが決めた）。tests/check.htmlの判定を強化し（`clientWidth`との比較、`<use>`の参照解決、矢印の回転、role・aria-labelの検証）、変異テスト（350px要素の追加、symbol idの破壊、回転の書き換え、aria-labelの除去）で失敗側に動くことを確認した（M2）。溜め括弧の線幅（S）、▶の左右対称、未使用の`.unk`の削除、トークンの使用も修正した。修正後の再レビューは行っていない。
+
+### 次回開始位置
+- T-008（キャラ選択・ルーティング・保存）。docs/design-spec.mdの6.1・6.6、D-003・D-006、core.jsの `validateDoc`・`exportDoc` を先に読む。申し送り: `renderRow` は不正なトークンで行全体が落ちるため、保存データの読み込み境界で `validateDoc`（内部で各トークンを検証）を必ず通す。未認識トークンの描画はPhase 2のトークン拡張時に足す。一覧のSプレビュー（`height:28px; overflow:hidden`）とLのタップ領域44pxはT-009・T-010で実装する。
+
+---
+
 ## 2026-10-15 T-005・T-006: コアロジック（パッド入力・表示・検証・マージ）
 
 ### 実施内容
@@ -45,7 +65,7 @@
 - `npm test` は4テスト pass、fail 0、終了コード0（Managerが再実行して確認）。
 - `python3 -m http.server 8000` を起動して `curl -sf http://localhost:8000/app/` が200。ヘッドレスChromiumで `<span id="count">32</span>` の描画と、360×740のスクリーンショットでの表示を確認した。
 - ブラウザでの確認手順（`app/` を配信中に実行。stderrのdbus・socketエラーは無害なので `2>/dev/null` で除外する）:
-  - DOM取得: `/opt/pw-browsers/chromium/chrome-linux/chrome --headless --no-sandbox --disable-gpu --virtual-time-budget=3000 --dump-dom http://localhost:8000/app/`
+  - DOM取得: `/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell --no-sandbox --disable-gpu --virtual-time-budget=3000 --dump-dom http://localhost:8000/app/`
   - スクリーンショット: 上記に `--window-size=360,740 --screenshot=<path>` を付ける。
 - 別途Reviewerは通していない（マスタとスケルトンのみ。Managerがマスタの内容をD-010と照合）。
 

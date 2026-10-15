@@ -9,7 +9,39 @@
 <script type="module" src="app.js"></script>
 </head>
 <body>
+<!-- 記号のSVGスプライト（design-spec 3章）。画面の記号はUnicodeではなく<use>で描く。tests/check.htmlもここから取り込む -->
+<svg id="sprite" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <!-- ●: 色は呼び出し側のcolor（強度色）。P/Kの線はink -->
+  <symbol id="i-dot-p" viewBox="0 0 36 36">
+    <circle cx="18" cy="18" r="18" fill="currentColor"/>
+    <path d="M13 27V9h6a5 5 0 0 1 0 10h-6" fill="none" stroke="var(--ink)" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>
+  </symbol>
+  <symbol id="i-dot-k" viewBox="0 0 36 36">
+    <circle cx="18" cy="18" r="18" fill="currentColor"/>
+    <path d="M12 9v18 M24 9L13 19 M16.5 16L24.5 27" fill="none" stroke="var(--ink)" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>
+  </symbol>
+  <!-- 矢印: 右向き1つ。8方向は呼び出し側でrotate -->
+  <symbol id="i-arrow" viewBox="0 0 24 24">
+    <path d="M3 12H15" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="butt"/>
+    <polygon points="13,5 22,12 13,19" fill="currentColor"/>
+  </symbol>
+  <!-- ▶: 軸なし、小さく、color=--conn -->
+  <symbol id="i-conn" viewBox="0 0 10 12">
+    <polygon points="0,0 10,6 0,12" fill="currentColor"/>
+  </symbol>
+  <!-- 360: 270度の開いた円弧（上から時計回り）と矢じり。塗りなし -->
+  <symbol id="i-360" viewBox="0 0 24 24">
+    <path d="M12 5A7 7 0 1 1 5 12" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="butt"/>
+    <polygon points="0.5,12 9.5,12 5,4" fill="currentColor"/>
+  </symbol>
+  <!-- 溜め括弧（矢印の箱と同じ高さ） -->
+  <symbol id="i-br-l" viewBox="0 0 6 24">
+    <path d="M5 3H2V21H5" fill="none" stroke="currentColor" style="stroke-width:var(--br-sw)" stroke-linecap="butt" stroke-linejoin="miter"/>
+  </symbol>
+  <symbol id="i-br-r" viewBox="0 0 6 24">
+    <path d="M1 3H4V21H1" fill="none" stroke="currentColor" style="stroke-width:var(--br-sw)" stroke-linecap="butt" stroke-linejoin="miter"/>
+  </symbol>
+</svg>
 <h1>SF6戦略メモ</h1>
-<p>キャラクター数: <span id="count"></span></p>
 </body>
 </html>
