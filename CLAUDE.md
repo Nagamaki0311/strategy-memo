@@ -46,11 +46,11 @@ Skills（`.claude/skills/`配下のSKILL.md）は、再利用可能な具体的�
 
 正本は docs/design-spec-v2.md 2章（v1の docs/design-spec.md はv2に書かれていない部分のみ有効）。ダーク固定。実体は app/styles.css の `:root`。
 
-- 色: `--bg` #0E0F11 / `--surface` #17191C / `--key` #22252A / `--line` #2E3238 / `--line-strong` #4A5059 / `--line-field` #6B727C（入力欄・選択肢の枠。地との比3:1以上）/ `--fg` #F2EEE6 / `--fg-muted` #AAA69D / `--conn` #8C8A85 / `--ink` #0E0F11 / `--lit` #FFF4DE / `--str-l` #8FD3F0 / `--str-m` #F0D870 / `--str-h` #F29A8E / `--str-n` #858585 / `--od` #FF7410 / `--dr` #4DF27C / `--di` #A3A9B2 / `--dp` #1B2A66 / `--dp-line` #7F98FF / `--scrim` rgba(0,0,0,.6)
-- 発光（L寸法のDR・OD、点灯した名前、ワードマークだけ。静的な発光テキストは35個まで。`box-shadow`と`text-shadow`のみ、動かさない）: `--glow-dr` / `--tx-dr` / `--glow-od` / `--tx-od` / `--tx-lit`
+- 色: `--bg` #0E0F11 / `--surface` #17191C / `--key` #22252A / `--line` #2E3238 / `--line-strong` #4A5059 / `--line-field` #6B727C（入力欄・選択肢の枠。地との比3:1以上）/ `--fg` #F2EEE6 / `--fg-muted` #AAA69D / `--conn` #8C8A85 / `--ink` #0E0F11 / `--lit` #EAFFF0（点灯した名前。蛍光グリーンの白） / `--str-l` #8FD3F0 / `--str-m` #F0D870 / `--str-h` #F29A8E / `--str-n` #858585 / `--od` #FF7410 / `--dr` #4DF27C / `--di` #A3A9B2 / `--dp` #1B2A66 / `--dp-line` #7F98FF / `--scrim` rgba(0,0,0,.6)
+- 発光（L寸法のDR・OD、点灯した名前、ワードマークだけ。静的な発光テキストは35個まで。`box-shadow`と`text-shadow`のみ、動かさない）: `--glow-dr` / `--tx-dr` / `--glow-od` / `--tx-od`
 - 文字: `--font` system-ui, "Noto Sans CJK JP", "Noto Sans JP", sans-serif（和文とUI。太さ400と700のみ）、`--font-sign` "Tilt Neon"（英字の看板。400のみ、`letter-spacing:.04em`。サブセットをstyles.css先頭にdata URIで埋め込み、ライセンスは app/OFL-TiltNeon.txt）。`--t-xs` 12px/1.4、`--t-sm` 13px/1.4、`--t-md` 15px/1.5、`--t-lg` 17px/1.4、`--sign-l` 20px/1、`--sign-m` 18px/1、`--sign-s` 15px/1
-- ネオン段階（記録数→`data-lv` 0〜10。閾値 1/2/3/5/8/12/18/28/45/70、暖白→電球色→琥珀→赤橙の1本の軸。値の正本は docs/design-spec-v2.1.md 1章、実体は app/styles.css の「ネオンの段階」節）: `--nc`（英字・件数の色）/ `--ns`（text-shadow）/ `--nb`（板）/ `--nw`・`--ne`（縁の太さと色）。タイル下端のレベルメーター（10目盛り、点灯は段階の数。塗りだけで発光なし、点灯色は `--nc`、消灯は `--line-strong`）
+- ネオン段階（記録数→`data-lv` 0〜10。閾値 1/2/3/5/8/12/18/28/45/70、ドライブゲージの蛍光グリーン1本の軸。キャラ選択のタイルは板の縁から内側へ緑が滲む「蛍光パネル」で、件数の文字とレベルメーターは出さない（件数は `aria-label` だけ）。値の正本は docs/design-spec-v2.1.md 1章、実体は app/styles.css の「ネオンの段階」節、決定は D-016）: `--l`（段階）/ `--rgb`（発光色）/ `--nb`（板の地）/ `--np`（板の滲み。inset）/ `--nc`（タイルの英字色）/ `--tc`（ワードマーク・最近使ったキャラの文字色）/ `--ns`（文字の影）
 - 余白: `--s1`〜`--s6` = 4 / 8 / 12 / 16 / 24 / 32px。`--pad-h` 414px（編集パッドの高さ）
 - 角丸・形: `--r-tag` 2px、`--r-chip` 6px、`--r-key` 8px、`--r-sheet` 12px（上2角のみ）、円は●だけ。傾きは `--skew` -12deg の1種類、面取りは `--chamfer-l` 6px・`--chamfer-s` 4px
 - 時間: `--dur-key` 80ms、`--dur-chip` 120ms、`--dur-screen` 160ms、`--dur-sheet` 200ms、`--ease-out` cubic-bezier(.2,.8,.2,1)
-- 使わない: 紫・青紫、グラデーション、すりガラス、`filter`/`backdrop-filter`、常時の明滅。影のぼかしは8px以下
+- 使わない: 紫・青紫、グラデーション、すりガラス、`filter`/`backdrop-filter`、常時の明滅。影のぼかしは8px以下（例外: キャラ選択タイルの板の内側への滲み（inset）だけ、ぼかし12px・広がり6px・不透明度0.7以下。D-016）

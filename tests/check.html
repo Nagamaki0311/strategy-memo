@@ -95,8 +95,8 @@ const neonGrid = (title, pairs, withKimberly) => {
   const grid = document.createElement('div');
   grid.className = 'grid';
   const [ryu, kim] = ['ryu', 'kimberly'].map((id) => CHARACTERS.find((c) => c.id === id));
-  const tiles = pairs.map(([n, lv]) => { const t = charTile(ryu, n); t.expectLv = lv; return t; });
-  if (withKimberly) { const t = charTile(kim, 80); t.expectLv = 10; tiles.push(t); }
+  const tiles = pairs.map(([n, lv]) => { const t = charTile(ryu, n); t.expectLv = lv; t.expectN = n; return t; });
+  if (withKimberly) { const t = charTile(kim, 80); t.expectLv = 10; t.expectN = 80; tiles.push(t); }
   grid.append(...tiles);
   const box = document.createElement('div');
   box.className = 'nbox';
@@ -195,19 +195,22 @@ for (const e of document.querySelectorAll('.row.S, .row.S *')) if (glows(e)) pro
 const glowL = [...document.querySelectorAll('.row:not(.S) .sys-dr, .row:not(.S) .dot.od, .row:not(.S) .ltr.od')];
 if (!glowL.length || !glowL.every(glows)) problems.push('L寸法のDR・ODに発光がない');
 for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .sys-di, .row:not(.S) .sys-dp, .row:not(.S) .sys-mv, .row:not(.S) .dot:not(.od)')) if (glows(e)) problems.push(`L寸法で発光してはいけない要素 ${e.className}`);
-// ネオンの段階の判定
+// ネオンの段階（蛍光グリーン。design-spec-v2.1 1章、D-016）の判定
 {
   const layers = (v) => (v === 'none' ? [] : v.split(/,(?![^(]*\))/).map((x) => x.trim()));
   const nums = (x) => x.replace(/rgba?\([^)]*\)/, '').replace('inset', '').trim().split(/\s+/).map(parseFloat); // [x, y, blur, spread?]
   const alpha = (x) => { const m = x.match(/rgba?\(([^)]*)\)/)[1].split(',').map(Number); return m.length === 4 ? m[3] : 1; };
-  const root = getComputedStyle(document.documentElement);
-  const hexRgb = (v) => v.trim().replace(/^#(..)(..)(..)$/, (_, a, b, c) => `rgb(${parseInt(a, 16)},${parseInt(b, 16)},${parseInt(c, 16)})`);
   const bgBody = getComputedStyle(document.body).backgroundColor;
+  const line = getComputedStyle(document.documentElement).getPropertyValue('--line').trim().replace(/^#(..)(..)(..)$/, (_, a, b, c) => `rgb(${parseInt(a, 16)},${parseInt(b, 16)},${parseInt(c, 16)})`);
   const minRatio = { plate: 99, wm: 99, press: 99 };
   const tiles = [...neonLow, ...neonRep];
   for (const t of tiles) {
-    const lv = t.dataset.lv, en = t.querySelector('.cell-en'), nEl = t.querySelector('.cell-n');
+    const lv = t.dataset.lv, en = t.querySelector('.cell-en');
     if (lv !== String(t.expectLv)) problems.push(`data-lv が期待値と違う ${lv} != ${t.expectLv}`);
+    // 件数は見せない（件数の文字・メーターがない）。読み上げ名（aria-label）が件数を伝える
+    if (t.querySelector('.cell-n, .cell-lv') || t.innerText.trim() !== t.querySelector('.cell-en').textContent) problems.push(`段階${lv}: 英字以外の見える文字・メーターがある`);
+    const label = t.getAttribute('aria-label');
+    if (t.expectN ? !label.endsWith(` ${t.expectN}件`) : label.includes('件')) problems.push(`段階${lv}: aria-label の件数が合わない ${label}`);
     const tcs = getComputedStyle(en);
     const ts = layers(tcs.textShadow);
     if (ts.length > 2) problems.push(`段階${lv}: text-shadow が3層以上`);
@@ -215,43 +218,32 @@ for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .s
       if (nums(x)[2] > 8) problems.push(`段階${lv}: text-shadow のぼかしが8pxを超える ${x}`);
       if (alpha(x) > 0.8) problems.push(`段階${lv}: text-shadow のアルファが0.8を超える ${x}`);
     }
-    if (ts.length > 1 && alpha(ts[1]) > 0.5) problems.push(`段階${lv}: にじみ（第2層）のアルファが0.5を超える ${ts[1]}`);
+    if ((lv === '0') !== (ts.length === 0)) problems.push(`段階${lv}: text-shadow の有無が段階と合わない ${tcs.textShadow}`);
+    // 板の縁から内側への滲み: inset の1層だけ。ぼかし12px以下・広がり6px以下（D-016の緩和。外側の影は不可）。0件は光なし
     const bcs = getComputedStyle(t, '::before');
-    for (const x of layers(bcs.boxShadow)) if (!x.includes('inset') || nums(x)[2] !== 0) problems.push(`段階${lv}: 縁のぼかしが0でない・insetでない ${x}`);
-    if (layers(bcs.boxShadow).length > 1) problems.push(`段階${lv}: ::before の box-shadow が2層以上`);
-    for (const e of [t, en, nEl].filter(Boolean)) if (getComputedStyle(e).filter !== 'none' || getComputedStyle(e).backdropFilter !== 'none') problems.push(`段階${lv}: filter が none でない`);
+    const bl = layers(bcs.boxShadow);
+    if (bl.length > 1) problems.push(`段階${lv}: ::before の box-shadow が2層以上`);
+    for (const x of bl) if (!x.includes('inset') || nums(x)[2] > 12 || nums(x)[3] > 6 || alpha(x) > 0.7) problems.push(`段階${lv}: 板の滲みが上限超え・insetでない ${x}`);
+    if ((lv === '0') !== (bl.length === 0)) problems.push(`段階${lv}: 板の滲みの有無が段階と合わない ${bcs.boxShadow}`);
+    if (lv === '0' && bcs.backgroundColor !== 'rgb(23, 25, 28)') problems.push(`段階0の板が --surface でない ${bcs.backgroundColor}`);
+    for (const e of [t, en]) if (getComputedStyle(e).filter !== 'none' || getComputedStyle(e).backdropFilter !== 'none') problems.push(`段階${lv}: filter が none でない`);
     if (bcs.filter !== 'none' || bcs.backdropFilter !== 'none') problems.push(`段階${lv}: ::before に filter`);
-    for (const e of [en, nEl].filter(Boolean)) {
-      const r = ratio(getComputedStyle(e).color, bcs.backgroundColor);
-      minRatio.plate = Math.min(minRatio.plate, r);
-      if (r < 4.5) problems.push(`段階${lv}: 文字と板の比が4.5未満 ${r.toFixed(2)}`);
-    }
-    // 押下中: 段階0〜2は英字が --lit、3以上は自分の色。板は --line（--tx-lit を含め、表の「押下中」列を再確認する）
-    const press = ratio(Number(lv) <= 2 ? hexRgb(root.getPropertyValue('--lit')) : tcs.color, hexRgb(root.getPropertyValue('--line')));
+    // 文字と板の地の比（滲みの下の最悪値は e2e 21b が画素で実測する）。押下中は板が --line
+    const r = ratio(tcs.color, bcs.backgroundColor);
+    minRatio.plate = Math.min(minRatio.plate, r);
+    if (r < 4.5) problems.push(`段階${lv}: 文字と板の比が4.5未満 ${r.toFixed(2)}`);
+    const press = ratio(tcs.color, line);
     minRatio.press = Math.min(minRatio.press, press);
     if (press < 4.5) problems.push(`段階${lv}: 押下中の文字と板の比が4.5未満 ${press.toFixed(2)}`);
     if (en.scrollWidth > en.clientWidth) problems.push(`段階${lv}: 英字がタイルに収まらない ${en.textContent}`);
   }
-  // レベルメーター（色以外の手がかり）: 目盛り10個のうち段階の数だけ点灯。点灯は英字と同じ色、消灯は別の色。発光なし。タイル内で件数の文字と重ならない
-  for (const t of tiles) {
-    const lv = Number(t.dataset.lv), ticks = [...t.querySelectorAll('.cell-lv i')], on = ticks.filter((i) => i.classList.contains('on'));
-    if (ticks.length !== 10) problems.push(`段階${lv}: メーターの目盛りが10個でない ${ticks.length}`);
-    if (on.length !== lv || ticks.slice(0, lv).some((i) => !i.classList.contains('on'))) problems.push(`段階${lv}: 点灯の目盛りが段階の数・先頭からでない`);
-    const bg = (i) => getComputedStyle(i).backgroundColor;
-    if (on.some((i) => bg(i) !== getComputedStyle(t.querySelector('.cell-en')).color)) problems.push(`段階${lv}: 点灯の目盛りが英字の色でない`);
-    if (on.length && on.length < 10 && bg(ticks[lv]) === bg(on[0])) problems.push(`段階${lv}: 消灯の目盛りが点灯と同じ色`);
-    if (ticks.some((i) => getComputedStyle(i).boxShadow !== 'none' || getComputedStyle(i).filter !== 'none')) problems.push(`段階${lv}: 目盛りに影・filter`);
-    const m = t.querySelector('.cell-lv').getBoundingClientRect(), tr = t.getBoundingClientRect(), n = t.querySelector('.cell-n')?.getBoundingClientRect();
-    if (m.bottom > tr.bottom - 2 || m.height < 3 || ticks.some((i) => i.getBoundingClientRect().width < 3)) problems.push(`段階${lv}: メーターの位置・大きさが不正`);
-    if (n && m.top < n.bottom) problems.push(`段階${lv}: メーターが件数と重なる`);
-  }
-  // 0件でも2行目の高さを確保し、英字の位置が全タイルで揃う
-  const tops = new Set(tiles.map((t) => Math.round((t.querySelector('.cell-en').getBoundingClientRect().top - t.getBoundingClientRect().top) * 10)));
-  if (tops.size !== 1) problems.push(`英字の縦位置がタイルでそろっていない ${[...tops]}`);
-  // 隣り合う段階で見た目が違う（英字の color か text-shadow）。0→1は影の有無、以降は色か影
-  const sig = (t) => { const cs = getComputedStyle(t.querySelector('.cell-en')); return `${cs.color}|${cs.textShadow}`; };
+  // 隣り合う段階で板か文字が違う（板の地・滲み・文字色・文字の影のいずれか）。0→1は文字色（muted → 点灯色）と板が変わる
+  const sig = (t) => { const cs = getComputedStyle(t.querySelector('.cell-en')), b = getComputedStyle(t, '::before'); return `${cs.color}|${cs.textShadow}|${b.backgroundColor}|${b.boxShadow}`; };
   for (let i = 1; i < neonLow.length; i++) if (sig(neonLow[i]) === sig(neonLow[i - 1])) problems.push(`段階${i - 1}と${i}の見た目が同じ`);
   if (new Set(neonLow.map(sig)).size !== 11) problems.push('11段階の見た目が重複している');
+  // 板の明るさが段階で単調に増える（段階を逆にしても通ってしまわないように）
+  const plateL = (t) => lum(getComputedStyle(t, '::before').backgroundColor);
+  for (let i = 1; i < neonLow.length; i++) if (plateL(neonLow[i]) <= plateL(neonLow[i - 1])) problems.push(`段階${i}の板が段階${i - 1}より明るくない`);
   // ワードマーク: 0件はmuted・影なし。全段階で期待値、影の上限、bg との比
   for (const wm of document.querySelectorAll('.wmrow .wm')) {
     const lv = wm.dataset.lv, cs = getComputedStyle(wm);
