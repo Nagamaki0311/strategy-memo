@@ -1231,7 +1231,7 @@ for (const width of [360, 430]) {
     await pop.waitFor();
     await check(`${tag} 14 ポップオーバー: 対応行・強度の行（OD付き）・挿入・削除、選択中チップに枠`, async () => {
       assert.match(await pop.locator('.pop-note').innerText(), /＝ 236（波動）/);
-      assert.deepEqual(await pop.locator('.pop-row').first().locator('button').allInnerTexts(), ['弱', '中', '強', 'OD']);
+      assert.deepEqual(await pop.locator('.pop-row').first().locator('button').allInnerTexts(), ['弱', '中', '強', '', 'OD']); // 空は灰色の●（強度なし。文字なし）
       assert.equal(await opt('強').getAttribute('aria-pressed'), 'true');
       assert.equal(await opt('この前に挿入').isVisible(), true);
       assert.equal(await opt('削除').isVisible(), true);
@@ -1360,10 +1360,10 @@ for (const width of [360, 430]) {
   {
     const page = await newPage(width, seedState());
     await gotoHash(page, '#/c/ryu/new?s=s1');
-    await check(`${tag} 15 パッドの上端は y>=372、高さは368、横スクロールなし`, async () => {
+    await check(`${tag} 15 パッドの上端は y>=326、高さは414、横スクロールなし`, async () => {
       const b = await page.locator('.pad').boundingBox();
-      assert.ok(b.y >= 372, JSON.stringify(b));
-      assert.equal(b.height, 368);
+      assert.ok(b.y >= 326, JSON.stringify(b));
+      assert.equal(b.height, 414);
       assert.ok(await noHScroll(page));
       assert.equal(await page.evaluate(() => { const p = document.querySelector('.pad'); return p.scrollWidth <= p.clientWidth; }), true);
       assert.equal(await page.evaluate(() => document.querySelector('.screen.edit').scrollHeight <= innerHeight), true); // 画面自体はスクロールしない
@@ -1447,7 +1447,7 @@ for (const width of [360, 430]) {
       });
       assert.equal(r.padPos, 'static');
       assert.ok(Math.abs(r.padTop - (r.cmdBottom + await page.evaluate(() => scrollY))) < 2, JSON.stringify(r));
-      assert.ok(r.fieldsTop >= r.padTop + 368 - 1, JSON.stringify(r));
+      assert.ok(r.fieldsTop >= r.padTop + 414 - 1, JSON.stringify(r));
       await page.setViewportSize({ width, height: 740 });
     });
     await check(`${tag} 15 ページエラーなし`, async () => assert.deepEqual(page.errors, []));
@@ -1507,7 +1507,8 @@ for (const width of [360, 430]) {
       assert.equal(await page.locator('.d-title').innerText(), '基本コンボ');
       assert.deepEqual(await page.locator('.bottombar .btn').allInnerTexts(), ['その他…', '複製', '編集']);
       assert.equal(await page.locator('.bottombar .primary').innerText(), '編集');
-      assert.equal(await page.getByRole('button', { name: '凡例' }).count(), 1);
+      assert.equal(await page.locator('button[aria-label="凡例を開く"]').count(), 1);
+      assert.equal(await page.getByRole('button', { name: '凡例', exact: true }).count(), 0); // 文字の［凡例］はない（ヘルプマークに置き換え）
       assert.equal(await page.getByRole('button', { name: 'リュウの一覧に戻る' }).count(), 1);
       assert.ok(await noHScroll(page));
       const chipH = await page.$$eval('.d-cmd .chip', (els) => Math.max(...els.map((e) => e.getBoundingClientRect().height)));
@@ -1521,7 +1522,7 @@ for (const width of [360, 430]) {
     });
     await shot(page, '31-detail-popover', width);
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await page.waitForSelector('.sheet.tall');
     await check(`${tag} 16 凡例: 高さ90dvhのボトムシート、下端に固定の［閉じる］、全グループがある`, async () => {
       await page.waitForTimeout(300);
@@ -1544,7 +1545,7 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet', { state: 'detached' });
       assert.equal(await hash(page), '#/c/ryu/r/c1');
     });
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await page.getByRole('button', { name: '閉じる' }).click();
     await check(`${tag} 16 凡例の［閉じる］で閉じ、フォーカスは［凡例］へ戻る`, async () => {
       await page.waitForSelector('.sheet', { state: 'detached' });
@@ -1622,9 +1623,10 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.cmd .row');
       assert.equal(await hash(page), '#/c/ryu/r/c3/edit');
       assert.equal(await page.locator('.cmd .tag').count(), 1);
-      assert.equal(await page.getByRole('button', { name: '凡例' }).count(), 1);
+      assert.equal(await page.locator('button[aria-label="凡例を開く"]').count(), 1);
+      assert.equal(await page.getByRole('button', { name: '凡例', exact: true }).count(), 0);
     });
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await check(`${tag} 16 編集画面からも凡例を開ける`, async () => {
       await page.waitForSelector('.sheet.tall');
       await page.keyboard.press('Escape');
@@ -1801,13 +1803,13 @@ for (const width of [360, 430]) {
       assert.deepEqual(r.slice(0, 6), ['9px', '1px', '4px', 'none', 'none', 'none']);
     });
     await gotoHash(page, '#/c/ryu/r/c9');
-    await page.getByRole('button', { name: '凡例' }).click();
+    await page.locator('button[aria-label="凡例を開く"]').click();
     await check(`${tag} 17a 凡例: システム技は種別ごとの行、L寸法の見た目、ODと注記の説明`, async () => {
       await page.waitForSelector('.sheet.tall');
       const t = await page.locator('.leg').innerText();
       for (const w of ['緑の枠と»', '角を切った銀の板', '紺の二重枠', '白い枠', '橙の●2つ（重ねて表示）', '斜めの小さな板']) assert.ok(t.includes(w), w);
       assert.equal(await page.locator('.leg .sys-dr').count(), 2);
-      assert.equal(await page.locator('.leg .row:not(.S) .sys').count(), 8); // CDR・生ラッシュ・DI・DP・Dリバ・SA1〜3
+      assert.equal(await page.locator('.leg .row:not(.S) .sys').count(), 10); // CDR・生ラッシュ・DI・DP・Dリバ・SA1〜3、前ステ・バクステ（D-013）
       assert.ok(await noHScroll(page));
       await page.keyboard.press('Escape');
       await page.waitForSelector('.sheet', { state: 'detached' });
@@ -1905,12 +1907,12 @@ for (const width of [360, 430]) {
       assert.equal(await page.locator('.pad-dock svg').count(), 1);
     });
     await page.locator('.pad-dock button').click();
-    await check(`${tag} 17b 格納バーの［▴ 技を入力］: パッドが戻り、フォーカスは section.pad。寸法は368・y>=372のまま`, async () => {
+    await check(`${tag} 17b 格納バーの［▴ 技を入力］: パッドが戻り、フォーカスは section.pad。寸法は414・y>=326のまま`, async () => {
       assert.equal(await padVisible(page), true);
       assert.equal(await dockVisible(page), false);
       assert.equal(await active(page), 'section#pad');
       const b = await page.locator('.pad').boundingBox();
-      assert.ok(b.y >= 372 && b.height === 368, JSON.stringify(b));
+      assert.ok(b.y >= 326 && b.height === 414, JSON.stringify(b));
       assert.equal(await page.locator('.cmd .pending').count(), 1);
     });
     await page.getByRole('button', { name: 'パッドを閉じて項目の入力へ' }).click();
@@ -2257,7 +2259,7 @@ for (const width of [360, 430]) {
         await numpadOnly('.preview', '一覧');
         await gotoHash(page, '#/c/ryu/r/c1');
         await numpadOnly('.d-cmd', '詳細');
-        await page.getByRole('button', { name: '凡例' }).click();
+        await page.locator('button[aria-label="凡例を開く"]').click();
         await numpadOnly('.sheet .leg .row', '凡例');
         await page.keyboard.press('Escape');
         await gone(page);
@@ -2502,6 +2504,305 @@ for (const width of [360, 430]) {
       });
       await check(`${tag} 18g ページエラーなし`, async () => assert.deepEqual(page.errors, []));
       await page.context().close();
+    }
+  }
+
+  // 20. T-018（D-013）: パッドの4段・前ステ/バクステ・強度なし・ヘルプマーク・データ版2
+  {
+    const aria = (page, name) => page.getByRole('button', { name, exact: true });
+    const chipsOf = (page) => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')));
+    const draftTokens = async (page) => JSON.parse(await storedRaw(page, 'sf6memo.drafts'))['new:s1'].tokens;
+    const rowDom = (page, sel = '.cmd .row') => page.$eval(sel, (r) => {
+      const c = r.cloneNode(true);
+      c.querySelectorAll('.cursor, .pending, .to-end, .cmd-hint').forEach((x) => x.remove());
+      return c.outerHTML;
+    });
+
+    // 20a パッドの4段目（前ステ・バクステ、強度なし）と、パッドを開いたときの余白
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      const r = await page.evaluate(() => {
+        const box = (e) => { const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height, b: b.bottom, r: b.right }; };
+        const keys = (sel) => [...document.querySelectorAll(sel)];
+        return {
+          pad: box(document.querySelector('.pad')), dirs: box(document.querySelector('.dirs')), dk: keys('.dkey').map(box),
+          steps: keys('.steps .key').map((e) => ({ ...box(e), label: e.getAttribute('aria-label'), text: e.textContent.trim(), band: getComputedStyle(e, '::before').borderTopStyle, bandH: getComputedStyle(e, '::before').height })),
+          nk: keys('.nkey').map((e) => ({ ...box(e), label: e.getAttribute('aria-label'), text: e.textContent.trim(), dot: e.querySelector('.dot').getBoundingClientRect().width, col: getComputedStyle(e.querySelector('.dot')).color, tcol: getComputedStyle(e.querySelector('.nkey-t')).color })),
+          btns: keys('.btns .key').length, lower: box(document.querySelector('.lower')),
+          cmdBottom: document.querySelector('.cmd').getBoundingClientRect().bottom, secTop: document.querySelector('#f-sec').getBoundingClientRect().top,
+        };
+      });
+      await check(`${tag} 20a 方向パッドの真下に［バクステ｜前ステ］（aria-labelはバックステップ・前ステップ、44以上、下端の帯は破線）`, async () => {
+        assert.deepEqual(r.steps.map((s) => s.label), ['バックステップ', '前ステップ']);
+        assert.deepEqual(r.steps.map((s) => s.text), ['バクステ', '前ステ']);
+        for (const s of r.steps) {
+          assert.ok(s.w >= 44 && s.h >= 44, JSON.stringify(s));
+          assert.ok(s.y >= r.dk.at(-1).b && Math.abs(s.y - r.dk.at(-1).b - 6) < 1.5, JSON.stringify(s)); // 方向キーの真下（間隔6）
+          assert.equal(`${s.band} ${s.bandH}`, 'dashed 0px');
+        }
+        assert.ok(Math.abs(r.steps[0].x - r.dirs.x) < 1 && Math.abs(r.steps[1].r - r.dirs.r) < 1);
+        if (width === 360) assert.ok(r.steps.every((s) => Math.abs(s.w - 68) < 1 && s.h === 46), JSON.stringify(r.steps));
+      });
+      await check(`${tag} 20a 右の4段目に［●P 強度なし｜●K 強度なし］（灰色の●30px＋「強度なし」、44以上）`, async () => {
+        assert.deepEqual(r.nk.map((s) => s.label), ['P 強度なし', 'K 強度なし']);
+        for (const s of r.nk) {
+          assert.equal(s.text, '強度なし');
+          assert.ok(s.w >= 44 && s.h >= 44 && s.dot === 30, JSON.stringify(s));
+          assert.equal(s.col, 'rgb(133, 133, 133)');
+          assert.equal(s.tcol, 'rgb(170, 166, 157)');
+        }
+        if (width === 360) assert.ok(r.nk.every((s) => Math.abs(s.w - 96) < 1 && s.h === 46), JSON.stringify(r.nk));
+        assert.ok(Math.abs(r.nk[0].y - r.steps[0].y) < 1.5, '4段目は［バクステ｜前ステ］と同じ段');
+        assert.ok(r.nk[0].y > r.btns && r.nk[1].r <= r.pad.r, JSON.stringify(r.nk));
+        assert.equal(r.lower.h, 202);
+      });
+      await check(`${tag} 20a パッドを開いたとき、コマンド列の下端と #f-sec の上端がパッドの上端より上にある`, async () => {
+        assert.ok(r.cmdBottom <= r.pad.y && r.secTop <= r.pad.y, JSON.stringify([r.cmdBottom, r.secTop, r.pad.y]));
+      });
+      await check(`${tag} 20a トーストはパッドの上に出る（--pad-h を使う）`, async () => {
+        await aria(page, 'OD P').click(); // モーションなしのOD: 通知のトーストが出る
+        await page.waitForSelector('#toast .toast');
+        const pos = await page.evaluate(() => [document.querySelector('#toast .toast').getBoundingClientRect().bottom, document.querySelector('.pad').getBoundingClientRect().top]);
+        assert.ok(pos[0] <= pos[1] - 8, JSON.stringify(pos));
+      });
+      await check(`${tag} 20a ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20b 前ステ・バクステ: 1タップ、▶でつながる、CHが付く、保存→再読み込みで同じDOM、書き出し→取り込みで一致
+    {
+      const page = await newPage(width, seedState());
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await aria(page, '前ステップ').click();
+      await check(`${tag} 20b 前ステが1タップで入る（chip sys sys-mv、aria-label「前ステ」、破線の枠）`, async () => {
+        assert.deepEqual(await chipsOf(page), ['前ステ']);
+        assert.equal(await page.locator('.cmd .chip').getAttribute('class'), 'chip sys sys-mv');
+        assert.equal(await page.locator('.cmd .chip').evaluate((e) => getComputedStyle(e).borderTopStyle), 'dashed');
+        assert.deepEqual(await draftTokens(page), [{ type: 'move', id: 'FWD_STEP' }]);
+        await page.waitForFunction(() => document.getElementById('live').textContent === '追加: 前ステ');
+      });
+      await aria(page, 'バックステップ').click();
+      await check(`${tag} 20b バクステも1タップで入り、前ステと▶でつながる`, async () => {
+        assert.deepEqual(await chipsOf(page), ['前ステ', 'バクステ']);
+        assert.equal(await page.locator('.cmd .conn').count(), 1);
+      });
+      await aria(page, 'カウンターヒット').click();
+      await aria(page, '前ステップ').click();
+      await aria(page, '弱P').click();
+      await check(`${tag} 20b CHが前ステに付く（注記は直後の行動のタグ）。弱Pとも▶でつながる`, async () => {
+        assert.deepEqual(await chipsOf(page), ['前ステ', 'バクステ', '前ステ', '立ち弱P']);
+        assert.equal(await page.locator('.cmd .grp:has(.chip[aria-label="前ステ"]) .tag').count(), 1);
+        assert.equal(await page.locator('.cmd .grp').nth(2).locator('.tag, .chip').evaluateAll((e) => e.map((x) => x.getAttribute('aria-label'))).then((a) => a.join()), 'CH,前ステ');
+        assert.equal(await page.locator('.cmd .conn').count(), 3);
+        assert.deepEqual(await draftTokens(page), [{ type: 'move', id: 'FWD_STEP' }, { type: 'move', id: 'BACK_STEP' }, { type: 'note', id: 'CH' }, { type: 'move', id: 'FWD_STEP' }, { type: 'normal', stance: 'stand', key: 'P', str: 'L' }]);
+      });
+      await shot(page, '40-edit-steps', width);
+      const typedDom = await rowDom(page);
+      await page.getByLabel('タイトル（任意）').fill('ステップ');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await page.waitForFunction(() => /^#\/c\/ryu\/r\/[0-9a-f]{32}$/.test(location.hash));
+      const original = await stored(page);
+      await page.reload();
+      await check(`${tag} 20b 保存→再読み込みで、詳細のコマンド列が入力直後と同じDOM。保存データは版2`, async () => {
+        await page.waitForSelector('.d-cmd .row');
+        assert.equal(await page.$eval('.d-cmd .row', (r) => r.outerHTML), typedDom);
+        assert.equal(original.schemaVersion, 2);
+        assert.equal(original.combos.find((c) => c.title === 'ステップ').tokens.length, 5);
+      });
+      await shot(page, '41-detail-steps', width);
+      await gotoHash(page, '#/settings');
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'JSONを書き出す' }).click()]);
+      const text = readFileSync(await dl.path(), 'utf8');
+      await page.evaluate(() => localStorage.clear());
+      await page.reload();
+      await page.locator('input[type=file]').setInputFiles({ name: 'in.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+      await page.waitForSelector('.sheet');
+      await page.getByRole('button', { name: '取り込む', exact: true }).click();
+      await page.waitForSelector('.sheet', { state: 'detached' });
+      await check(`${tag} 20b 書き出し（版2）→全削除→取り込みで、前ステ・バクステを含む記録が一致する`, async () => {
+        assert.equal(JSON.parse(text).schemaVersion, 2);
+        const now = await stored(page);
+        assert.deepEqual(now.combos, original.combos);
+        assert.deepEqual(now.sections, original.sections);
+      });
+      await check(`${tag} 20b ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20c 強度なし: 入力・aria-label・バッジなし・ポップオーバー
+    {
+      const page = await newPage(width, seedState(), {}, () => localStorage.setItem('sf6memo.settings', JSON.stringify({ strengthLabels: true })));
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await aria(page, '下').click();
+      await aria(page, 'P 強度なし').click();
+      await aria(page, '波動 236').click();
+      await aria(page, 'K 強度なし').click();
+      await aria(page, '弱P').click(); // 補助文字がオンであることの対照（弱Pにはバッジが出る）
+      await check(`${tag} 20c ↓→●P（強度なし）は {normal, crouch, P, N}、236→●K（強度なし）は {special, 236, K, N}。aria-labelは「屈P」「波動 ↓↘→ K」`, async () => {
+        assert.deepEqual(await chipsOf(page), ['屈P', '波動 ↓↘→ K', '立ち弱P']);
+        const t = await draftTokens(page);
+        assert.deepEqual(t.slice(0, 2), [{ type: 'normal', stance: 'crouch', key: 'P', str: 'N' }, { type: 'special', motion: '236', key: 'K', str: 'N' }]);
+      });
+      await check(`${tag} 20c 補助文字オンでも強度なしの●にバッジが出ない（弱Pには出る）。●は灰色`, async () => {
+        assert.equal(await page.locator('.cmd .str-labels').count(), 1);
+        assert.equal(await page.locator('.cmd .dot.str-n').count(), 2);
+        assert.equal(await page.locator('.cmd .dot.str-n .badge').count(), 0);
+        assert.equal(await page.locator('.cmd .dot.str-n.has-str').count(), 0);
+        assert.equal(await page.locator('.cmd .dot.str-l .badge').count(), 1);
+        assert.deepEqual(await page.$$eval('.cmd .dot.str-n', (e) => e.map((x) => getComputedStyle(x).color)), ['rgb(133, 133, 133)', 'rgb(133, 133, 133)']);
+      });
+      await page.locator('.cmd .chip').first().click();
+      await check(`${tag} 20c ポップオーバー（通常技）: 強度は［弱］［中］［強］［●（強度なし）］。現在値は強度なし。各44以上`, async () => {
+        const o = await page.locator('.popover .pop-row').first().locator('.opt').evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); return [e.getAttribute('aria-label'), e.getAttribute('aria-pressed'), b.width, b.height]; }));
+        assert.deepEqual(o.map((x) => x.slice(0, 2)), [['弱', 'false'], ['中', 'false'], ['強', 'false'], ['強度なし', 'true']]);
+        assert.ok(o.every((x) => x[2] >= 44 && x[3] >= 44), JSON.stringify(o));
+        assert.equal(await page.locator('.popover .opt[aria-label="強度なし"] .dot.str-n').count(), 1);
+        assert.equal(await page.locator('.popover .opt[aria-label="強度なし"]').innerText(), '');
+      });
+      await shot(page, '42-popover-normal', width);
+      await page.locator('.popover .opt[aria-label="強"]').click();
+      await check(`${tag} 20c ポップオーバーで強度なしを強に変更できる`, async () => {
+        await page.waitForSelector('.popover', { state: 'detached' });
+        assert.deepEqual(await chipsOf(page), ['屈強P', '波動 ↓↘→ K', '立ち弱P']);
+      });
+      await page.locator('.cmd .chip').nth(1).click();
+      await check(`${tag} 20c ポップオーバー（必殺技）は5択［弱］［中］［強］［強度なし］［OD］。.optの左右paddingは4px、各44以上`, async () => {
+        const o = await page.locator('.popover .pop-row').first().locator('.opt').evaluateAll((els) => els.map((e) => { const b = e.getBoundingClientRect(); const cs = getComputedStyle(e); return [e.getAttribute('aria-label'), b.width, b.height, cs.paddingLeft, cs.paddingRight]; }));
+        assert.deepEqual(o.map((x) => x[0]), ['弱', '中', '強', '強度なし', 'OD']);
+        assert.ok(o.every((x) => x[1] >= 44 && x[2] >= 44 && x[3] === '4px' && x[4] === '4px'), JSON.stringify(o));
+        assert.ok(await noHScroll(page));
+      });
+      await shot(page, '43-popover-special', width);
+      await page.locator('.popover .opt[aria-label="強度なし"]').click();
+      await page.locator('.popover').waitFor({ state: 'detached' });
+      await page.locator('.cmd .chip').nth(1).click();
+      await page.locator('.popover .opt[aria-label="OD"]').click();
+      await check(`${tag} 20c 強度なしの必殺技をODに変更できる（強度なしへも戻せる）`, async () => {
+        await page.locator('.popover').waitFor({ state: 'detached' });
+        assert.deepEqual(await chipsOf(page), ['屈強P', 'OD 波動 ↓↘→ K', '立ち弱P']);
+        assert.deepEqual((await draftTokens(page))[1], { type: 'special', motion: '236', key: 'K', str: 'OD' });
+      });
+      await check(`${tag} 20c ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20d ヘルプマーク（詳細・編集の上部バー、設定の［凡例を見る］）と凡例の追加行
+    {
+      const page = await newPage(width, seedState());
+      for (const [h, name] of [['#/c/ryu/r/c1', '詳細'], ['#/c/ryu/r/c1/edit', '編集']]) {
+        await gotoHash(page, h);
+        await check(`${tag} 20d ${name}の上部バー: 文字の［凡例］がなく、44×44以上の button[aria-label="凡例を開く"]（記号24px、muted）がある`, async () => {
+          assert.equal(await page.locator('.topbar').getByText('凡例', { exact: true }).count(), 0);
+          const b = page.locator('.topbar button[aria-label="凡例を開く"]');
+          assert.equal(await b.count(), 1);
+          const r = await b.evaluate((e) => { const x = e.getBoundingClientRect(); const s = e.querySelector('svg').getBoundingClientRect(); return [x.width, x.height, s.width, s.height, getComputedStyle(e).color, e.querySelector('use').getAttribute('href'), e.className]; });
+          assert.deepEqual(r, [44, 44, 24, 24, 'rgb(170, 166, 157)', '#i-help', 'icon-btn help']);
+          assert.ok(await noHScroll(page));
+        });
+        await shot(page, name === '詳細' ? '44-help-detail' : '45-help-edit', width);
+      }
+      await page.locator('button[aria-label="凡例を開く"]').click();
+      await page.waitForSelector('.sheet.tall');
+      await check(`${tag} 20d 凡例に灰色の●P（強度の指定なし、書き出し「P」）と「移動」群（前ステ・バクステ、破線の枠）がある`, async () => {
+        await page.waitForTimeout(300);
+        const t = await page.locator('.leg').innerText();
+        for (const w of ['移動', '前ステップ', 'バックステップ', '強度の指定なし']) assert.ok(t.includes(w), w);
+        assert.equal(await page.locator('.leg .dot.str-n').count(), 1);
+        assert.equal(await page.locator('.leg .dot.str-n').evaluate((e) => getComputedStyle(e).color), 'rgb(133, 133, 133)');
+        assert.deepEqual(await page.locator('.leg .sys-mv').evaluateAll((e) => e.map((x) => [x.getAttribute('aria-label'), getComputedStyle(x).borderTopStyle])), [['前ステ', 'dashed'], ['バクステ', 'dashed']]);
+        const row = (label) => page.locator('.leg tr', { has: page.locator(`[aria-label="${label}"]`) }).locator('.leg-out').innerText();
+        assert.equal(await row('前ステ'), '前ステ');
+        assert.equal(await row('バクステ'), 'バクステ');
+        assert.equal(await page.locator('.leg tr', { has: page.locator('.dot.str-n') }).locator('.leg-out').innerText(), 'P');
+        assert.equal(await page.locator('.leg tbody').filter({ hasText: '移動' }).locator('.leg-g').innerText(), '移動');
+        assert.ok(await noHScroll(page));
+      });
+      await shot(page, '46-legend-gray-move', width);
+      await page.locator('.sheet').getByRole('button', { name: '閉じる' }).click();
+      await check(`${tag} 20d 凡例を閉じるとフォーカスがヘルプマークに戻る（編集画面）`, async () => {
+        await page.waitForSelector('.sheet', { state: 'detached' });
+        assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '凡例を開く');
+      });
+      await gotoHash(page, '#/settings');
+      await check(`${tag} 20d 設定の［凡例を見る］は先頭に i-help（20px）が付き、押すと凡例が開く`, async () => {
+        const b = page.getByRole('button', { name: '凡例を見る' });
+        assert.deepEqual(await b.evaluate((e) => [e.firstElementChild.querySelector('use').getAttribute('href'), e.firstElementChild.getBoundingClientRect().width, e.textContent]), ['#i-help', 20, '凡例を見る']);
+        await b.click();
+        assert.equal(await page.locator('.sheet h2').innerText(), '凡例');
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('.sheet', { state: 'detached' });
+        assert.equal(await page.evaluate(() => document.activeElement?.dataset.fk), 'legend');
+      });
+      await shot(page, '47-settings', width);
+      await check(`${tag} 20d ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+      await page.context().close();
+    }
+
+    // 20e データの版: 版1はそのまま読めて、保存後は版2。版3は読み込みエラー（読み取り専用、既存値を上書きしない）
+    {
+      const seed = seedState();
+      const v1 = { ...exportDoc(seed), schemaVersion: 1 };
+      const page = await newPage(width, null);
+      await page.evaluate((d) => localStorage.setItem('sf6memo.data', JSON.stringify(d)), v1);
+      await page.reload();
+      await gotoHash(page, '#/c/ryu');
+      await check(`${tag} 20e 版1のデータで起動でき、エラー帯なしで一覧が出る`, async () => {
+        assert.equal(await page.locator('.banners').count(), 0);
+        assert.equal(await page.locator('.item').count(), 3);
+        assert.equal((await stored(page)).schemaVersion, 1); // 読んだだけでは書き換えない
+      });
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      await page.getByLabel('タイトル（任意）').fill('版1から編集');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await page.waitForFunction(() => location.hash === '#/c/ryu/r/c1');
+      await check(`${tag} 20e 編集・保存の後は版2になり、記録は失われない`, async () => {
+        const d = await stored(page);
+        assert.equal(d.schemaVersion, 2);
+        assert.equal(d.combos.length, 3);
+        assert.equal(d.combos.find((c) => c.id === 'c1').title, '版1から編集');
+        assert.deepEqual(d.combos.find((c) => c.id === 'c2'), seed.combos[1]);
+      });
+      await page.context().close();
+
+      const v3 = JSON.stringify({ ...exportDoc(seed), schemaVersion: 3 });
+      const p3 = await newPage(width, null);
+      await p3.evaluate((t) => localStorage.setItem('sf6memo.data', t), v3);
+      await p3.reload();
+      await check(`${tag} 20e 版3は読み込みエラー（理由を表示、読み取り専用、保存データを上書きしない）`, async () => {
+        const t = await p3.locator('.banners').innerText();
+        assert.match(t, /保存データを読み込めませんでした/);
+        assert.match(t, /新しい版\(schemaVersion 3\)/);
+        assert.match(t, /読み取り専用/);
+        await gotoHash(p3, '#/c/ryu');
+        assert.equal(await p3.locator('.bottombar').count(), 0); // 記録・セクションの追加はできない
+        assert.equal(await storedRaw(p3), v3);
+        assert.match(await p3.locator('.empty').innerText(), /記録はありません/);
+      });
+      await check(`${tag} 20e ページエラーなし`, async () => assert.deepEqual(p3.errors, []));
+      await p3.context().close();
+
+      // 取り込み: 版1のファイルは受け付け（確認シートが開く）、版3は拒否（データ不変）
+      const imp = await newPage(width, seedState());
+      await gotoHash(imp, '#/settings');
+      const before = await storedRaw(imp);
+      await imp.locator('input[type=file]').setInputFiles({ name: 'v3.json', mimeType: 'application/json', buffer: Buffer.from(v3) });
+      await check(`${tag} 20e 取り込み: 版3のファイルは「新しい版」で拒否され、データは変わらない`, async () => {
+        await imp.waitForFunction(() => /新しい版\(schemaVersion 3\)/.test(document.querySelector('.set-err')?.textContent ?? ''));
+        assert.equal(await storedRaw(imp), before);
+      });
+      const extra = { ...exportDoc({ sections: [sec('x1', 'ken', '通常', 0)], combos: [] }), schemaVersion: 1 };
+      await imp.locator('input[type=file]').setInputFiles({ name: 'v1.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(extra)) });
+      await imp.waitForSelector('.sheet');
+      await check(`${tag} 20e 取り込み: 版1のファイルは受け付けられ、取り込み後の保存データは版2`, async () => {
+        assert.match(await imp.locator('.sheet').innerText(), /追加 1件/);
+        await imp.getByRole('button', { name: '取り込む', exact: true }).click();
+        await imp.waitForSelector('.sheet', { state: 'detached' });
+        const d = await stored(imp);
+        assert.equal(d.schemaVersion, 2);
+        assert.equal(d.sections.some((s) => s.id === 'x1'), true);
+      });
+      await imp.context().close();
     }
   }
 

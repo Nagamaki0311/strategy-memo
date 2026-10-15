@@ -38,10 +38,13 @@ export const CHARACTERS = [
 // ===== SECTION: トークン定義 =====
 // トークンの種別は `type` で持つ（D-004）。dir は数値（1,3,4,6,7,8,9）、motion は文字列。
 export const APP_ID = 'sf6-strategy-memo';
-export const SCHEMA_VERSION = 1;
+// D-013: 版2 = move・str:'N' を足した版。読み込みは版1と2（版1は変換なしでそのまま有効）、書き出しは常に最新版。
+export const SCHEMA_VERSION = 2;
 export const PRESETS = ['236', '214', '623', '22', '63214', '[4]6', '[2]8', '360'];
 export const SYSTEM_IDS = ['RAW_DR', 'CDR', 'DI', 'PARRY', 'REVERSAL'];
 export const NOTE_IDS = ['CH', 'PC'];
+export const MOVE_IDS = ['FWD_STEP', 'BACK_STEP'];
+export const MOVE_NAMES = { FWD_STEP: '前ステ', BACK_STEP: 'バクステ' };
 const STANCES = ['stand', 'crouch', 'jump'];
 const DIRS = [1, 3, 4, 6, 7, 8, 9]; // 2（しゃがみ）と5（ニュートラル）はdirに持たない
 const KEYS = ['P', 'K'];
@@ -59,11 +62,12 @@ export function isValidToken(t) {
   if (!isObj(t)) return false;
   const btn = (strs) => KEYS.includes(t.key) && strs.includes(t.str);
   switch (t.type) {
-    case 'normal': return onlyKeys(t, ['type', 'stance', 'dir', 'key', 'str']) && STANCES.includes(t.stance) && (t.dir === undefined || DIRS.includes(t.dir)) && btn(['L', 'M', 'H']);
-    case 'special': return onlyKeys(t, ['type', 'motion', 'key', 'str', 'stance']) && isMotion(t.motion) && btn(['L', 'M', 'H', 'OD']) && (t.stance === undefined || t.stance === 'jump');
+    case 'normal': return onlyKeys(t, ['type', 'stance', 'dir', 'key', 'str']) && STANCES.includes(t.stance) && (t.dir === undefined || DIRS.includes(t.dir)) && btn(['L', 'M', 'H', 'N']);
+    case 'special': return onlyKeys(t, ['type', 'motion', 'key', 'str', 'stance']) && isMotion(t.motion) && btn(['L', 'M', 'H', 'N', 'OD']) && (t.stance === undefined || t.stance === 'jump');
     case 'system': return onlyKeys(t, ['type', 'id']) && SYSTEM_IDS.includes(t.id);
     case 'sa': return onlyKeys(t, ['type', 'level']) && (t.level === 1 || t.level === 2 || t.level === 3);
     case 'note': return onlyKeys(t, ['type', 'id']) && NOTE_IDS.includes(t.id);
+    case 'move': return onlyKeys(t, ['type', 'id']) && MOVE_IDS.includes(t.id);
     default: return false;
   }
 }
@@ -72,7 +76,7 @@ export function isValidToken(t) {
 // state: { tokens, cursor, pending: { stance, dirs }, notice }
 // pending.dirs は押した順の入力（プリセット1個、または方向の数字）。motion は dirs.join('') で得る。
 // action: { type: 'stance', value } | { type: 'preset', value } | { type: 'dir', value: 1-9 }
-//   | { type: 'button', key: 'P'|'K', str: 'L'|'M'|'H'|'OD' } | { type: 'system', id } | { type: 'sa', level }
+//   | { type: 'button', key: 'P'|'K', str: 'L'|'M'|'H'|'N'|'OD' } | { type: 'system', id } | { type: 'sa', level } | { type: 'move', id }
 //   | { type: 'note', id } | { type: 'recent', token } | { type: 'undo' } | { type: 'cursor', index }
 //   | { type: 'strength', index, value } | { type: 'remove', index }   （列のチップの強度変更・削除。index はトークン列の位置）
 export const NOTICE_NEED_MOTION = '先にモーションを選んでください';
@@ -97,7 +101,7 @@ function insertAt(state, token) {
 function confirmButton(state, { key, str }) {
   const { stance } = state.pending;
   const motion = pendingMotion(state.pending);
-  if (!KEYS.includes(key) || !['L', 'M', 'H', 'OD'].includes(str)) throw new Error(`不正なボタン: ${key}${str}`);
+  if (!KEYS.includes(key) || !['L', 'M', 'H', 'N', 'OD'].includes(str)) throw new Error(`不正なボタン: ${key}${str}`);
   if (str === 'OD' && !isMotion(motion)) return { ...state, notice: NOTICE_NEED_MOTION };
   if (isMotion(motion)) {
     return insertAt(state, { type: 'special', motion, key, str, ...(stance === 'jump' && { stance }) });
@@ -118,11 +122,11 @@ function checkIndex(state, index) {
   if (!Number.isInteger(index) || index < 0 || index >= state.tokens.length) throw new Error(`不正なトークン位置: ${index}`);
 }
 
-// 強度の選択肢（チップのポップオーバー）: 通常技=弱中強、必殺技=+OD、SA=1〜3、システム技・注記は強度なし
+// 強度の選択肢（チップのポップオーバー）: 通常技=弱中強＋強度なし(N)、必殺技=+OD、SA=1〜3、システム技・注記・移動は強度なし
 export function strengthChoices(token) {
   switch (token.type) {
-    case 'normal': return ['L', 'M', 'H'];
-    case 'special': return ['L', 'M', 'H', 'OD'];
+    case 'normal': return ['L', 'M', 'H', 'N'];
+    case 'special': return ['L', 'M', 'H', 'N', 'OD'];
     case 'sa': return [1, 2, 3];
     default: return [];
   }
@@ -162,6 +166,9 @@ export function applyPadInput(state, action) {
     case 'note':
       if (!NOTE_IDS.includes(action.id)) throw new Error(`不正な注記: ${action.id}`);
       return insertAt(state, { type: 'note', id: action.id });
+    case 'move':
+      if (!MOVE_IDS.includes(action.id)) throw new Error(`不正な移動: ${action.id}`);
+      return insertAt(state, { type: 'move', id: action.id });
     case 'recent':
       if (!isValidToken(action.token)) throw new Error('不正なトークン');
       return insertAt(state, structuredClone(action.token));
@@ -200,7 +207,7 @@ const ARROWS = { 1: '↙', 2: '↓', 3: '↘', 4: '←', 5: 'ニュートラル'
 export const MOTION_NAMES = { 236: '波動', 214: '竜巻', 623: '昇龍', 22: '下下', '[4]6': '溜め横', '[2]8': '溜め縦', 360: '一回転' };
 const DIR_NAMES = { 1: '左下', 3: '右下', 4: '引き', 6: '前', 7: '左上', 8: '上', 9: '右上' };
 const STANCE_NAMES = { stand: '立ち', crouch: '屈', jump: 'ジャンプ' };
-const STR_NAMES = { L: '弱', M: '中', H: '強' };
+const STR_NAMES = { L: '弱', M: '中', H: '強', N: '' }; // N=強度の指定なし（D-013）
 const SYSTEM_NAMES = { RAW_DR: '生ラッシュ', CDR: 'CDR', DI: 'DI', PARRY: 'DP', REVERSAL: 'Dリバ' };
 
 // "236" -> [{dir:'2',arrow:'↓',charge:false}, ...]、"[4]6" の4は charge:true、"360" は dir:'360' の1要素
@@ -237,6 +244,7 @@ export function tokenLabel(token, notation = 'arrow') {
     case 'system': return SYSTEM_NAMES[token.id];
     case 'sa': return `SA${token.level}`;
     case 'note': return token.id;
+    case 'move': return MOVE_NAMES[token.id];
     default: throw new Error(`不正なトークン: ${token.type}`);
   }
 }
@@ -281,7 +289,7 @@ function docProblem(doc) {
   const v = doc.schemaVersion;
   if (v === undefined) return 'schemaVersionがありません';
   if (!Number.isInteger(v) || v < 1) return 'schemaVersionが不正です';
-  if (v > SCHEMA_VERSION) return `新しい版(schemaVersion ${v})のデータです。アプリを更新してください`;
+  if (v > SCHEMA_VERSION) return `新しい版(schemaVersion ${v})のデータです。アプリを更新してください`; // 版1・2は受け付ける（版1は変換なしで有効）
   for (const list of ['sections', 'combos']) {
     if (!Array.isArray(doc[list])) return `${list}が配列ではありません`;
     if (doc[list].length > LIMITS[list]) return `${list}が多すぎます(上限${LIMITS[list]}件)`;

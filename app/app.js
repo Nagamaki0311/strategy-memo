@@ -1,5 +1,5 @@
 import {
-  CHARACTERS, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
+  CHARACTERS, MOVE_NAMES, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
   sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
   applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
   mergeImport, exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
@@ -10,8 +10,8 @@ import {
 // 記号は index.html の SVGスプライトを <use> で参照する（Unicodeでは描かない）。
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ROTATE = { 6: 0, 3: 45, 2: 90, 1: 135, 4: 180, 7: 225, 8: 270, 9: 315 }; // i-arrow は右向き
-const STR_CLASS = { L: 'str-l', M: 'str-m', H: 'str-h' };
-const STR_TEXT = { L: '弱', M: '中', H: '強' };
+const STR_CLASS = { L: 'str-l', M: 'str-m', H: 'str-h', N: 'str-n' }; // N=強度の指定なし（無彩色の●、D-013）
+const STR_TEXT = { L: '弱', M: '中', H: '強', N: '強度なし' };
 const SYS_KIND = { CDR: 'dr', RAW_DR: 'dr', DI: 'di', PARRY: 'dp', REVERSAL: 'dp' }; // システム技の種別。チップの色と枠の形（design-spec-v2 3章）
 
 function el(tag, cls, text) {
@@ -43,9 +43,10 @@ function arrow(dir) {
 }
 
 function dot(key, colorCls, str) {
-  const d = el('span', `dot ${colorCls}${str ? ' has-str' : ''}`);
+  const badge = str && str !== 'N'; // 強度の指定なしには補助文字を付けない
+  const d = el('span', `dot ${colorCls}${badge ? ' has-str' : ''}`);
   d.append(icon(key === 'P' ? 'i-dot-p' : 'i-dot-k', 'dot-svg'));
-  if (str) d.append(el('span', 'badge', STR_TEXT[str]));
+  if (badge) d.append(el('span', 'badge', STR_TEXT[str]));
   return d;
 }
 
@@ -81,7 +82,7 @@ function chipNodes(token, label, notation) {
           : [dot(token.key, STR_CLASS[token.str], token.str)]),
       ];
     }
-    default: // system / sa。表示文字は読み上げ名と同じ（CDR、DI、DP、Dリバ、SA3）。DR系だけ先頭に»を置く
+    default: // system / sa / move。表示文字は読み上げ名と同じ（CDR、DI、DP、Dリバ、SA3）。DR系だけ先頭に»を置く
       return [...(SYS_KIND[token.id] === 'dr' ? [icon('i-rush', 'rush')] : []), document.createTextNode(label)];
   }
 }
@@ -113,7 +114,7 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
     grp = el('span', 'grp');
     for (const n of d.notes) grp.append(onChip ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
     if (d.token) {
-      const kind = d.token.type === 'sa' ? 'sa' : SYS_KIND[d.token.id]; // system・sa 以外は undefined
+      const kind = d.token.type === 'sa' ? 'sa' : d.token.type === 'move' ? 'mv' : SYS_KIND[d.token.id]; // system・sa・move 以外は undefined
       const cls = kind ? `chip sys sys-${kind}` : 'chip';
       const nodes = chipNodes(d.token, d.label, notation);
       if (onChip) grp.append(tapPart(cls, d.label, d.index, d.token, nodes, onChip));
@@ -643,6 +644,7 @@ function listScreen({ cid }) {
 // ===== SECTION: 凡例 =====
 // 形 → 意味 → 書き出し時の表記（requirements 3.3・3.5・3.6）。形は実際のチップの描画（renderRow・dirNodes）をそのまま使う。
 // システム技・注記の正式名称は、パッドのaria-labelと凡例で共有する。略称はtokenLabelと同じ。
+const MOVE_FULL = { FWD_STEP: '前ステップ', BACK_STEP: 'バックステップ' };
 const SYS_FULL = { CDR: 'キャンセルドライブラッシュ', RAW_DR: 'パリィドライブラッシュ', DI: 'ドライブインパクト', PARRY: 'ドライブパリィ', REVERSAL: 'ドライブリバーサル' };
 const NOTE_FULL = { CH: 'カウンターヒット', PC: 'パニッシュカウンター' };
 const nm = (stance, str, key, dir) => ({ type: 'normal', stance, ...(dir && { dir }), key, str });
@@ -662,6 +664,7 @@ function legendTable() {
       [shape([nm('stand', 'L', 'P')]), '水色の円＝弱。円の中の文字がP（パンチ）かK（キック）', '弱P'],
       [shape([nm('stand', 'M', 'K')]), '薄い黄の円＝中', '中K'],
       [shape([nm('stand', 'H', 'P')]), '薄い赤の円＝強', '強P'],
+      [shape([nm('stand', 'N', 'P')]), '灰色の円＝強度の指定なし（弱・中・強を区別しない）', 'P'],
       [shape([nm('stand', 'H', 'K')], { strengthLabels: true }), '設定で円の隅に弱・中・強の小さな文字を出せる（既定はオフ）', '強K'],
     ]],
     ['姿勢', [
@@ -680,6 +683,7 @@ function legendTable() {
       [h('div', 'leg-sa', ...[1, 2, 3].map((level) => shape([{ type: 'sa', level }], L))), 'スーパーアーツ1〜3。白い枠', 'SA1〜SA3'],
     ]],
     ['注記（直後の技に付く）', ['CH', 'PC'].map((id) => [shape([{ type: 'note', id }]), `${NOTE_FULL[id]}。斜めの小さな板`, id])],
+    ['移動', ['FWD_STEP', 'BACK_STEP'].map((id) => [shape([{ type: 'move', id }], L), `${MOVE_FULL[id]}。破線の枠`, MOVE_NAMES[id]])],
     ['つなぎ', [[conn(), '技と技のつなぎ。自動で入る', '▶']]],
   ];
   const table = h('table', 'leg', h('thead', '', h('tr', '', h('th', '', '形'), h('th', '', '意味'), h('th', '', '書き出し時の表記'))));
@@ -688,6 +692,13 @@ function legendTable() {
       ...rows.map(([a, b, c]) => h('tr', '', h('td', 'leg-shape', a), h('td', '', b), h('td', 'leg-out', c)))));
   }
   return table;
+}
+
+// 詳細・編集の上部バーのヘルプマーク（〇に？）。押すと凡例が開き、閉じるとフォーカスがここへ戻る
+function helpButton() {
+  const b = iconBtn('i-help', '凡例を開く', () => openLegend(b), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
+  b.classList.add('help');
+  return b;
 }
 
 function openLegend(opener) {
@@ -708,7 +719,6 @@ function detailScreen({ cid, rid }) {
     const sh = openSheet(chip, { pop: true });
     sh.pop(h('div', 'pop-body', token.type === 'special' ? motionNote(token.motion) : h('div', 'pop-note', tokenLabel(token, notation))));
   };
-  const legendBtn = btn('top-action', '凡例', () => openLegend(legendBtn), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
   const other = btn('', 'その他…', () => {
     const sh = openSheet(other);
     sh.show('その他', h('div', 'sheet-body flush', menuItem('削除', () => sh.close(() => removeCombo(c)))));
@@ -720,7 +730,7 @@ function detailScreen({ cid, rid }) {
     h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip })),
     ...(c.memo ? [h('section', 'd-memo', h('h2', 'd-memo-h', 'メモ'), h('p', '', c.memo))] : []));
   const bottom = h('footer', 'bottombar', other, btn('', '複製', () => duplicate(c)), at(h('a', 'btn primary', '編集'), { href: `#/c/${cid}/r/${rid}/edit` }));
-  return shell({ title: `${charName(cid)}/${sec.name}`, back: { label: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}` }, right: [legendBtn], notices: banners(), main: [main], bottom });
+  return shell({ title: `${charName(cid)}/${sec.name}`, back: { label: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}` }, right: [helpButton()], notices: banners(), main: [main], bottom });
 }
 
 // 削除: 一覧へ移り、取り消しトーストを出す。取り消しは直前の状態（prev）をそのまま書き戻す。
@@ -807,7 +817,8 @@ function buildPad(act, recents, notation, strengthLabels, onDone) {
     ...[1, 2, 3].map((level) => sysKey(`SA${level}`, `スーパーアーツ${level}`, { type: 'sa', level }, 'sa')),
     ...['PARRY', 'REVERSAL'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id }, SYS_KIND[id])),
     ...['CH', 'PC'].map((id) => sysKey(id, NOTE_FULL[id], { type: 'note', id }))), { role: 'group', 'aria-label': 'システム技' });
-  const dirs = h('div', 'dirs', ...PAD_DIRS.map((d) => padKey('dkey', PAD_DIR_NAMES[d], () => act({ type: 'dir', value: d }), arrow(String(d)))));
+  const steps = h('div', 'steps', ...['BACK_STEP', 'FWD_STEP'].map((id) => sysKey(MOVE_NAMES[id], MOVE_FULL[id], { type: 'move', id }, 'mv')));
+  const dirs = h('div', 'dirs', ...PAD_DIRS.map((d) => padKey('dkey', PAD_DIR_NAMES[d], () => act({ type: 'dir', value: d }), arrow(String(d)))), steps);
   const stance = at(h('div', 'stance', ...[['stand', '立ち', '立ち'], ['crouch', 'しゃがみ', arrow('2')], ['jump', 'ジャンプ', 'J']].map(([v, label, face]) => {
     const k = at(padKey('', label, () => act({ type: 'stance', value: v }), face), { role: 'radio' });
     stanceKeys.push([v, k]);
@@ -817,7 +828,7 @@ function buildPad(act, recents, notation, strengthLabels, onDone) {
   const buttons = ['P', 'K'].flatMap((k) => [
     ...['L', 'M', 'H'].map((s) => padKey('bkey', `${STR_TEXT[s]}${k}`, () => act({ type: 'button', key: k, str: s }), dot(k, STR_CLASS[s], s))),
     padKey('okey', `OD ${k}`, () => act({ type: 'button', key: k, str: 'OD' }), el('span', 'ltr od', 'OD'), h('span', 'dots', dot(k, 'od'), dot(k, 'od'))),
-  ]);
+  ]).concat(['P', 'K'].map((k) => padKey('nkey', `${k} ${STR_TEXT.N}`, () => act({ type: 'button', key: k, str: 'N' }), dot(k, STR_CLASS.N), h('span', 'nkey-t', STR_TEXT.N)))); // 4段目: 強度の指定なし
   const done = at(padKey('done', 'パッドを閉じて項目の入力へ', onDone, svgIcon('i-chev', 90), h('span', 'done-t', '完了')), { 'aria-controls': 'pad' });
   const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, h('div', 'r1', recent, done), presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
     h('div', 'lower', dirs, h('div', 'btns', stance, undo, ...buttons))), { 'aria-label': '入力パッド', id: 'pad', tabindex: '-1' });
@@ -914,7 +925,7 @@ function editScreen(route) {
       const cur = token.type === 'sa' ? token.level : token.str;
       body.append(at(h('div', 'pop-row', ...choices.map((v) => {
         const label = token.type === 'sa' ? `SA${v}` : v === 'OD' ? 'OD' : STR_TEXT[v];
-        const kids = token.type === 'sa' ? [label] : v === 'OD' ? [el('span', 'ltr od', 'OD')] : [label, dot(token.key, STR_CLASS[v])];
+        const kids = token.type === 'sa' ? [label] : v === 'OD' ? [el('span', 'ltr od', 'OD')] : v === 'N' ? [dot(token.key, STR_CLASS.N)] : [label, dot(token.key, STR_CLASS[v])];
         return at(btn('opt', kids, () => sh.close(() => act({ type: 'strength', index, value: v }))), { 'aria-pressed': String(v === cur), 'aria-label': label });
       })), { role: 'group', 'aria-label': '強度' }));
     }
@@ -1019,7 +1030,6 @@ function editScreen(route) {
     showToast('保存しました', { ms: 2500 });
   };
 
-  const legendBtn = btn('top-action', '凡例', () => openLegend(legendBtn), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
   const discard = () => { removeDraft(ed.draftKey); ed = null; render(); };
   const notice = ed.draftLoaded
     ? [at(h('div', 'notice', h('span', '', '前回の下書きを開きました'), btn('', rid ? '破棄して保存済みに戻す' : '破棄して新規', discard)), { role: 'status' })]
@@ -1027,7 +1037,7 @@ function editScreen(route) {
   const screen = shell({
     title: rid ? '記録の編集' : '記録の新規作成',
     back: rid ? { label: '詳細に戻る', to: `#/c/${cid}/r/${rid}` } : { label: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}` },
-    right: [legendBtn, btn('primary top-action', '保存', save)],
+    right: [helpButton(), btn('primary top-action', '保存', save)],
     notices: [errSlot], main: [...notice, timeEl, cmd, fields], bottom: padEl,
   });
   screen.classList.add('edit');
@@ -1205,7 +1215,7 @@ function settingsScreen() {
 
   const pick = (key, name) => (v) => { settings[key] = v; saveSettings(); render({ keepScroll: true, focus: [`${name}:${v}`] }); };
   const days = last === null ? 0 : daysSince(last, now());
-  const legendBtn = btn('', '凡例を見る', () => openLegend(legendBtn), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
+  const legendBtn = btn('', [svgIcon('i-help'), '凡例を見る'], () => openLegend(legendBtn), { 'data-fk': 'legend', 'aria-haspopup': 'dialog' });
   const view = { size: 'L', notation: settings.notation, strengthLabels: settings.strengthLabels };
 
   return shell({

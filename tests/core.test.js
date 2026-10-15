@@ -264,7 +264,12 @@ test('validateDocは不正な文書を例外なしで拒否し、意図した理
     ['schemaVersion欠落', mut((d) => { delete d.schemaVersion; }), 'schemaVersionがありません'],
     ['schemaVersion非整数', mut((d) => { d.schemaVersion = 1.5; }), 'schemaVersionが不正'],
     ['schemaVersion数値文字列', mut((d) => { d.schemaVersion = '1'; }), 'schemaVersionが不正'],
-    ['schemaVersionが新しすぎる', mut((d) => { d.schemaVersion = 2; }), '新しい版'],
+    ['schemaVersionが新しすぎる(版3)', mut((d) => { d.schemaVersion = 3; }), '新しい版'],
+    ['schemaVersionが0', mut((d) => { d.schemaVersion = 0; }), 'schemaVersionが不正'],
+    ['moveのidが未知', badTokens({ type: 'move', id: 'DASH' }), 'tokensが不正'],
+    ['moveにキー余り', badTokens({ type: 'move', id: 'FWD_STEP', str: 'N' }), 'tokensが不正'],
+    ['強度の値が未知', badTokens({ ...N('stand', 'L', 'P'), str: 'X' }), 'tokensが不正'],
+    ['強度の値が未知(NOD)', badTokens({ ...N('stand', 'L', 'P'), str: 'NOD' }), 'tokensが不正'],
     ['sectionsが配列でない', mut((d) => { d.sections = {}; }), 'sectionsが配列ではありません'],
     ['未知のtoken型', badTokens({ type: 'throw' }), '1件目のcombosのtokensが不正です'],
     ['normalにOD', mut((d) => { d.combos[0].tokens[0].str = 'OD'; }), 'tokensが不正'],
@@ -587,9 +592,10 @@ const mkCombo = (id, tokens, extra = {}) => ({
   id, characterId: 'ryu', controlType: 'classic', sectionId: 's1', title: 't', position: 'any', tokens, memo: '', tags: [], favorite: false, createdAt: 1, updatedAt: 1, ...extra,
 });
 
-test('strengthChoices: 通常技=弱中強、必殺技=OD付き、SA=1〜3、システム技・注記は空', () => {
-  assert.deepEqual(strengthChoices(N('stand', 'M', 'P')), ['L', 'M', 'H']);
-  assert.deepEqual(strengthChoices(SPc('236', 'H', 'P')), ['L', 'M', 'H', 'OD']);
+test('strengthChoices: 通常技=弱中強＋強度なし、必殺技=さらにOD、SA=1〜3、システム技・注記・移動は空', () => {
+  assert.deepEqual(strengthChoices(N('stand', 'M', 'P')), ['L', 'M', 'H', 'N']);
+  assert.deepEqual(strengthChoices(SPc('236', 'H', 'P')), ['L', 'M', 'H', 'N', 'OD']);
+  assert.deepEqual(strengthChoices({ type: 'move', id: 'FWD_STEP' }), []);
   assert.deepEqual(strengthChoices({ type: 'sa', level: 1 }), [1, 2, 3]);
   assert.deepEqual(strengthChoices({ type: 'system', id: 'CDR' }), []);
   assert.deepEqual(strengthChoices({ type: 'note', id: 'CH' }), []);
@@ -684,6 +690,97 @@ test('sanitizeDraft: 正しい形はそのまま、壊れた項目は捨てる�
   assert.equal(big.title.length, LIMITS.title);
   assert.equal(big.tokens.length, LIMITS.tokens);
   assert.equal(big.tags.length, LIMITS.tags);
+});
+
+// ===== 前ステ・バクステ、強度なし、データ版2（D-013） =====
+const MV = (id) => ({ type: 'move', id });
+
+test('move: 検証・ラベル（矢印・数字とも同じ）・applyPadInput（ペンディング破棄、カーソル位置に挿入）', () => {
+  for (const [id, name] of [['FWD_STEP', '前ステ'], ['BACK_STEP', 'バクステ']]) {
+    assert.ok(isValidToken(MV(id)));
+    assert.equal(tokenLabel(MV(id)), name);
+    assert.equal(tokenLabel(MV(id), 'numpad'), name);
+  }
+  for (const bad of [MV('DASH'), MV(undefined), { type: 'move' }, { ...MV('FWD_STEP'), str: 'N' }, { type: 'move', id: 'FWD_STEP', extra: 1 }]) assert.equal(isValidToken(bad), false, JSON.stringify(bad));
+  const s = run([stance('crouch'), dir(6), { type: 'move', id: 'BACK_STEP' }]);
+  assert.deepEqual(s.tokens, [MV('BACK_STEP')]);
+  assert.deepEqual(s.pending, { stance: 'stand', dirs: [] });
+  assert.equal(s.cursor, 1);
+  const mid = run([btn('L', 'P'), btn('M', 'P'), { type: 'cursor', index: 1 }, { type: 'move', id: 'FWD_STEP' }]);
+  assert.deepEqual(mid.tokens.map((t) => t.type), ['normal', 'move', 'normal']);
+  assert.equal(mid.cursor, 2);
+  assert.throws(() => applyPadInput(initialPadState(), { type: 'move', id: 'DASH' }), /不正な移動/);
+});
+
+test('move: 行動トークンとして▶でつながり、CH・PCの付き先になる。直近の技にも入る', () => {
+  const T = [N('stand', 'L', 'P'), MV('FWD_STEP'), { type: 'note', id: 'CH' }, MV('BACK_STEP'), { type: 'note', id: 'PC' }, N('stand', 'M', 'K')];
+  const row = describeRow(T);
+  assert.deepEqual(row.map((d) => d.kind), ['group', 'conn', 'group', 'conn', 'group', 'conn', 'group']);
+  assert.deepEqual(row.filter((d) => d.kind === 'group').map((d) => d.label), ['立ち弱P', '前ステ', 'バクステ', '立ち中K']);
+  assert.deepEqual(row[4].notes, [{ id: 'CH', index: 2 }]); // バクステにCHが付く
+  assert.deepEqual(row[6].notes, [{ id: 'PC', index: 4 }]);
+  const r = recentTokens([mkCombo('m', [MV('FWD_STEP'), N('stand', 'L', 'P')])], 'ryu');
+  assert.deepEqual(r.map((t) => tokenLabel(t)), ['立ち弱P', '前ステ']);
+  assert.deepEqual(r[1], MV('FWD_STEP'));
+});
+
+test('強度なし(N): 検証・ラベル・strengthChoices・changeStrength・applyPadInput', () => {
+  assert.ok(isValidToken(N('stand', 'N', 'P')));
+  assert.ok(isValidToken(SPc('236', 'N', 'K')));
+  assert.equal(tokenLabel(N('stand', 'N', 'P')), '立ちP');
+  assert.equal(tokenLabel(N('crouch', 'N', 'K')), '屈K');
+  assert.equal(tokenLabel(N('jump', 'N', 'P')), 'ジャンプP');
+  assert.equal(tokenLabel(N('stand', 'N', 'K', 4)), '引きK');
+  assert.equal(tokenLabel(SPc('236', 'N', 'P')), '波動 ↓↘→ P');
+  assert.equal(tokenLabel(SPc('236', 'N', 'K'), 'numpad'), '波動 236 K');
+  assert.deepEqual(run([dir(2), btn('N', 'P')]).tokens, [N('crouch', 'N', 'P')]);
+  assert.deepEqual(run([preset('236'), btn('N', 'K')]).tokens, [SPc('236', 'N', 'K')]);
+  assert.deepEqual(run([stance('jump'), preset('623'), btn('N', 'P')]).tokens, [{ ...SPc('623', 'N', 'P'), stance: 'jump' }]);
+  assert.deepEqual(changeStrength(N('stand', 'H', 'P'), 'N'), N('stand', 'N', 'P'));
+  assert.deepEqual(changeStrength(SPc('236', 'N', 'P'), 'OD'), SPc('236', 'OD', 'P'));
+  const s = applyPadInput(run([btn('M', 'K')]), { type: 'strength', index: 0, value: 'N' });
+  assert.deepEqual(s.tokens, [N('stand', 'N', 'K')]);
+  assert.equal(applyPadInput(run([btn('OD', 'P')]), btn('N', 'P')).tokens.length, 1); // Nは必殺技でなくても確定できる（ODと違いモーション不要）
+});
+
+test('データ版: 版1と2を受け付け、版3以上を拒否。書き出しは版2', () => {
+  assert.equal(exportDoc({ sections: [], combos: [] }).schemaVersion, 2);
+  for (const v of [1, 2]) {
+    const d = sampleDoc();
+    d.schemaVersion = v;
+    assert.deepEqual(validateDoc(d), { ok: true }, `版${v}`);
+    assert.equal(parseDocText(JSON.stringify(d)).ok, true, `版${v}`);
+    assert.equal(mergeImport({ sections: [], combos: [] }, d).ok, true, `版${v}`);
+  }
+  for (const v of [3, 4, 99]) {
+    const d = sampleDoc();
+    d.schemaVersion = v;
+    const r = validateDoc(d);
+    assert.equal(r.ok, false, `版${v}`);
+    assert.match(r.reason, /新しい版\(schemaVersion \d+\)/);
+    assert.equal(mergeImport({ sections: [], combos: [] }, d).ok, false, `版${v}`);
+  }
+  // 版1の文書にmove・Nを含んでも、検証は通す（版を見てトークンを制限しない。変換もしない）
+  const v1 = sampleDoc();
+  v1.schemaVersion = 1;
+  v1.combos[0].tokens.push(MV('FWD_STEP'), N('stand', 'N', 'P'));
+  assert.deepEqual(validateDoc(v1), { ok: true });
+  // 版1の文書を取り込んでも内容は変換されず、書き出すと版2になる
+  const m = mergeImport({ sections: [], combos: [] }, v1);
+  assert.deepEqual(m.doc.combos, v1.combos);
+  assert.equal(exportDoc(m.doc).schemaVersion, 2);
+});
+
+test('move・Nを含む文書: 書き出し→JSON→取り込みの往復で一致し、複製・下書きの整形でも保たれる', () => {
+  const state = sampleState();
+  state.combos[0].tokens.push(MV('BACK_STEP'), { type: 'note', id: 'CH' }, MV('FWD_STEP'), N('crouch', 'N', 'P'), SPc('236', 'N', 'K'));
+  const r = parseDocText(JSON.stringify(exportDoc(state)));
+  assert.ok(r.ok);
+  assert.equal(r.doc.schemaVersion, 2);
+  assert.deepEqual(mergeImport({ sections: [], combos: [] }, r.doc).doc, state);
+  assert.deepEqual(duplicateCombo(state.combos[0], 5).tokens, state.combos[0].tokens);
+  const draft = sanitizeDraft({ tokens: [MV('FWD_STEP'), MV('X'), N('stand', 'N', 'K'), N('stand', 'Z', 'K')] });
+  assert.deepEqual(draft.tokens, [MV('FWD_STEP'), N('stand', 'N', 'K')]);
 });
 
 // ===== ダメージ（D-012） =====

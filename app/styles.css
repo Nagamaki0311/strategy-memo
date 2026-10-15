@@ -18,6 +18,7 @@
   --str-l: #8FD3F0;
   --str-m: #F0D870;
   --str-h: #F29A8E;
+  --str-n: #858585; /* 強度の指定なし。無彩色（D-013） */
   --od: #FF7410;
   --dr: #4DF27C;
   --di: #A3A9B2;
@@ -60,6 +61,7 @@
   --dur-screen: 160ms;
   --dur-sheet: 200ms;
   --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --pad-h: 414px; /* パッドの高さ（design-spec-v2.1 3章）。トーストの位置もこれに合わせる */
 }
 
 body {
@@ -138,6 +140,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .str-l { color: var(--str-l); }
 .str-m { color: var(--str-m); }
 .str-h { color: var(--str-h); }
+.str-n { color: var(--str-n); }
 .dot.od { color: var(--od); }
 .dot.od + .dot.od {
   margin-left: calc(var(--ov) * -1);
@@ -168,6 +171,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
   font: 700 var(--fs)/1 var(--font);
 }
 .sys-sa { border-color: var(--fg); background: var(--key); }
+.sys-mv { border-style: dashed; border-color: var(--fg-muted); } /* 前ステ・バクステ: 破線の枠で塗りなし＝待ち・移動 */
 .sys-dr { border-color: var(--dr); color: var(--dr); }
 .sys-dr .rush { width: 12px; height: 12px; }
 .row.S .sys-dr .rush { width: 9px; height: 9px; }
@@ -282,6 +286,8 @@ a { color: inherit; }
 }
 .icon-btn:active { background: var(--line-strong); }
 .icon-btn:disabled { opacity: .3; cursor: default; }
+.help { color: var(--fg-muted); }
+.help:active { color: var(--fg); }
 
 /* キャラクター選択（design-spec-v2 5.1）。斜めの板の3列。隣の板との平行な3pxの隙間が路地。overflow-x:clip は傾いた板のはみ出しを切る */
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px 0; overflow-x: clip; }
@@ -442,6 +448,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .pop-row { display: flex; gap: var(--s1); }
 .pop-row + .pop-row { margin-top: var(--s1); }
 .opt { flex: 1; padding: 0 var(--s2); }
+.pop-row:has(> .opt:nth-child(5)) > .opt { padding: 0 4px; }
 .opt[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--fg); }
 .opt .dot { --dot: 22px; }
 .opt .ltr.od { --fs: 15px; }
@@ -461,7 +468,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .diag-c { display: flex; flex-direction: column; align-items: center; }
 .diag-n { font: var(--t-xs) var(--font); color: var(--fg-muted); }
 
-/* ===== パッド（design-spec 4章。高さ368px＋下の安全領域） ===== */
+/* ===== パッド（design-spec 4章、v2.1 3章。高さ414px＝--pad-h） ===== */
 .pad {
   flex: none; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 5px 6px calc(6px + env(safe-area-inset-bottom));
   background: var(--surface); border-top: 1px solid var(--line); touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -482,6 +489,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .band-di { --band: var(--di); }
 .band-dp { --band: var(--dp-line); }
 .band-sa { --band: var(--fg); }
+.band-mv::before { height: 0; background: none; border-top: 2px dashed var(--fg-muted); border-radius: 0; } /* 前ステ・バクステの帯は破線 */
 .pad :focus-visible { outline-offset: -3px; }
 .recent-keys, .sys-keys { display: flex; gap: 4px; height: 44px; overflow-x: auto; scrollbar-width: none; }
 .recent-keys { scroll-snap-type: x proximity; }
@@ -498,20 +506,23 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .pk-arrows { display: flex; align-items: center; gap: 1px; height: 14px; --arrow: 13px; --in: 1px; --br-sw: 4; --num: 14px; }
 .pk-name { min-height: 14px; font: 12px/1.2 var(--font); color: var(--fg-muted); }
 .sys-keys .key { flex: none; flex-direction: row; min-width: 44px; padding: 0 6px; }
-.lower { display: grid; grid-template-columns: 140px 1fr; column-gap: 12px; height: 156px; margin-top: 4px; }
-.dirs { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 48px); gap: 6px 4px; }
+.lower { display: grid; grid-template-columns: 140px 1fr; column-gap: 12px; height: 202px; margin-top: 4px; }
+.dirs { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(4, 46px); gap: 6px 4px; }
+.steps { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .dkey .ltr { --fs: 14px; color: var(--fg-muted); }
-.btns { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 48px); gap: 6px 4px; min-width: 0; }
+.btns { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 46px); gap: 6px 4px; min-width: 0; }
 .stance { grid-column: 1 / 4; display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 4px; min-width: 0; }
 .undo-t { font-size: 12px; }
-.bkey .dot { --dot: 30px; }
+.bkey .dot, .nkey .dot { --dot: 30px; }
+.nkey { grid-column: span 2; flex-direction: row; gap: 6px; }
+.nkey-t { font: 400 12px/1.2 var(--font); color: var(--fg-muted); }
 .okey { gap: 1px; --ov: 8px; --fs: 13px; }
 .okey .dots { display: flex; }
 .okey .dot { --dot: 20px; }
 
 /* トーストはパッドの上に出す（パッドが流れの中に戻る低い画面では既定の位置） */
 @media (min-height: 561px) {
-  body:has(.screen.edit .pad:not([hidden])) #toast { bottom: calc(368px + env(safe-area-inset-bottom) + var(--s4)); }
+  body:has(.screen.edit .pad:not([hidden])) #toast { bottom: calc(var(--pad-h) + env(safe-area-inset-bottom) + var(--s4)); }
 }
 /* 横持ちなど高さが足りないときは、パッドを縦flexから外してコマンド列の下に通常の流れで置く */
 @media (max-height: 560px) {
