@@ -245,3 +245,9 @@
 - T-003（環境確認と土台）。docs/design-spec.mdとD-002・D-004・D-010を読んでから着手する。
 
 ---
+
+## 2026-10-15 T-020: 公開とAPKの反映
+
+- 修正2段目をmain（51dd385）へマージ。公開URLの app.js・styles.css・index.html・icon.svg がリポジトリと一致することを確認した。
+- main から `npm run build:debug` でAPKを作り（aapt: パッケージ名 io.github.nagamaki0311.sf6memo、ラベル SF6戦略メモ）、ユーザーへ送付した。デバッグ署名。
+- 未実施: 修正2段目後の再レビュー（ユーザー判断）、実機確認（T-014）、リリース鍵の登録とタグ（ユーザー作業）。
