@@ -754,7 +754,7 @@ function readDrafts() {
 }
 function writeDraft() {
   const all = readDrafts();
-  all[ed.draftKey] = { sectionId: ed.sectionId, title: ed.title, position: ed.position, tokens: ed.pad.tokens, memo: ed.memo, tags: ed.tags, savedAt: now() };
+  all[ed.draftKey] = { sectionId: ed.sectionId, title: ed.title, position: ed.position, tokens: ed.pad.tokens, memo: ed.memo, tags: ed.tags, damage: ed.damage, savedAt: now() }; // damage が undefined なら JSON でキーごと消える
   return write(KEYS.drafts, JSON.stringify(all));
 }
 function removeDraft(key) {
@@ -766,12 +766,12 @@ function removeDraft(key) {
 function initEdit({ cid, rid, sid }, secs) {
   const base = rid ? data.combos.find((c) => c.id === rid) : null;
   const fresh = base
-    ? { sectionId: base.sectionId, title: base.title, position: base.position, tokens: structuredClone(base.tokens), memo: base.memo, tags: [...base.tags] }
+    ? { sectionId: base.sectionId, title: base.title, position: base.position, tokens: structuredClone(base.tokens), memo: base.memo, tags: [...base.tags], ...(base.damage !== undefined && { damage: base.damage }) }
     : { sectionId: secs.some((s) => s.id === sid) ? sid : secs[0].id, title: '', position: 'any', tokens: [], memo: '', tags: [] };
   const draftKey = base ? `edit:${rid}` : `new:${fresh.sectionId}`;
   const all = readDrafts();
   const draft = Object.hasOwn(all, draftKey) ? sanitizeDraft(all[draftKey]) : null;
-  const { tokens, ...f } = draft ? { ...fresh, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
+  const { tokens, ...f } = draft ? { ...fresh, damage: undefined, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
   saveError = null;
   return { cid, rid, draftKey, ...f, pad: initialPadState(tokens), padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
 }
@@ -786,7 +786,7 @@ const padKey = (cls, label, onClick, ...kids) => {
 
 // パッド（design-spec 4章）。キーは action を act に渡すだけ。入力の規則は core.js の applyPadInput にある。
 // sync(pending) で姿勢とプリセットの選択表示を更新する。
-function buildPad(act, recents, notation, strengthLabels) {
+function buildPad(act, recents, notation, strengthLabels, onDone) {
   const stanceKeys = [];
   const presetKeys = [];
   const recent = recents.length
@@ -815,8 +815,9 @@ function buildPad(act, recents, notation, strengthLabels) {
     ...['L', 'M', 'H'].map((s) => padKey('bkey', `${STR_TEXT[s]}${k}`, () => act({ type: 'button', key: k, str: s }), dot(k, STR_CLASS[s], s))),
     padKey('okey', `OD ${k}`, () => act({ type: 'button', key: k, str: 'OD' }), el('span', 'ltr od', 'OD'), h('span', 'dots', dot(k, 'od'), dot(k, 'od'))),
   ]);
-  const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, recent, presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
-    h('div', 'lower', dirs, h('div', 'btns', stance, undo, ...buttons))), { 'aria-label': '入力パッド' });
+  const done = at(padKey('done', 'パッドを閉じて項目の入力へ', onDone, svgIcon('i-chev', 90), h('span', 'done-t', '完了')), { 'aria-controls': 'pad' });
+  const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, h('div', 'r1', recent, done), presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
+    h('div', 'lower', dirs, h('div', 'btns', stance, undo, ...buttons))), { 'aria-label': '入力パッド', id: 'pad', tabindex: '-1' });
   const sync = ({ stance: st, dirs: ds }) => {
     // ↓を押したあとモーションを選ぶと、確定する技に↓は入らない。姿勢の選択も立ちに戻して見た目と一致させる。
     const shown = st === 'crouch' && ds.join('').length >= 2 ? 'stand' : st;
@@ -964,17 +965,31 @@ function editScreen(route) {
   const tagFld = h('div', 'fld', at(h('label', 'field-label', 'タグ'), { for: 'f-tag' }), tagList,
     h('div', 'tag-add', tagInput, btn('', '追加', () => addTag(tagInput.value), { 'aria-label': 'タグを追加' })), suggest);
 
+  // ダメージ（design-spec-v2 5.4）: type=number は指数・小数のキーが出るので使わず、入力のたびに全角数字を半角にして数字以外を除き5桁に切る。先頭の0はフォーカスが外れたときに除く
+  const dmgIn = at(h('input', 'field'), { type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '5', enterkeyhint: 'done', autocomplete: 'off', id: 'f-dmg', 'aria-describedby': 'f-dmg-hint' });
+  dmgIn.value = ed.damage ?? '';
+  dmgIn.addEventListener('input', () => {
+    dmgIn.value = dmgIn.value.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/\D/g, '').slice(0, 5);
+    ed.damage = dmgIn.value === '' ? undefined : Number(dmgIn.value);
+    touch();
+  });
+  dmgIn.addEventListener('blur', () => { dmgIn.value = dmgIn.value.replace(/^0+(?=\d)/, ''); });
+  const dmgFld = h('div', 'fld', at(h('label', 'field-label', 'ダメージ（任意）'), { for: 'f-dmg' }), h('div', 'dmg-row', dmgIn, at(h('span', 'dmg-hint', '0〜99999'), { id: 'f-dmg-hint' })));
+
   const fields = h('div', 'fields',
     h('div', 'fld', at(h('label', 'field-label', 'セクション'), { for: 'f-sec' }), secSel),
     input('f-title', 'タイトル（任意）', ed.title, { type: 'text', maxlength: String(LIMITS.title), autocomplete: 'off', enterkeyhint: 'done' }, (v) => { ed.title = v; touch(); }),
-    posSet, tagFld,
+    posSet, dmgFld, tagFld,
     input('f-memo', 'メモ', ed.memo, { maxlength: String(LIMITS.memo), rows: '4' }, (v) => { ed.memo = v; touch(); }, 'textarea'));
 
   // ---- パッド ----
-  const { pad: padEl, sync } = buildPad(act, recentTokens(data.combos, cid), notation, strengthLabels);
-  const setPad = (hidden) => { padEl.hidden = hidden; ed.padHidden = hidden; };
+  const { pad: padEl, sync } = buildPad(act, recentTokens(data.combos, cid), notation, strengthLabels, () => { setPad(true); secSel.focus(); }); // ［完了］: ペンディングは保持。保存はしない
+  // パッドが隠れている間だけ、同じ位置に格納バー（副ボタン1つ）を出す。浮動ボタンは使わない
+  const dock = h('footer', 'bottombar pad-dock', btn('', [svgIcon('i-chev', 270), '技を入力'], () => { setPad(false); padEl.focus(); }, { 'aria-controls': 'pad', 'aria-expanded': 'false' }));
+  const setPad = (hidden) => { padEl.hidden = hidden; dock.hidden = !hidden; ed.padHidden = hidden; };
   setPad(ed.padHidden);
   cmd.addEventListener('click', () => setPad(false)); // コマンド列の領域をタップしたらパッドを戻す
+  fields.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.target.matches('#f-title, #f-dmg')) e.target.blur(); }); // キーボードを閉じる。パッドは隠れたまま
   fields.addEventListener('focusin', (e) => { if (e.target.matches('input[type=text], textarea')) setPad(true); }); // ソフトキーボードの場所を空ける
 
   // ---- 保存 ----
@@ -982,10 +997,11 @@ function editScreen(route) {
     if (tagInput.value.trim()) addTag(tagInput.value); // 入力途中のタグも取り込む
     const t = now();
     const base = rid ? data.combos.find((c) => c.id === rid) : null;
-    const edited = { sectionId: ed.sectionId, title: ed.title.trim(), position: ed.position, tokens: structuredClone(ed.pad.tokens), memo: ed.memo, tags: [...ed.tags] };
+    const edited = { sectionId: ed.sectionId, title: ed.title.trim(), position: ed.position, tokens: structuredClone(ed.pad.tokens), memo: ed.memo, tags: [...ed.tags], ...(ed.damage !== undefined && { damage: ed.damage }) };
     const combo = base
       ? { ...base, ...edited, updatedAt: t }
       : { id: newId(), characterId: cid, controlType: 'classic', ...edited, favorite: false, createdAt: t, updatedAt: t };
+    if (edited.damage === undefined) delete combo.damage; // 空は未入力（キーを持たせない）。元の値を {...base} から引き継がない
     const combos = base ? data.combos.map((c) => (c.id === base.id ? combo : c)) : [...data.combos, combo];
     const prev = data;
     if (!commit({ sections: data.sections, combos })) {
@@ -1012,6 +1028,7 @@ function editScreen(route) {
     notices: [errSlot], main: [...notice, timeEl, cmd, fields], bottom: padEl,
   });
   screen.classList.add('edit');
+  screen.append(dock);
   renderTags();
   updateRow();
   sync(ed.pad.pending);

@@ -426,6 +426,9 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .tag-list, .suggest { display: flex; flex-wrap: wrap; gap: var(--s1); }
 .tag-list:not(:empty) { margin-bottom: var(--s2); }
 .suggest:not(:empty) { margin-top: var(--s2); }
+.dmg-row { display: flex; align-items: center; gap: var(--s3); }
+#f-dmg { flex: none; width: 120px; font-variant-numeric: tabular-nums; }
+.dmg-hint { font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .tag-add { display: flex; gap: var(--s2); }
 .tag-add .btn { flex: none; white-space: nowrap; }
 .pill { padding: 0 var(--s3); font-size: 14px; }
@@ -463,7 +466,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
   flex: none; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 5px 6px calc(6px + env(safe-area-inset-bottom));
   background: var(--surface); border-top: 1px solid var(--line); touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
-.pad[hidden] { display: none; }
+.pad[hidden], .pad-dock[hidden] { display: none; }
 .key {
   box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; padding: 0;
   position: relative; border: 1px solid var(--line-strong); border-radius: var(--r-key); background: var(--key); color: var(--fg);
@@ -482,6 +485,12 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .pad :focus-visible { outline-offset: -3px; }
 .recent-keys, .sys-keys { display: flex; gap: 4px; height: 44px; overflow-x: auto; scrollbar-width: none; }
 .recent-keys { scroll-snap-type: x proximity; }
+/* R1: 直近の技（左、残り幅。360pxで280px）＋［完了］キー（右端に固定） */
+.r1 { display: flex; gap: 4px; height: 44px; }
+.r1 > .recent-keys, .r1 > .recent-empty { flex: 1; min-width: 0; }
+.done { flex: none; width: 64px; height: 44px; gap: 0; }
+.done .ic { width: 16px; height: 16px; }
+.done-t { font: 700 14px/1.2 var(--font); }
 .recent-keys .key { flex: none; flex-direction: row; min-width: 44px; padding: 0 8px; scroll-snap-align: start; }
 .recent-keys .row { flex-wrap: nowrap; pointer-events: none; }
 .recent-empty { display: flex; align-items: center; height: 44px; padding: 0 8px; color: var(--fg-muted); font: var(--t-xs) var(--font); }
@@ -511,6 +520,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
   .screen.edit .cmd { order: 1; }
   .screen.edit .pad { order: 2; }
   .screen.edit .fields { order: 3; }
+  .screen.edit .pad-dock { order: 4; }
   .screen.edit .banners { position: sticky; }
 }
 
