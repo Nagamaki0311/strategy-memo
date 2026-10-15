@@ -3,10 +3,10 @@
 `app/`（ビルドなしの静的ファイル）を [Capacitor](https://capacitorjs.com/) の WebView に同梱して APK にする。アプリ本体（`app/`）へ依存は追加しない。APK 用の依存は `apk/package.json` に閉じる。方式はD-002の「PWAを後から包む」のうち、ホスティングに依存しない Capacitor を採用（TWA はプロジェクトサイトで URL 検証ができず URL バーが残るため見送り）。
 
 - アプリ ID: `io.github.nagamaki0311.sf6memo`（変更すると別アプリ扱いになり、保存データが引き継がれない）
-- 画面向き: 縦固定。ステータスバー/ナビゲーションバー背景: `#16140F`
+- 画面向き: 縦固定。ステータスバー/ナビゲーションバー背景: `#0E0F11`
 - オリジンは `https://localhost`（`capacitor.config.json` の `androidScheme`）。localStorage はこのオリジンに保存され、アプリを更新しても残る。アンインストールすると消える
 - minSdk 24（Android 7.0）、targetSdk 36。Java 21、Node 22、Android SDK `platforms;android-36` と `build-tools;36.0.0` が要る
-- アイコンとスプラッシュは暫定（`#16140F` 地に黄色い円）。デザイン刷新後に `android/app/src/main/res/` の `mipmap-*/ic_launcher*.png`、`drawable-v24/ic_launcher_foreground.xml`、`values/ic_launcher_background.xml` を差し替える
+- アイコンは `app/icon.svg`（design-spec-v2 7章。ネオン管の矢印と●）の図案。アダプティブアイコンの前景は `drawable-v24/ic_launcher_foreground.xml`（矢印と●の形のみ。VectorDrawableはにじみを表せないので省く。安全円に収めてある）、背景は `values/ic_launcher_background.xml`（`#0E0F11` の単色）。旧端末用の `mipmap-*/ic_launcher*.png` は `app/icon-512.png` の縮小（round は円形に切り抜き）。図案を変えたらこの3種を作り直す。スプラッシュ（Android 12 以降）は `#0E0F11` 地に同じ前景、それ以前は `capacitor.config.json` の `backgroundColor`（`#0E0F11`）
 
 ## ダウンロードリンク（GitHub Release）
 

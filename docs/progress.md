@@ -19,6 +19,20 @@
 
 ---
 
+## 2026-10-15 T-016（続き）: APKのアイコンとバー色をv2に更新
+
+### 実施内容
+- apk/ の地色を `#0E0F11` に更新し（capacitor.config.json、styles.xml、ic_launcher_background.xml）、アダプティブアイコンの前景（VectorDrawable。矢印と●、にじみなし）と旧端末用の各密度PNG（`app/icon-512.png` の縮小）をネオン版に差し替えた。apk/README.md の「暫定」注記を現行の構成の説明に置き換えた。
+
+### 結果
+- `cd apk && npm ci && npx cap sync android && cd android && ./gradlew assembleDebug` が成功し、`aapt` でアダプティブアイコンのリソース、背景 `#ff0e0f11`、スプラッシュ背景を確認した。デバッグAPK（約4.2MB、デバッグ署名）をユーザーに送付した。アイコンの見た目はSVGでの代用確認（安全円に収まる）。
+- 未確認: 実機・エミュレータでのランチャー表示とAndroid 12以降のスプラッシュ。Android 13以降の単色アイコン（monochrome）は未対応。
+
+### 次回開始位置
+- T-014（実機での受け入れ）。敵対的レビュー（T-015）はユーザー指示待ち。
+
+---
+
 ## 2026-10-15 T-013: PWAと配信
 
 ### 実施内容
