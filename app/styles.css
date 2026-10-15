@@ -55,7 +55,7 @@ h1, h2 { word-break: auto-phrase; }
 .row {
   --dot: 34px; --arrow: 22px; --chip-h: 34px; --tag-h: 20px;
   --conn-m: 10px; --conn-w: 8px; --conn-h: 10px;
-  --in: 2px; --ov: 8px; --fs: 15px; --num: 18px; --chip-px: 10px;
+  --in: 2px; --br-sw: 2.7; --ov: 8px; --fs: 15px; --num: 18px; --chip-px: 10px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -65,7 +65,8 @@ h1, h2 { word-break: auto-phrase; }
 .row.S {
   --dot: 24px; --arrow: 15px; --chip-h: 24px; --tag-h: 16px;
   --conn-m: 6px; --conn-w: 6px; --conn-h: 8px;
-  --in: 1px; --ov: 6px; --fs: 12px; --num: 14px; --chip-px: 7px;
+  /* --ov・--num・--br-sw（S）はspecにない実装判断（Lからの比例縮小。括弧の線幅は約2.5pxを保つ） */
+  --in: 1px; --br-sw: 4; --ov: 6px; --fs: 12px; --num: 14px; --chip-px: 7px;
 }
 .row.str-labels { row-gap: 10px; }
 
@@ -108,8 +109,10 @@ h1, h2 { word-break: auto-phrase; }
 
 .arrow, .br, .cw { display: block; color: var(--fg); width: var(--arrow); height: var(--arrow); }
 .br { width: calc(var(--arrow) / 4); }
+.neutral { display: flex; align-items: center; justify-content: center; width: var(--arrow); height: var(--arrow); }
+.neutral::before { content: ""; width: calc(var(--arrow) * .27); height: calc(var(--arrow) * .27); border-radius: 50%; background: var(--fg); }
 .charge { display: inline-flex; align-items: center; }
-.conn { display: block; margin-left: var(--conn-m); color: var(--conn); width: var(--conn-w); height: var(--conn-h); }
+.conn { display: block; margin-left: calc(var(--conn-m) - var(--in) * 2); /* .grpのgap分を引いて左右対称 */ color: var(--conn); width: var(--conn-w); height: var(--conn-h); }
 
 /* 素の文字（J、OD）と数字表記 */
 .ltr { font: 700 var(--fs)/1 var(--font); color: var(--fg); }
@@ -137,7 +140,7 @@ h1, h2 { word-break: auto-phrase; }
   border-radius: var(--r-tag);
   background: var(--line-strong);
   color: var(--fg);
-  font: 700 12px/1 var(--font);
+  font: 700 var(--t-xs) var(--font);
 }
 
 /* 強度の補助文字（設定オンで .str-labels を付ける） */
@@ -156,13 +159,6 @@ h1, h2 { word-break: auto-phrase; }
 }
 .str-labels .badge { display: block; }
 .str-labels .dot.has-str { margin-right: 7px; }
-
-/* 未認識（Phase 2）。生の文字列を「」で囲んで置く */
-.unk {
-  color: var(--fg-muted);
-  text-decoration: underline wavy;
-  word-break: break-all;
-}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

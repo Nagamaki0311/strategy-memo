@@ -32,9 +32,10 @@
 - Managerがスクリーンショット（`?gray=1` を含む）を目視した。グレースケールでも●（塗りのある円）、矢印（軸のある線）、▶（軸のない小さな三角）、システム技（実線枠）、注記タグ（枠なしの灰色）、360（塗りのない円弧）を形で区別できる。
 - ブラウザでの確認手順の訂正: フル版chromeは `--window-size` が500未満にならないため、幅の確認には `/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`（同じオプション）を使う。T-003の記載も訂正した。
 - 実機（Android Chrome）でのフォント・アウトラインの描画は未確認（T-014）。
+- Reviewerのレビュー（Critical/Highなし、Medium2件、Low6件）を受けて修正した。方向5（ニュートラル）には小さな中点を描く（M1。design-spec 3章に5の描画規則がなかったため、Managerが決めた）。tests/check.htmlの判定を強化し（`clientWidth`との比較、`<use>`の参照解決、矢印の回転、role・aria-labelの検証）、変異テスト（350px要素の追加、symbol idの破壊、回転の書き換え、aria-labelの除去）で失敗側に動くことを確認した（M2）。溜め括弧の線幅（S）、▶の左右対称、未使用の`.unk`の削除、トークンの使用も修正した。修正後の再レビューは行っていない。
 
 ### 次回開始位置
-- T-008（キャラ選択・ルーティング・保存）。docs/design-spec.mdの6.1・6.6、D-003・D-006、core.jsの `validateDoc`・`exportDoc` を先に読む。
+- T-008（キャラ選択・ルーティング・保存）。docs/design-spec.mdの6.1・6.6、D-003・D-006、core.jsの `validateDoc`・`exportDoc` を先に読む。申し送り: `renderRow` は不正なトークンで行全体が落ちるため、保存データの読み込み境界で `validateDoc`（内部で各トークンを検証）を必ず通す。未認識トークンの描画はPhase 2のトークン拡張時に足す。一覧のSプレビュー（`height:28px; overflow:hidden`）とLのタップ領域44pxはT-009・T-010で実装する。
 
 ---
 

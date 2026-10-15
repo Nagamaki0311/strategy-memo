@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<!-- ブラウザ検証用（配信しない）。app/ を配信して開く。?gray=1 でグレースケール。結果は #result の CHECK-PASS / CHECK-FAIL -->
+<!-- ブラウザ検証用（配信しない）。リポジトリルートを配信して /tests/check.html を開く。?gray=1 でグレースケール。結果は #result の CHECK-PASS / CHECK-FAIL -->
 <pre id="result">CHECK-PENDING</pre>
 <main id="main"></main>
 <script type="module">
@@ -42,6 +42,8 @@ const ALL = [
 const KENSAN = [N('crouch', 'M', 'K'), S('236', 'H', 'P'), sys('CDR'), N('crouch', 'M', 'K'), S('236', 'H', 'P')];
 const STRESS = [S('23634123641236412364', 'H', 'P'), N('stand', 'L', 'P'), S('[4]6', 'OD', 'K')]; // 20文字の方向列
 
+const DIRS = [S('123456789', 'H', 'P'), S('2565', 'H', 'P')];
+
 const CASES = [
   ['L・矢印', ALL, { size: 'L' }],
   ['S・矢印', ALL, { size: 'S' }],
@@ -51,11 +53,14 @@ const CASES = [
   ['S・矢印・補助文字オン', ALL, { size: 'S', strengthLabels: true }],
   ['検算の列 L', KENSAN, { size: 'L' }],
   ['検算の列 S', KENSAN, { size: 'S' }],
+  ['全方向（1〜9）と5入り L', DIRS, { size: 'L' }],
+  ['全方向（1〜9）と5入り S', DIRS, { size: 'S' }],
   ['異常に長い方向列 L（技の内側で折り返す）', STRESS, { size: 'L' }],
   ['異常に長い方向列 S・数字', STRESS, { size: 'S', notation: 'numpad' }],
 ];
 
 const main = document.getElementById('main');
+const dirRows = [];
 // 記号スプライトは index.html に1つだけ置く。ここへ複製せず取り込む
 const html = await (await fetch('../app/index.html')).text();
 document.body.prepend(new DOMParser().parseFromString(html, 'text/html').getElementById('sprite'));
@@ -65,32 +70,32 @@ for (const [title, tokens, opts] of CASES) {
   h.textContent = title;
   const box = document.createElement('div');
   box.className = 'case';
-  box.append(renderRow(tokens, opts));
+  const row = renderRow(tokens, opts);
+  if (tokens === DIRS) dirRows.push(row);
+  box.append(row);
   main.append(h, box);
 }
-// 未認識（Phase 2）は描画関数がまだ作らないため、見た目だけ静的に確認する
-const hu = document.createElement('h2');
-hu.textContent = '未認識（見た目のみ）';
-const unk = document.createElement('div');
-unk.className = 'case';
-const u = document.createElement('span');
-u.className = 'unk';
-u.textContent = '「xx9」';
-unk.append(u);
-main.append(hu, unk);
-
 const problems = [];
 const de = document.documentElement;
-if (de.scrollWidth > window.innerWidth) problems.push(`横スクロール scrollWidth=${de.scrollWidth} innerWidth=${window.innerWidth}`);
-for (const grp of document.querySelectorAll('.grp')) {
-  const g = grp.getBoundingClientRect();
-  const row = grp.parentElement.getBoundingClientRect();
-  if (g.right > row.right + 0.5) problems.push('技が列の幅を超えた');
-  const conn = grp.querySelector('.conn')?.getBoundingClientRect();
-  if (conn && (conn.top < g.top - 0.5 || conn.bottom > g.bottom + 0.5)) problems.push('▶が技の行から外れた');
+if (de.scrollWidth > de.clientWidth) problems.push(`横スクロール scrollWidth=${de.scrollWidth} clientWidth=${de.clientWidth}`);
+// 全 <use> の参照先が存在する（symbol idの打ち間違い・削除を検出）
+for (const u of document.querySelectorAll('use')) {
+  if (document.getElementById(u.getAttribute('href').slice(1))?.localName !== 'symbol') problems.push(`<use>の参照先なし ${u.getAttribute('href')}`);
 }
-for (const e of document.querySelectorAll('.conn')) {
-  if (e.parentElement.lastElementChild !== e) problems.push('▶が技の末尾にない');
+// 全チップに読み上げ名
+const chips = document.querySelectorAll('.chip');
+if (!chips.length) problems.push('チップが描画されていない');
+for (const c of chips) if (c.getAttribute('role') !== 'img' || !c.getAttribute('aria-label')) problems.push('チップにrole=imgまたはaria-labelがない');
+// 方向1〜9の描画: 矢印は方向ごとの回転、5は中点（矢印にしない）
+const ANGLE = { 1: 135, 2: 90, 3: 45, 4: 180, 6: 0, 7: 225, 8: 270, 9: 315 };
+for (const row of dirRows) {
+  DIRS.forEach(({ motion }, i) => {
+    const parts = [...row.querySelectorAll('.chip')[i].children].slice(0, motion.length);
+    const ok = parts.length === motion.length && [...motion].every((d, j) => d === '5'
+      ? parts[j].classList.contains('neutral') && !parts[j].querySelector('svg')
+      : parts[j].classList.contains('arrow') && parts[j].style.transform === `rotate(${ANGLE[d]}deg)`);
+    if (!ok) problems.push(`方向${motion}の描画が不正`);
+  });
 }
 const rows = document.querySelectorAll('.row').length;
 document.getElementById('result').textContent = problems.length

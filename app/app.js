@@ -26,6 +26,11 @@ function icon(id, cls) {
 }
 
 function arrow(dir) {
+  if (dir === '5') { // ニュートラルは矢印ではなく中点（CSSで描く）
+    const n = el('span', 'neutral');
+    n.setAttribute('aria-hidden', 'true');
+    return n;
+  }
   const a = icon('i-arrow', 'arrow');
   a.style.transform = `rotate(${ROTATE[dir]}deg)`;
   return a;
