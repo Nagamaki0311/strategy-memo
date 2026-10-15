@@ -1,5 +1,5 @@
 import {
-  CHARACTERS, MOVE_NAMES, NEON_STEPS, neonLevel, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
+  CHARACTERS, MOVE_NAMES, neonLevel, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
   sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
   applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
   mergeImport, exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
@@ -550,15 +550,11 @@ const BOOT_MAX = 6;
 // 360px幅の1列（英字の幅92px）で20pxだと収まらない名前（実測。KIMBERLY 93.5px。tests/e2e.mjs が360・390・430幅で収まりを確認する）
 const LONG_EN = new Set(['kimberly']);
 
-// キャラ選択のタイル（homeScreenとtests/check.htmlの両方が使う）。見えるのは英字と件数だけで、読み上げ名はカナ・日本語名（aria-label）。
-// data-lv は記録数のネオン段階（core.js neonLevel。色と発光はstyles.cssの「ネオンの段階」節）
-// 下端のレベルメーター（.cell-lv）は、10個の目盛りのうち段階の数だけ点灯する。色だけでなく数で隣の段階を見分けるため（D-015）
+// キャラ選択のタイル（homeScreenとtests/check.htmlの両方が使う）。見えるのは英字だけ。件数は見せず、読み上げ名（aria-label）がカナ・日本語名と件数を伝える。
+// data-lv は記録数のネオン段階（core.js neonLevel）。タイル全体の蛍光はstyles.cssの「ネオンの段階」節（D-016）
 export function charTile(c, n) {
-  const lv = neonLevel(n);
-  return at(h('a', `cell${n ? ' lit' : ''}${LONG_EN.has(c.id) ? ' long' : ''}`,
-    at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' }), ...(n ? [h('span', 'cell-n', `${n}件`)] : []),
-    at(h('span', 'cell-lv', ...NEON_STEPS.map((_, i) => h('i', i < lv ? 'on' : ''))), { 'aria-hidden': 'true' })),
-  { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name, 'data-lv': String(lv) });
+  return at(h('a', `cell${n ? ' lit' : ''}${LONG_EN.has(c.id) ? ' long' : ''}`, at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' })),
+  { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name, 'data-lv': String(neonLevel(n)) });
 }
 
 function homeScreen() {

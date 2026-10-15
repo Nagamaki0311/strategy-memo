@@ -394,7 +394,7 @@ for (const width of [360, 430]) {
     await check(`${tag} 1 初回は案内文とグリッド32件`, async () => {
       assert.equal(await page.locator('.cell').count(), 32);
       assert.match(await page.locator('.bottombar').innerText(), /キャラクターを選ぶと記録を始められます/);
-      assert.equal(await page.locator('.cell-n').count(), 0); // 0件は件数を出さない
+      assert.equal(await page.locator('.cell-n, .cell-lv').count(), 0); // 件数・メーターは見せない（D-016）
       assert.ok(await noHScroll(page));
     });
     await shot(page, '01-home-first', width);
@@ -703,7 +703,11 @@ for (const width of [360, 430]) {
       assert.equal(await fresh.evaluate(() => history.length), len); // 履歴を増やしていない
       await fresh.context().close();
     });
-    await check(`${tag} 4 ホームの件数表示`, async () => assert.match(await page.locator('.cell[aria-label^="リュウ"]').innerText(), /3件/));
+    await check(`${tag} 4 ホームの件数は読み上げ名だけ（見える文字は英字のみ）`, async () => {
+      const cell = page.locator('.cell[aria-label^="リュウ"]');
+      assert.equal(await cell.getAttribute('aria-label'), 'リュウ 3件');
+      assert.equal(await cell.innerText(), 'RYU');
+    });
     await check(`${tag} 4 ページエラーなし`, async () => assert.deepEqual(page.errors, []));
     await page.context().close();
   }
@@ -1763,14 +1767,13 @@ for (const width of [360, 430]) {
       assert.equal(await page.locator('.cell-en[aria-hidden=true]').count(), 32);
       assert.equal(await page.getByRole('link', { name: 'リュウ 4件', exact: true }).count(), 1);
       assert.equal(await page.getByRole('link', { name: 'ダルシム', exact: true }).count(), 1); // 0件は件数なし
-      assert.equal(await page.locator('.cell-n').first().innerText(), '4件');
     });
-    await check(`${tag} 17a 点灯と消灯の色（リュウ4件=段階3）: 点灯は板key・英字lit+発光、消灯（段階0）は板surface・英字muted・発光なし`, async () => {
+    await check(`${tag} 17a 点灯と消灯の色（リュウ4件=段階3）: 点灯は緑の板・英字lit+発光、消灯（段階0）は板surface・英字muted・発光なし`, async () => {
       const f = (sel) => page.$eval(sel, (e) => { const b = getComputedStyle(e, '::before'); const t = getComputedStyle(e.querySelector('.cell-en')); return [b.backgroundColor, t.color, t.textShadow !== 'none']; });
-      assert.deepEqual(await f('.cell.lit'), ['rgb(34, 37, 42)', 'rgb(255, 244, 222)', true]);
+      assert.deepEqual(await f('.cell.lit'), ['rgb(27, 36, 35)', 'rgb(234, 255, 240)', true]);
       assert.deepEqual(await f('.cell:not(.lit)'), ['rgb(23, 25, 28)', 'rgb(170, 166, 157)', false]);
     });
-    await check(`${tag} 17a タイルの押下は即時（板はline、英字は点灯）、離すと戻る`, async () => {
+    await check(`${tag} 17a タイルの押下は即時（板はline。英字の色は変わらない）、離すと戻る`, async () => {
       const t = page.locator('.cell:not(.lit)').first();
       const bb = await t.boundingBox();
       await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
@@ -1778,7 +1781,7 @@ for (const width of [360, 430]) {
       const down = await t.evaluate((e) => [getComputedStyle(e, '::before').backgroundColor, getComputedStyle(e.querySelector('.cell-en')).color, getComputedStyle(e.querySelector('.cell-en')).textShadow !== 'none', getComputedStyle(e, '::before').transitionDuration]);
       await page.mouse.move(0, 0); // 離す前に外へ出してタップにしない
       await page.mouse.up();
-      assert.deepEqual(down, ['rgb(46, 50, 56)', 'rgb(255, 244, 222)', true, '0s']);
+      assert.deepEqual(down, ['rgb(46, 50, 56)', 'rgb(170, 166, 157)', false, '0s']);
     });
     await check(`${tag} 17a 英字の名前がタイル内に収まる（scrollWidth <= clientWidth）`, async () => {
       const over = await page.$$eval('.cell-en', (els) => els.filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent));
@@ -2880,29 +2883,33 @@ for (const width of [360, 430]) {
     }
   }
 
-  // 21. T-019（D-013。design-spec-v2.1 1・5章）: カナの削除・ネオンの10段階・ブランドロゴ・性能
+  // 21. T-019（D-013。design-spec-v2.1 1・5章）、T-021（D-016）: カナの削除・蛍光グリーンの10段階・ブランドロゴ・性能
   {
-    // 1.2の表（正本）。c=英字・件数の色、sh=text-shadow（芯, にじみ。[r,g,b,a,ぼかし]）、plate=板、edge=縁（[太さ,r,g,b,a]）
+    // 1.2の表（正本）。rgb=発光色、tc=ワードマーク・最近使ったキャラの文字色、plate=板の地（発光色を段階×2%だけ --surface に混ぜた値）、
+    // 文字の影は blur=l×0.6px・alpha=l×0.05、板の滲みは inset の blur=4+l×0.8px・spread=l×0.6px・alpha=0.12+l×0.055（computed は alpha が8bitに丸められる）
     const TABLE = [
-      { c: [170, 166, 157], sh: [], plate: [23, 25, 28], edge: null },
-      { c: [233, 225, 211], sh: [[233, 225, 211, 0.5, 1], [255, 226, 186, 0.18, 3]], plate: [34, 37, 42], edge: null },
-      { c: [245, 237, 224], sh: [[245, 237, 224, 0.6, 1], [255, 214, 160, 0.24, 4]], plate: [34, 37, 42], edge: null },
-      { c: [255, 244, 222], sh: [[255, 244, 222, 0.8, 1], [255, 196, 120, 0.32, 6]], plate: [34, 37, 42], edge: null },
-      { c: [255, 235, 203], sh: [[255, 235, 203, 0.8, 1], [255, 182, 100, 0.36, 6]], plate: [38, 35, 31], edge: [1, 255, 182, 100, 0.22] },
-      { c: [255, 224, 176], sh: [[255, 224, 176, 0.8, 1.5], [255, 166, 84, 0.4, 7]], plate: [38, 35, 31], edge: [1, 255, 166, 84, 0.3] },
-      { c: [255, 212, 150], sh: [[255, 212, 150, 0.8, 1.5], [255, 150, 72, 0.43, 7]], plate: [38, 35, 31], edge: [1, 255, 150, 72, 0.38] },
-      { c: [255, 198, 128], sh: [[255, 198, 128, 0.8, 1.5], [255, 134, 64, 0.45, 8]], plate: [43, 35, 29], edge: [1, 255, 134, 64, 0.46] },
-      { c: [255, 184, 114], sh: [[255, 184, 114, 0.8, 2], [255, 118, 56, 0.47, 8]], plate: [43, 35, 29], edge: [1, 255, 118, 56, 0.55] },
-      { c: [255, 170, 106], sh: [[255, 170, 106, 0.8, 2], [255, 104, 50, 0.5, 8]], plate: [43, 35, 29], edge: [2, 255, 104, 50, 0.66] },
-      { c: [255, 156, 102], sh: [[255, 156, 102, 0.8, 2], [255, 90, 46, 0.5, 8]], plate: [43, 35, 29], edge: [2, 255, 90, 46, 0.8] },
+      { rgb: null },
+      { rgb: [150, 196, 164], tc: [201, 221, 207], plate: [26, 28, 31], sh: [0.05, 0.6], np: [0.176, 4.8, 0.6] },
+      { rgb: [120, 204, 148], tc: [189, 230, 201], plate: [27, 32, 33], sh: [0.1, 1.2], np: [0.23, 5.6, 1.2] },
+      { rgb: [98, 216, 138], tc: [174, 239, 194], plate: [27, 36, 35], sh: [0.15, 1.8], np: [0.286, 6.4, 1.8] },
+      { rgb: [84, 228, 130], tc: [160, 245, 184], plate: [28, 41, 36], sh: [0.2, 2.4], np: [0.34, 7.2, 2.4] },
+      { rgb: [77, 242, 124], tc: [150, 247, 176], plate: [28, 47, 38], sh: [0.25, 3], np: [0.396, 8, 3] },
+      { rgb: [77, 242, 124], tc: [168, 249, 190], plate: [29, 51, 40], sh: [0.3, 3.6], np: [0.45, 8.8, 3.6] },
+      { rgb: [82, 246, 128], tc: [186, 251, 203], plate: [31, 56, 42], sh: [0.35, 4.2], np: [0.506, 9.6, 4.2] },
+      { rgb: [90, 250, 134], tc: [203, 252, 216], plate: [34, 61, 45], sh: [0.4, 4.8], np: [0.56, 10.4, 4.8] },
+      { rgb: [102, 252, 142], tc: [218, 253, 227], plate: [37, 66, 49], sh: [0.45, 5.4], np: [0.616, 11.2, 5.4] },
+      { rgb: [118, 255, 154], tc: [232, 255, 238], plate: [42, 71, 53], sh: [0.5, 6], np: [0.67, 12, 6] },
     ];
     const want = (lv) => {
       const t = TABLE[lv];
+      if (!t.rgb) return { color: 'rgb(170, 166, 157)', tc: 'rgb(170, 166, 157)', shadow: 'none', plate: 'rgb(23, 25, 28)', glow: 'none' };
+      const c = t.rgb.join(', ');
       return {
-        color: `rgb(${t.c.join(', ')})`,
-        shadow: t.sh.length ? t.sh.map(([r, g, b, a, bl]) => `rgba(${r}, ${g}, ${b}, ${a}) 0px 0px ${bl}px`).join(', ') : 'none',
+        color: 'rgb(234, 255, 240)', // --lit。タイルの英字は段階1以上で同じ色
+        tc: `rgb(${t.tc.join(', ')})`,
+        shadow: `rgba(${c}, ${t.sh[0]}) 0px 0px ${t.sh[1]}px`,
         plate: `rgb(${t.plate.join(', ')})`,
-        edge: t.edge ? `rgba(${t.edge.slice(1).join(', ')}) 0px 0px 0px ${t.edge[0]}px inset` : 'rgba(0, 0, 0, 0) 0px 0px 0px 0px inset',
+        glow: `rgba(${c}, ${t.np[0]}) 0px 0px ${t.np[1]}px ${t.np[2]}px inset`,
       };
     };
     // 件数 → 段階の境界（neonLevel を使わず、表を直接書く）
@@ -2917,30 +2924,31 @@ for (const width of [360, 430]) {
       return d;
     };
     const tileStyle = (page, sel) => page.$eval(sel, (e) => {
-      const en = getComputedStyle(e.querySelector('.cell-en')), b = getComputedStyle(e, '::before'), n = e.querySelector('.cell-n');
-      return { lv: e.dataset.lv, color: en.color, shadow: en.textShadow, nColor: n ? getComputedStyle(n).color : null, nShadow: n ? getComputedStyle(n).textShadow : null, plate: b.backgroundColor, edge: b.boxShadow, filter: [en.filter, b.filter, en.backdropFilter, b.backdropFilter] };
+      const en = getComputedStyle(e.querySelector('.cell-en')), b = getComputedStyle(e, '::before');
+      return { lv: e.dataset.lv, color: en.color, shadow: en.textShadow, plate: b.backgroundColor, glow: b.boxShadow, filter: [en.filter, b.filter, en.backdropFilter, b.backdropFilter] };
     });
     const ids = CHARACTERS.map((c) => c.id);
 
-    // 21a カナの削除: 見えるのは英字と件数だけ。読み上げ名（aria-label・h1のsr-only）はカナのまま
+    // 21a カナの削除と件数の非表示: 見えるのは英字だけ。件数は読み上げ名（aria-label）だけが伝える。読み上げ名（aria-label・h1のsr-only）はカナのまま
     {
       const page = await newPage(width, countsSeed([['ryu', 3], ['ken', 1], ['chunli', 70]]));
-      await check(`${tag} 21a キャラ選択: .cell の見える文字は英字と件数だけ（カナ・.cell-name・.kn なし）。aria-label は「リュウ 3件」形式で0件は名前だけ`, async () => {
+      await check(`${tag} 21a キャラ選択: .cell の見える文字は英字だけ（カナ・件数・メーターなし）。aria-label は「リュウ 3件」形式で0件は名前だけ`, async () => {
         const r = await page.$$eval('.cell', (els) => els.map((e) => [e.getAttribute('aria-label'), e.innerText.trim()]));
         assert.equal(r.length, 32);
-        for (const [label, text] of r) assert.match(text, /^[A-Z.\- ]+(\n\d+件)?$/, `${label}: ${JSON.stringify(text)}`);
-        assert.equal(await page.locator('.cell-name, .kn').count(), 0);
+        for (const [label, text] of r) assert.match(text, /^[A-Z.\- ]+$/, `${label}: ${JSON.stringify(text)}`);
+        assert.equal(await page.locator('.cell-name, .kn, .cell-n, .cell-lv').count(), 0);
         const by = Object.fromEntries(r);
-        assert.equal(by['リュウ 3件'], 'RYU\n3件');
-        assert.equal(by['ケン 1件'], 'KEN\n1件');
-        assert.equal(by['春麗 70件'], 'CHUN-LI\n70件');
+        assert.equal(by['リュウ 3件'], 'RYU');
+        assert.equal(by['ケン 1件'], 'KEN');
+        assert.equal(by['春麗 70件'], 'CHUN-LI');
         assert.equal(by['ダルシム'], 'DHALSIM');
         assert.equal(r.filter(([l]) => /^\S+ \d+件$/.test(l)).length, 3);
+        assert.equal(await page.getByRole('link', { name: 'リュウ 3件', exact: true }).count(), 1); // 支援技術が件数を読める
       });
-      await check(`${tag} 21a キャラ選択: 0件のタイルも英字の位置がそろう（2行目の高さを確保）、タイルの高さ54`, async () => {
-        const r = await page.$$eval('.cell', (els) => els.map((e) => [Math.round((e.querySelector('.cell-en').getBoundingClientRect().top - e.getBoundingClientRect().top) * 10), e.getBoundingClientRect().height]));
+      await check(`${tag} 21a キャラ選択: 英字はタイルの縦の中央にあり全タイルで位置がそろう、タイルの高さ54、横スクロールなし`, async () => {
+        const r = await page.$$eval('.cell', (els) => els.map((e) => { const t = e.getBoundingClientRect(), n = e.querySelector('.cell-en').getBoundingClientRect(); return [Math.round((n.top - t.top) * 10), t.height, Math.abs((n.top + n.height / 2) - (t.top + t.height / 2))]; }));
         assert.equal(new Set(r.map((x) => x[0])).size, 1, JSON.stringify([...new Set(r.map((x) => x[0]))]));
-        assert.ok(r.every((x) => x[1] === 54));
+        assert.ok(r.every((x) => x[1] === 54 && x[2] <= 1), JSON.stringify(r[0]));
         assert.ok(await noHScroll(page));
       });
       await gotoHash(page, '#/c/ryu');
@@ -2954,7 +2962,7 @@ for (const width of [360, 430]) {
       await page.context().close();
     }
 
-    // 21b ネオンの段階: 件数 → data-lv と、英字・件数・板・縁の computed style が1.2の表と一致する
+    // 21b ネオンの段階（蛍光グリーン）: 件数 → data-lv と、英字・板・滲みの computed style が1.2の表と一致する
     {
       const counts = COUNT_LV.map(([n], i) => [ids[i], n]);
       const page = await newPage(width, countsSeed(counts));
@@ -2967,36 +2975,61 @@ for (const width of [360, 430]) {
         }
         assert.equal(Object.keys(found).length, 11);
       });
-      await check(`${tag} 21b 全11段階: 英字・件数の色、text-shadow、板の色、縁が表（1.2）と一致する。縁は0ぼかしのinset。filterなし`, async () => {
+      await check(`${tag} 21b 全11段階: 英字の色、text-shadow、板の地、板の縁からの滲み（inset）が表（1.2）と一致する。filterなし。0件は光なし`, async () => {
         for (let lv = 0; lv <= 10; lv++) {
           const st = await tileStyle(page, found[lv]), w = want(lv);
-          assert.deepEqual([st.lv, st.color, st.shadow, st.plate, st.edge], [String(lv), w.color, w.shadow, w.plate, w.edge], `段階${lv}`);
-          if (lv > 0) assert.deepEqual([st.nColor, st.nShadow], [w.color, 'none'], `段階${lv}の件数`); // 件数は英字と同じ色で影なし
+          assert.deepEqual([st.lv, st.color, st.shadow, st.plate, st.glow], [String(lv), w.color, w.shadow, w.plate, w.glow], `段階${lv}`);
           assert.deepEqual(st.filter, ['none', 'none', 'none', 'none']);
         }
       });
-      await check(`${tag} 21b 全タイルの発光の上限: 影は2層以下、ぼかし8px以下、アルファ0.8以下（にじみは0.5以下）`, async () => {
-        const bad = await page.$$eval('.cell-en', (els) => els.flatMap((e) => {
-          const v = getComputedStyle(e).textShadow;
-          const ls = v === 'none' ? [] : v.split(/,(?![^(]*\))/).map((x) => x.trim());
-          const a = (x) => Number(x.match(/rgba?\(([^)]*)\)/)[1].split(',')[3] ?? 1), bl = (x) => parseFloat(x.replace(/rgba?\([^)]*\)/, '').trim().split(/\s+/)[2]);
-          return [...(ls.length > 2 ? ['3層以上'] : []), ...ls.filter((x) => a(x) > 0.8 || bl(x) > 8).map((x) => `上限超え ${x}`), ...(ls[1] && a(ls[1]) > 0.5 ? [`にじみ ${ls[1]}`] : [])];
+      await check(`${tag} 21b 全タイルの発光の上限: 文字の影は2層以下・ぼかし8px以下・アルファ0.8以下。板の滲みは inset の1層だけで、ぼかし12px以下・広がり6px以下（D-016）`, async () => {
+        const bad = await page.$$eval('.cell', (els) => els.flatMap((c) => {
+          const layers = (v) => (v === 'none' ? [] : v.split(/,(?![^(]*\))/).map((x) => x.trim()));
+          const a = (x) => Number(x.match(/rgba?\(([^)]*)\)/)[1].split(',')[3] ?? 1), nums = (x) => x.replace(/rgba?\([^)]*\)/, '').replace('inset', '').trim().split(/\s+/).map(parseFloat);
+          const ts = layers(getComputedStyle(c.querySelector('.cell-en')).textShadow), bs = layers(getComputedStyle(c, '::before').boxShadow);
+          return [...(ts.length > 2 ? ['文字の影が3層以上'] : []), ...ts.filter((x) => a(x) > 0.8 || nums(x)[2] > 8).map((x) => `文字の影が上限超え ${x}`),
+            ...(bs.length > 1 ? ['板の影が2層以上'] : []), ...bs.filter((x) => !x.includes('inset') || nums(x)[2] > 12 || nums(x)[3] > 6 || a(x) > 0.7).map((x) => `板の滲みが上限超え ${x}`)];
         }));
         assert.deepEqual(bad, []);
       });
-      await check(`${tag} 21b 押下中（1.2の※）: 段階1は英字が --lit＋発光、段階5は自分の色のまま。どちらも板は --line、即時`, async () => {
-        for (const [lv, color] of [[1, 'rgb(255, 244, 222)'], [5, 'rgb(255, 224, 176)']]) {
+      await check(`${tag} 21b 文字と板の比: 英字（段階10でも）が滲みを含む実際の画素の上で 4.5:1 以上（英字を透明にして、字の範囲の最も明るい画素を実測）。実測値を出力`, async () => {
+        const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+        const out = [];
+        await page.addStyleTag({ content: '.cell-en { color: transparent !important; }' }); // 影は残す（字の下にある画素そのもの）
+        for (let lv = 0; lv <= 10; lv++) {
+          const box = await page.$eval(found[lv], (e) => { const r = document.createRange(); r.selectNodeContents(e.querySelector('.cell-en')); const b = r.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; });
+          const png = await page.screenshot({ clip: box });
+          const maxPx = await page.evaluate(async (b64) => {
+            const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+            const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+            const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+            const d = g.getImageData(0, 0, c.width, c.height).data; let best = [0, 0, 0], bl = -1;
+            const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+            for (let i = 0; i < d.length; i += 4) { const l = 0.2126 * f(d[i]) + 0.7152 * f(d[i + 1]) + 0.0722 * f(d[i + 2]); if (l > bl) { bl = l; best = [d[i], d[i + 1], d[i + 2]]; } }
+            return best;
+          }, png.toString('base64'));
+          const fg = lv ? [234, 255, 240] : [170, 166, 157];
+          const r = (lum(fg) + 0.05) / (lum(maxPx) + 0.05);
+          out.push(`${lv}:${r.toFixed(2)}`);
+          assert.ok(r >= 4.5, `段階${lv}: ${r.toFixed(2)} (最も明るい画素 ${maxPx})`);
+        }
+        console.log(`e2e: 21b ${tag} 文字と板（滲み込み）の最小比 段階:比 ${out.join(' ')}`);
+      });
+      await page.reload(); // 透明にした英字を戻す
+      await page.waitForSelector('.grid');
+      await check(`${tag} 21b 押下中: 板だけが --line になり（即時）、英字の色と滲みは変わらない（段階1・5）`, async () => {
+        for (const lv of [1, 5]) {
           const t = page.locator(found[lv]);
           const bb = await t.boundingBox();
           await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
           await page.mouse.down();
-          const down = await t.evaluate((e) => [getComputedStyle(e.querySelector('.cell-en')).color, getComputedStyle(e.querySelector('.cell-en')).textShadow, getComputedStyle(e, '::before').backgroundColor, getComputedStyle(e, '::before').transitionDuration]);
+          const down = await t.evaluate((e) => [getComputedStyle(e.querySelector('.cell-en')).color, getComputedStyle(e.querySelector('.cell-en')).textShadow, getComputedStyle(e, '::before').backgroundColor, getComputedStyle(e, '::before').boxShadow, getComputedStyle(e, '::before').transitionDuration]);
           await page.mouse.move(0, 0);
           await page.mouse.up();
-          assert.deepEqual([down[0], down[2], down[3]], [color, 'rgb(46, 50, 56)', '0s'], `段階${lv}`);
-          assert.equal(down[1], lv === 1 ? 'rgba(255, 244, 222, 0.8) 0px 0px 1px, rgba(255, 196, 120, 0.35) 0px 0px 8px' : want(lv).shadow, `段階${lv}の影`);
+          assert.deepEqual(down, [want(lv).color, want(lv).shadow, 'rgb(46, 50, 56)', want(lv).glow, '0s'], `段階${lv}`);
         }
       });
+      await page.waitForTimeout(700); // 起動時の点灯を終える
       await shot(page, '48-home-levels', width);
       await check(`${tag} 21b 英字がタイルに収まり、横スクロールなし`, async () => {
         assert.deepEqual(await page.$$eval('.cell-en', (els) => els.filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent)), []);
@@ -3013,16 +3046,17 @@ for (const width of [360, 430]) {
           });
         }
         if (id === 'jamie') {
-          await check(`${tag} 21b 一覧のワードマーク: 2件は段階2の色と影`, async () => {
-            assert.deepEqual(await page.$eval('.wm', (e) => [e.dataset.lv, getComputedStyle(e).color, getComputedStyle(e).textShadow]), ['2', want(2).color, want(2).shadow]);
+          await check(`${tag} 21b 一覧のワードマーク: 2件は段階2の緑の色と影`, async () => {
+            assert.deepEqual(await page.$eval('.wm', (e) => [e.dataset.lv, getComputedStyle(e).color, getComputedStyle(e).textShadow]), ['2', want(2).tc, want(2).shadow]);
           });
+          await shot(page, '52-list-wordmark', width);
         }
         await page.getByRole('button', { name: 'キャラクター選択に戻る' }).click();
         await page.waitForSelector('.grid');
       }
-      await check(`${tag} 21b 最近使ったキャラ: data-lv が件数の段階（0件・1件・2件）で、.rc-en は表の色と影（0件は消灯）。板は --key のまま`, async () => {
+      await check(`${tag} 21b 最近使ったキャラ: data-lv が件数の段階（0件・1件・2件）で、.rc-en は表の緑の色と影（0件は消灯）。板は --key のまま`, async () => {
         const r = await page.$$eval('.rc', (els) => els.map((e) => [e.getAttribute('aria-label'), e.dataset.lv, getComputedStyle(e.querySelector('.rc-en')).color, getComputedStyle(e.querySelector('.rc-en')).textShadow, getComputedStyle(e, '::before').backgroundColor]));
-        assert.deepEqual(r, [['ジェイミー', '2', want(2).color, want(2).shadow, 'rgb(34, 37, 42)'], ['ルーク', '1', want(1).color, want(1).shadow, 'rgb(34, 37, 42)'], ['リュウ', '0', want(0).color, 'none', 'rgb(34, 37, 42)']]);
+        assert.deepEqual(r, [['ジェイミー', '2', want(2).tc, want(2).shadow, 'rgb(34, 37, 42)'], ['ルーク', '1', want(1).tc, want(1).shadow, 'rgb(34, 37, 42)'], ['リュウ', '0', want(0).tc, 'none', 'rgb(34, 37, 42)']]);
       });
       await shot(page, '49-home-recent-levels', width);
       await check(`${tag} 21b ページエラーなし`, async () => assert.deepEqual(page.errors, []));
@@ -3296,7 +3330,7 @@ for (const width of [360, 430]) {
     }
   }
 
-  // 23. T-015 修正2段目（UI）: 凡例のキーボード・レベルメーター・詳細のチップの正式名称・タップ領域・入力欄・姿勢キー・削除後のフォーカス・640px・禁止事項（D-015）
+  // 23. T-015 修正2段目（UI）: 凡例のキーボード・（レベルメーターはT-021で廃止）・詳細のチップの正式名称・タップ領域・入力欄・姿勢キー・削除後のフォーカス・640px・禁止事項（D-015）
   {
     const seed23 = () => {
       const st = seedState();
@@ -3335,33 +3369,6 @@ for (const width of [360, 430]) {
         assert.ok(r.every(([w, cls, before]) => w >= 170 && cls === 'leg-out' && before === '"書き出し "'), JSON.stringify(r.find(([w, cls]) => w < 170 || cls !== 'leg-out')));
         assert.ok(await noHScroll(page));
       });
-      await page.context().close();
-    }
-
-    // 23b レベルメーター（B-Med2）
-    {
-      const page = await newPage(width, seedState());
-      await check(`${tag} 23b キャラ選択のタイル: 下端のレベルメーター（目盛り10個、点灯は段階の数、aria-hidden）。リュウ3件は3つ点灯、他は0`, async () => {
-        const r = await page.$$eval('.cell', (cs) => cs.map((c) => [c.getAttribute('aria-label'), c.dataset.lv, c.querySelectorAll('.cell-lv i').length, c.querySelectorAll('.cell-lv i.on').length, c.querySelector('.cell-lv').getAttribute('aria-hidden')]));
-        assert.equal(r.length, 32);
-        for (const [label, lv, n, on, hid] of r) assert.deepEqual([n, on, hid], [10, Number(lv), 'true'], label);
-        assert.deepEqual(r.find((x) => x[0].startsWith('リュウ')).slice(0, 2), ['リュウ 3件', '3']);
-        assert.equal(r.filter((x) => x[3] === 0).length, 31);
-      });
-      await check(`${tag} 23b レベルメーター: 点灯は英字と同じ色、消灯は --line-strong、影・filterなし、タイルの内側で件数と重ならない`, async () => {
-        const r = await page.$eval('.cell[aria-label^="リュウ"]', (c) => {
-          const ticks = [...c.querySelectorAll('.cell-lv i')], cs = (e) => getComputedStyle(e);
-          const t = c.getBoundingClientRect(), m = c.querySelector('.cell-lv').getBoundingClientRect(), n = c.querySelector('.cell-n').getBoundingClientRect();
-          return {
-            on: ticks.slice(0, 3).every((i) => cs(i).backgroundColor === cs(c.querySelector('.cell-en')).color),
-            off: [...new Set(ticks.slice(3).map((i) => cs(i).backgroundColor))],
-            flat: ticks.every((i) => cs(i).boxShadow === 'none' && cs(i).filter === 'none' && cs(i).backgroundImage === 'none'),
-            inside: m.bottom <= t.bottom - 2 && m.left >= t.left + 10 && m.right <= t.right - 10 && m.top >= n.bottom && m.height >= 3 && ticks.every((i) => i.getBoundingClientRect().width >= 3),
-          };
-        });
-        assert.deepEqual(r, { on: true, off: ['rgb(74, 80, 89)'], flat: true, inside: true });
-      });
-      await shot(page, '51-home-meter', width);
       await page.context().close();
     }
 
