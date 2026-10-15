@@ -164,7 +164,7 @@ export function applyPadInput(state, action) {
 }
 
 // ===== SECTION: トークン表示 =====
-const ARROWS = { 1: '↙', 2: '↓', 3: '↘', 4: '←', 5: '・', 6: '→', 7: '↖', 8: '↑', 9: '↗' };
+const ARROWS = { 1: '↙', 2: '↓', 3: '↘', 4: '←', 5: 'ニュートラル', 6: '→', 7: '↖', 8: '↑', 9: '↗' };
 const MOTION_NAMES = { 236: '波動', 214: '竜巻', 623: '昇龍', 22: '下下', '[4]6': '溜め横', '[2]8': '溜め縦', 360: '一回転' };
 const DIR_NAMES = { 1: '左下', 3: '右下', 4: '引き', 6: '前', 7: '左上', 8: '上', 9: '右上' };
 const STANCE_NAMES = { stand: '立ち', crouch: '屈', jump: 'ジャンプ' };
@@ -237,7 +237,7 @@ const POSITIONS = ['any', 'corner', 'midscreen'];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const isId = (v) => typeof v === 'string' && ID_RE.test(v);
 const isStr = (v, max, min = 0) => typeof v === 'string' && v.length >= min && v.length <= max;
-const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
+export const isTime = (v) => Number.isSafeInteger(v) && v >= 0;
 const isCharacter = (v) => CHARACTERS.some((c) => c.id === v);
 
 function docProblem(doc) {
@@ -308,6 +308,79 @@ export function parseDocText(text) {
   }
   const result = validateDoc(doc);
   return result.ok ? { ok: true, doc } : result;
+}
+
+// ===== SECTION: セクション操作 =====
+// すべて純粋関数。入力の state（{ sections, combos }）は変更せず、validateDoc を通る新しい state を返す。
+// 不正な引数は例外、削除だけは UI が理由を表示できるよう { ok, state | reason } を返す。now はエポックミリ秒。
+export const SECTION_PRESETS = ['通常', 'カウンター', 'パニッシュカウンター', 'インパクト壁やられ', 'スタン', '画面端', '起き攻め'];
+export const SECTION_NAME_MAX = LIMITS.name;
+// 128ビットの乱数の16進32文字（ID_RE を満たす）。randomUUID は secure context 限定なので使わない
+export const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+
+export const sectionsOf = (state, characterId) =>
+  state.sections.filter((s) => s.characterId === characterId).sort((a, b) => a.order - b.order);
+
+function checkName(name) {
+  const n = typeof name === 'string' ? name.trim() : '';
+  if (n.length < 1 || n.length > SECTION_NAME_MAX) throw new Error(`セクション名は1〜${SECTION_NAME_MAX}文字です`);
+  return n;
+}
+
+function findSection(state, sectionId) {
+  const s = state.sections.find((x) => x.id === sectionId);
+  if (!s) throw new Error('セクションが見つかりません');
+  return s;
+}
+
+// 同じキャラのセクションを orderedIds の順に order=0.. と詰め直す（値が変わったものだけ updatedAt を更新）
+function repack(sections, orderedIds, now) {
+  return sections.map((s) => {
+    const order = orderedIds.indexOf(s.id);
+    return order === -1 || s.order === order ? s : { ...s, order, updatedAt: now };
+  });
+}
+
+export function addSection(state, characterId, name, now) {
+  if (!CHARACTERS.some((c) => c.id === characterId)) throw new Error('不正なキャラクターです');
+  const mine = sectionsOf(state, characterId);
+  const section = { id: newId(), characterId, name: checkName(name), order: mine.length ? mine.at(-1).order + 1 : 0, updatedAt: now };
+  return { sections: [...state.sections, section], combos: state.combos };
+}
+
+export function renameSection(state, sectionId, name, now) {
+  findSection(state, sectionId);
+  const n = checkName(name);
+  return { sections: state.sections.map((s) => (s.id === sectionId ? { ...s, name: n, updatedAt: now } : s)), combos: state.combos };
+}
+
+// delta=-1 で上へ、+1 で下へ。端を越える移動は何もしない（同じ state を返す）。
+export function moveSection(state, sectionId, delta, now) {
+  if (!Number.isInteger(delta)) throw new Error('不正な移動量です');
+  const ids = sectionsOf(state, findSection(state, sectionId).characterId).map((s) => s.id);
+  const from = ids.indexOf(sectionId);
+  const to = Math.max(0, Math.min(ids.length - 1, from + delta));
+  if (to === from) return state;
+  ids.splice(to, 0, ...ids.splice(from, 1));
+  return { sections: repack(state.sections, ids, now), combos: state.combos };
+}
+
+// 中身がある場合は同じキャラの別セクション moveToId が必須。他にセクションがなければ削除不可（D-005）。
+export function deleteSection(state, sectionId, moveToId, now) {
+  const target = state.sections.find((s) => s.id === sectionId);
+  if (!target) return { ok: false, reason: 'セクションが見つかりません' };
+  const rest = sectionsOf(state, target.characterId).filter((s) => s.id !== sectionId);
+  const hasItems = state.combos.some((c) => c.sectionId === sectionId);
+  if (hasItems && !rest.length) return { ok: false, reason: '他にセクションがないため削除できません。先に別のセクションを作ってください' };
+  if (hasItems && !rest.some((s) => s.id === moveToId)) return { ok: false, reason: '移動先を選んでください' };
+  const ids = rest.map((s) => s.id);
+  return {
+    ok: true,
+    state: {
+      sections: repack(state.sections.filter((s) => s.id !== sectionId), ids, now),
+      combos: hasItems ? state.combos.map((c) => (c.sectionId === sectionId ? { ...c, sectionId: moveToId, updatedAt: now } : c)) : state.combos,
+    },
+  };
 }
 
 // ===== SECTION: 書き出しと取り込み =====

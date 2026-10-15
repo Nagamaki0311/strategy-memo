@@ -19,6 +19,25 @@
 
 ---
 
+## 2026-10-15 T-008・T-009: 画面・保存・セクション管理
+
+### 実施内容
+- app/app.jsに、hashルーティング、保存層（localStorage 3キー、読み込み時の検証、保存失敗の表示）、共通部品（上部バー・下部バー・トースト・ボトムシート・エラー表示）、キャラクター選択画面、記録の一覧（セクション見出し、Sプレビュー、折りたたみ、並べ替え、削除と取り消し）を実装した。詳細・編集・設定の各画面はプレースホルダーで、T-010・T-011・T-012で置き換える。
+- app/core.jsにセクション操作（`addSection`、`renameSection`、`moveSection`、`deleteSection`、`newId` ほか）を追加した。
+- 方向5（ニュートラル）の矢印表記を、ユーザーの指示で「N」の文字に変更した（aria-labelは「ニュートラル」、数字表記は「5」）。design-spec 3章に反映した。
+- Reviewerのレビュー（Critical/Highなし、Medium2件、Low7件）を受けて修正した。他タブの変更の検知と、書き込み前の最新確認（M1）。保存失敗のエラー帯を上部バーの下に固定（M2）。シートの履歴の残りの除去（L1）。`newId` を `crypto.getRandomValues` ベースにした（L2。httpの実機でも動く）。保存前に`validateDoc`を通す（L4）。フォーカスの戻し先とTab閉じ込め（L5）ほか。
+
+### 結果
+- `npm test` は41テスト pass、fail 0、終了コード0（Managerが再実行）。
+- `tests/e2e.mjs` は360幅・430幅で172件すべて合格（Managerが再実行）。変異テスト18種がすべて検出された。
+- e2eの実行手順（`npm test` には含まれない）: リポジトリルートで `python3 -m http.server 8000` を起動し、`PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers SHOTS=<保存先ディレクトリ> node tests/e2e.mjs`。グローバルのPlaywright（/opt/node-tools/node_modules/playwright）に依存する。終了後にサーバーを止める。
+- 修正後の再レビューは行っていない。
+
+### 次回開始位置
+- T-010（編集画面・タップパッド）とT-011（詳細画面・複製・削除と取り消し）。docs/design-spec.mdの4章・6.3・6.4、D-005、core.jsの `applyPadInput`・`describeRow` を先に読む。申し送り: 保存失敗のエラー表示を編集画面にも付ける。下書き（`sf6memo.drafts`、キー定数は定義済み）を実装する。↓キーの選択表示はモーション選択後も残る（確定するトークンには入らない）。他タブのstorageイベントでは設定（最近使ったキャラ・折りたたみ）を読み直していない。トーストのキーボードフォーカス中の一時停止は `:focus-visible` のときだけ。
+
+---
+
 ## 2026-10-15 T-007: デザイントークンの記録とコマンド列の描画
 
 ### 実施内容

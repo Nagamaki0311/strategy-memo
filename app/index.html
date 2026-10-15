@@ -41,7 +41,25 @@
   <symbol id="i-br-r" viewBox="0 0 6 24">
     <path d="M1 3H4V21H1" fill="none" stroke="currentColor" style="stroke-width:var(--br-sw)" stroke-linecap="butt" stroke-linejoin="miter"/>
   </symbol>
+  <!-- UI部品の線画（design-spec 5章）。右向きのシェブロンは回転して‹／▾にする -->
+  <symbol id="i-chev" viewBox="0 0 24 24">
+    <path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" stroke-linejoin="miter"/>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24">
+    <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="butt"/>
+  </symbol>
+  <symbol id="i-more" viewBox="0 0 24 24">
+    <circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24">
+    <path d="M12 3L22 20H2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="miter"/>
+    <path d="M12 9.5v5" fill="none" stroke="currentColor" stroke-width="2.2"/><rect x="11" y="16.5" width="2" height="2" fill="currentColor"/>
+  </symbol>
 </svg>
-<h1>SF6戦略メモ</h1>
+<div id="app"></div>
+<div id="layer">
+  <div id="toast" role="status"></div>
+  <div id="live" class="sr-only" aria-live="polite"></div>
+</div>
 </body>
 </html>
