@@ -4,7 +4,7 @@ import {
   CHARACTERS, PRESETS, NOTICE_TOO_LONG, applyPadInput, initialPadState, pendingMotion, isMotion, isValidToken, tokenLabel, describeRow, motionToArrows,
   validateDoc, parseDocText, exportDoc, mergeImport,
   SECTION_PRESETS, newId, isTime, addSection, renameSection, moveSection, deleteSection, sectionsOf,
-  LIMITS, strengthChoices, changeStrength, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
+  LIMITS, strengthChoices, changeStrength, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft, isDamage, DAMAGE_MAX,
 } from '../app/core.js';
 
 // requirements.md 4.5 のスラッグ順
@@ -21,6 +21,12 @@ test('idは非空で重複しない', () => {
 
 test('表示名は非空', () => {
   assert.ok(CHARACTERS.every((c) => typeof c.name === 'string' && c.name !== ''));
+});
+
+test('英字名enは非空で、使える字（A-Z . - 空白）だけ。例外表記はGOUKI・VEGA（design-spec-v2 2.4）', () => {
+  assert.ok(CHARACTERS.every((c) => /^[A-Z][A-Z .-]*$/.test(c.en)), '英字の形式');
+  const en = Object.fromEntries(CHARACTERS.map((c) => [c.id, c.en]));
+  assert.deepEqual([en.gouki_akuma, en.vega_mbison, en.chunli, en.deejay, en.ehonda, en.aki, en.cviper], ['GOUKI', 'VEGA', 'CHUN-LI', 'DEE JAY', 'E.HONDA', 'A.K.I.', 'C.VIPER']);
 });
 
 test('idの並びが4.5のスラッグ順と一致する', () => {
@@ -677,4 +683,46 @@ test('sanitizeDraft: 正しい形はそのまま、壊れた項目は捨てる�
   assert.equal(big.title.length, LIMITS.title);
   assert.equal(big.tokens.length, LIMITS.tokens);
   assert.equal(big.tags.length, LIMITS.tags);
+});
+
+// ===== ダメージ（D-012） =====
+test('damage: 未入力（キーなし）の既存データと、0・99999・途中の整数は通る', () => {
+  assert.ok(validateDoc(sampleDoc()).ok); // 既存データ（damageなし）
+  for (const v of [0, 1, 3240, DAMAGE_MAX]) {
+    const d = sampleDoc();
+    d.combos[0].damage = v;
+    assert.deepEqual(validateDoc(d), { ok: true }, String(v));
+  }
+});
+
+test('damage: 範囲外・非整数・負数・文字列などは個別の理由で拒否する', () => {
+  const cases = [
+    ['上限超え 100000', 100000], ['負数 -1', -1], ['小数 1.5', 1.5], ['数値文字列 "3240"', '3240'], ['空文字', ''],
+    ['NaN', NaN], ['Infinity', Infinity], ['null', null], ['真偽値', true], ['配列', [3240]], ['オブジェクト', { v: 1 }],
+  ];
+  for (const [name, v] of cases) {
+    const d = sampleDoc();
+    d.combos[0].damage = v;
+    const r = validateDoc(d);
+    assert.equal(r.ok, false, name);
+    assert.ok(r.reason.includes('1件目のcombosのdamageが不正です'), `${name}: ${r.reason}`);
+    assert.ok(!isDamage(v), name);
+  }
+});
+
+test('damage: 書き出し→JSON→取り込みの往復で値が一致し、複製と下書きの整形でも保たれる', () => {
+  const state = sampleState();
+  state.combos[0].damage = 3240;
+  const text = JSON.stringify(exportDoc(state));
+  const r = parseDocText(text);
+  assert.ok(r.ok);
+  assert.equal(r.doc.combos[0].damage, 3240);
+  assert.equal('damage' in r.doc.combos[1], false); // 未入力のコンボはキーを持たない
+  const merged = mergeImport({ sections: [], combos: [] }, r.doc);
+  assert.deepEqual(merged.doc.combos, state.combos);
+  assert.equal(duplicateCombo(state.combos[0], 5).damage, 3240);
+  assert.equal('damage' in duplicateCombo(state.combos[1], 5), false);
+  assert.equal(sanitizeDraft({ damage: 3240 }).damage, 3240);
+  for (const bad of [-1, 100000, 1.5, '3240', null, NaN]) assert.equal('damage' in sanitizeDraft({ damage: bad }), false, String(bad));
+  assert.equal('damage' in sanitizeDraft({}), false);
 });

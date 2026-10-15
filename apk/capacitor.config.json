@@ -1,0 +1,10 @@
+{
+  "appId": "io.github.nagamaki0311.sf6memo",
+  "appName": "SF6戦略メモ",
+  "webDir": "../app",
+  "backgroundColor": "#16140F",
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "SystemBars": { "style": "DARK", "insetsHandling": "css", "initialViewportFitValueHint": "cover" }
+  }
+}

@@ -9,8 +9,8 @@
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
 import { chromium } from '/opt/node-tools/node_modules/playwright/index.mjs';
 import assert from 'node:assert/strict';
-import { mkdirSync } from 'node:fs';
-import { exportDoc } from '../app/core.js';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { exportDoc, CHARACTERS } from '../app/core.js';
 
 const BASE = process.env.BASE ?? 'http://localhost:8000/app/index.html';
 const SHOTS = process.env.SHOTS;
@@ -46,8 +46,8 @@ async function check(name, fn) {
 }
 
 const browser = await chromium.launch();
-async function newPage(width, seed) {
-  const ctx = await browser.newContext({ viewport: { width, height: 740 }, deviceScaleFactor: 1 });
+async function newPage(width, seed, ctxOpts = {}) {
+  const ctx = await browser.newContext({ viewport: { width, height: 740 }, deviceScaleFactor: 1, ...ctxOpts });
   const page = await ctx.newPage();
   page.errors = [];
   page.on('pageerror', (e) => page.errors.push(e.message));
@@ -82,13 +82,13 @@ for (const width of [360, 430]) {
     await shot(page, '01-home-first', width);
     for (const n of ['リュウ', '春麗', 'ケン', 'ガイル']) {
       await page.locator('.cell', { hasText: n }).click();
-      await page.waitForFunction((t) => location.hash.startsWith('#/c/') && document.querySelector('.topbar h1')?.textContent === t, n);
+      await page.waitForFunction((t) => location.hash.startsWith('#/c/') && document.querySelector('.topbar h1')?.textContent.endsWith(t), n); // h1は「RYU」（装飾）＋カナ
       await page.getByRole('button', { name: 'キャラクター選択に戻る' }).click();
       await page.waitForSelector('.grid');
     }
     await page.reload();
     await check(`${tag} 1 再読み込み後、最近使ったキャラが新しい順で最大3件`, async () => {
-      assert.deepEqual(await page.locator('.recent-list a').allInnerTexts(), ['ガイル', 'ケン', '春麗']);
+      assert.deepEqual(await page.locator('.recent-list a').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))), ['ガイル', 'ケン', '春麗']); // 英字は aria-hidden の装飾
     });
     await shot(page, '02-home-recent', width);
     await page.locator('.recent-list a').first().click();
@@ -1393,6 +1393,431 @@ for (const width of [360, 430]) {
       await page.waitForSelector('.sheet', { state: 'detached' });
     });
     await check(`${tag} 16 ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+  }
+
+  // 17a. デザイン刷新v2（T-017a。design-spec-v2 9章の1・2・5・7・8・10）
+  {
+    // damage 付きの記録（c1=3240、c3=0、c2・c9はなし）と、全チップ種を含む c9
+    const SYSALL = [{ type: 'system', id: 'CDR' }, { type: 'system', id: 'RAW_DR' }, { type: 'system', id: 'DI' }, { type: 'system', id: 'PARRY' }, { type: 'system', id: 'REVERSAL' },
+      { type: 'sa', level: 1 }, SP('236', 'OD', 'P'), { type: 'note', id: 'CH' }, SP('236', 'H', 'P')];
+    const dmgSeed = () => {
+      const d = seedState();
+      d.combos[0].damage = 3240;
+      d.combos[2].damage = 0;
+      d.combos.push(combo('c9', 's1', '全部入り', SYSALL));
+      CHARACTERS.filter((c) => c.id !== 'ryu').slice(0, 8).forEach((c, i) => { // 点灯するキャラを9人にする（起動時の点灯は先頭6件）
+        d.sections.push(sec(`o${i}`, c.id, '通常', 0));
+        d.combos.push({ ...combo(`z${i + 10}`, `o${i}`, 'x', [N('stand', 'L', 'P')]), characterId: c.id });
+      });
+      return d;
+    };
+    // 発光（ぼかしのある影、または外側の影、または text-shadow）を持つ要素のclass。DPのS寸法の二重枠は 0ぼかしの inset（形そのもの）なので発光に数えない
+    const noGlow = (page, sel) => page.$$eval(sel, (els) => els.filter((e) => {
+      const cs = getComputedStyle(e);
+      const parts = cs.boxShadow === 'none' ? [] : cs.boxShadow.split(/,(?![^(]*\))/).map((x) => x.trim());
+      const glow = parts.some((x) => { const n = x.replace(/rgba?\([^)]*\)/, '').replace('inset', '').trim().split(/\s+/).map(parseFloat); return !x.includes('inset') || n[2] > 0; });
+      return glow || cs.textShadow !== 'none';
+    }).map((e) => e.className || e.tagName));
+
+    // 起動時の点灯: 1回だけ、先頭6件。タップを妨げない
+    const page = await newPage(width, dmgSeed());
+    await check(`${tag} 17a 起動時の点灯: 点灯タイルは9、動くのは先頭6件（60msずつずれる）、480ms`, async () => {
+      assert.equal(await page.locator('.cell.lit').count(), 9);
+      const r = await page.$$eval('.cell.boot', (els) => els.map((e) => { const cs = getComputedStyle(e.querySelector('.cell-en')); return [e.style.getPropertyValue('--d'), cs.animationName, cs.animationDuration, cs.animationDelay]; }));
+      assert.equal(r.length, 6);
+      assert.deepEqual(r.map((x) => x[0]), ['0ms', '60ms', '120ms', '180ms', '240ms', '300ms']);
+      assert.ok(r.every((x) => x[1] === 'flick' && x[2] === '0.48s'), JSON.stringify(r));
+      assert.equal(await page.locator('.cell.lit:not(.boot)').count(), 3); // 7件目以降は即時
+    });
+    await check(`${tag} 17a 動いている最中でもタイルをタップできる`, async () => {
+      await page.locator('.cell.lit').first().click({ timeout: 2000 });
+      await page.waitForFunction(() => location.hash === '#/c/ryu');
+    });
+    await check(`${tag} 17a 画面に戻っても点灯は再生しない（1回だけ）`, async () => {
+      await page.goBack();
+      await page.waitForSelector('.grid');
+      assert.equal(await page.locator('.cell.boot').count(), 0);
+      assert.equal(await page.locator('.cell.lit').count(), 9);
+    });
+    await check(`${tag} 17a キャラ選択: 32件が下部バーの上に収まる、英字は aria-hidden、リンク名は「リュウ 4件」`, async () => {
+      assert.equal(await page.locator('.cell').count(), 32);
+      const bottom = await page.evaluate(() => [[...document.querySelectorAll('.cell')].at(-1).getBoundingClientRect().bottom, document.querySelector('.bottombar').getBoundingClientRect().top]);
+      assert.ok(bottom[0] <= bottom[1], `最後のタイルの下端${bottom[0]} > 下部バーの上端${bottom[1]}`);
+      assert.equal(await page.locator('.cell-en[aria-hidden=true]').count(), 32);
+      assert.equal(await page.getByRole('link', { name: 'リュウ 4件', exact: true }).count(), 1);
+      assert.equal(await page.getByRole('link', { name: 'ダルシム', exact: true }).count(), 1); // 0件は件数なし
+      assert.equal(await page.locator('.cell-n').first().innerText(), '4件');
+    });
+    await check(`${tag} 17a 点灯と消灯の色: 点灯は板key・英字lit+発光、消灯は板surface・英字muted・発光なし`, async () => {
+      const f = (sel) => page.$eval(sel, (e) => { const b = getComputedStyle(e, '::before'); const t = getComputedStyle(e.querySelector('.cell-en')); return [b.backgroundColor, t.color, t.textShadow !== 'none']; });
+      assert.deepEqual(await f('.cell.lit'), ['rgb(34, 37, 42)', 'rgb(255, 244, 222)', true]);
+      assert.deepEqual(await f('.cell:not(.lit)'), ['rgb(23, 25, 28)', 'rgb(170, 166, 157)', false]);
+    });
+    await check(`${tag} 17a タイルの押下は即時（板はline、英字は点灯）、離すと戻る`, async () => {
+      const t = page.locator('.cell:not(.lit)').first();
+      const bb = await t.boundingBox();
+      await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
+      await page.mouse.down();
+      const down = await t.evaluate((e) => [getComputedStyle(e, '::before').backgroundColor, getComputedStyle(e.querySelector('.cell-en')).color, getComputedStyle(e.querySelector('.cell-en')).textShadow !== 'none', getComputedStyle(e, '::before').transitionDuration]);
+      await page.mouse.move(0, 0); // 離す前に外へ出してタップにしない
+      await page.mouse.up();
+      assert.deepEqual(down, ['rgb(46, 50, 56)', 'rgb(255, 244, 222)', true, '0s']);
+    });
+    await check(`${tag} 17a 英字の名前がタイル内に収まる（scrollWidth <= clientWidth）`, async () => {
+      const over = await page.$$eval('.cell-en', (els) => els.filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent));
+      assert.deepEqual(over, []);
+      assert.ok(await noHScroll(page));
+    });
+    await check(`${tag} 17a 書体: Tilt Neon が読み込まれ、data URI の woff2 は12KB以下、OFLが同梱されている`, async () => {
+      assert.equal(await page.evaluate(() => document.fonts.check('20px "Tilt Neon"')), true);
+      assert.equal(await page.evaluate(() => [...document.fonts].some((f) => f.family.includes('Tilt Neon') && f.status === 'loaded')), true);
+      assert.match(await page.$eval('.cell-en', (e) => getComputedStyle(e).fontFamily), /Tilt Neon/);
+      const css = readFileSync(new URL('../app/styles.css', import.meta.url), 'utf8');
+      const m = css.match(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/);
+      assert.ok(m && Buffer.from(m[1], 'base64').length <= 12 * 1024, 'woff2 > 12KB');
+      assert.match(readFileSync(new URL('../app/OFL-TiltNeon.txt', import.meta.url), 'utf8'), /Copyright 2019 The Tilt Project Authors[\s\S]*SIL OPEN FONT LICENSE Version 1\.1/);
+      assert.doesNotMatch(css, /(?<![-\w])(backdrop-)?filter\s*:/); // filter・backdrop-filter を使わない
+    });
+
+    // 一覧と詳細のダメージ
+    await gotoHash(page, '#/c/ryu');
+    await check(`${tag} 17a 一覧: ダメージは行メタの右端（「ダメージ 3,240」、0も出す）、未入力は出さない。メタ文字列は省略表示のまま`, async () => {
+      assert.deepEqual(await page.locator('.item-meta').evaluateAll((els) => els.map((e) => e.querySelector('.meta-t').innerText + '|' + (e.querySelector('.dmg')?.innerText ?? ''))),
+        ['どこでも・全8手|', '画面端・全24手|', 'どこでも・基本・全5手|ダメージ 3,240', 'どこでも・全2手|ダメージ 0']);
+      const st = await page.locator('.dmg').first().evaluate((e) => { const b = getComputedStyle(e.querySelector('b')); const m = getComputedStyle(e.closest('.item-meta')); return [getComputedStyle(e).fontSize, b.fontSize, b.fontWeight, b.fontVariantNumeric, m.display, m.gap]; });
+      assert.deepEqual(st, ['12px', '13px', '700', 'tabular-nums', 'flex', '8px']);
+      assert.equal(await page.locator('.meta-t').first().evaluate((e) => getComputedStyle(e).textOverflow), 'ellipsis');
+      assert.ok(await noHScroll(page));
+    });
+    await check(`${tag} 17a 一覧: 上部バーのワードマークは aria-hidden、h1の読み上げ名は「リュウ」`, async () => {
+      assert.equal(await page.locator('.topbar h1 .wm[aria-hidden=true]').innerText(), 'RYU');
+      assert.equal(await page.getByRole('heading', { name: 'リュウ', exact: true, level: 1 }).count(), 1);
+    });
+    await check(`${tag} 17a 一覧のS寸法・UIに発光がない（影はinset 0ぼかしの形のみ、text-shadowなし、filterなし）`, async () => {
+      assert.deepEqual(await noGlow(page, '.row.S, .row.S *, .item, .sec-head, .bottombar, .bottombar *, .topbar, .topbar .btn'), []);
+      assert.deepEqual(await page.$$eval('*', (els) => els.filter((e) => { const cs = getComputedStyle(e); return cs.filter !== 'none' || cs.backdropFilter !== 'none'; }).length), 0);
+    });
+    await gotoHash(page, '#/c/ryu/r/c1');
+    await check(`${tag} 17a 詳細: .d-stat は20px・700・tabular、タイトルの下。未入力の詳細には出ない`, async () => {
+      const r = await page.$eval('.d-stat', (e) => { const n = e.querySelector('.d-stat-n'); const cs = getComputedStyle(n); return [e.innerText.replace(/\s+/g, ' '), cs.fontSize, cs.fontWeight, cs.fontVariantNumeric, getComputedStyle(e).display, getComputedStyle(e).gap, e.previousElementSibling.className, e.nextElementSibling.className]; });
+      assert.deepEqual(r, ['ダメージ 3,240', '20px', '700', 'tabular-nums', 'flex', '6px', 'd-title', 'd-cmd']);
+      await gotoHash(page, '#/c/ryu/r/c2');
+      assert.equal(await page.locator('.d-stat').count(), 0);
+    });
+    await check(`${tag} 17a 複製と編集→保存でダメージが保たれる`, async () => {
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await page.getByRole('button', { name: '複製' }).click();
+      await page.waitForFunction(() => location.hash !== '#/c/ryu/r/c1');
+      assert.equal(await page.locator('.d-stat-n').innerText(), '3,240');
+      const dup = (await stored(page)).combos.filter((c) => c.damage === 3240);
+      assert.equal(dup.length, 2);
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      await page.getByRole('button', { name: '保存' }).click();
+      await page.waitForFunction(() => location.hash === '#/c/ryu/r/c1');
+      assert.equal((await stored(page)).combos.find((c) => c.id === 'c1').damage, 3240);
+    });
+
+    // チップの構造と発光（L寸法）
+    await gotoHash(page, '#/c/ryu/r/c9');
+    await check(`${tag} 17a 詳細(L): 種別のclass、DRの»、DIの切り欠き、斜めの板、DP二重枠、発光はDR・ODだけ`, async () => {
+      const r = await page.evaluate(() => {
+        const q = (s) => [...document.querySelectorAll(s)];
+        const chip = (s) => getComputedStyle(document.querySelector(`.d-cmd ${s}`));
+        const sh = (s) => q(`.d-cmd ${s}`).map((e) => getComputedStyle(e).boxShadow);
+        return {
+          dr: q('.d-cmd .sys-dr').map((e) => [e.textContent, !!e.querySelector('svg.rush[aria-hidden=true]'), e.getAttribute('aria-label')]),
+          di: [q('.d-cmd .sys-di').length, getComputedStyle(document.querySelector('.d-cmd .sys-di'), '::before').clipPath !== 'none', chip('.sys-di').color],
+          dp: [q('.d-cmd .sys-dp').length, chip('.sys-dp').borderTopColor, chip('.sys-dp').backgroundColor, chip('.sys-dp').boxShadow],
+          sa: [q('.d-cmd .sys-sa').length, chip('.sys-sa').borderTopColor, chip('.sys-sa').backgroundColor],
+          tag: [getComputedStyle(document.querySelector('.d-cmd .tag'), '::before').transform, getComputedStyle(document.querySelector('.d-cmd .tag'), '::before').backgroundColor],
+          drGlow: sh('.sys-dr'), saGlow: sh('.sys-sa'),
+          dotGlow: q('.d-cmd .dot.od').map((e) => getComputedStyle(e).boxShadow), strDot: q('.d-cmd .dot:not(.od)').map((e) => getComputedStyle(e).boxShadow),
+          odText: q('.d-cmd .ltr.od').map((e) => [getComputedStyle(e).color, getComputedStyle(e).textShadow]),
+          rushSize: [chip('.sys-dr .rush').width, chip('.sys-dr .rush').height],
+        };
+      });
+      assert.deepEqual(r.dr, [['CDR', true, 'CDR'], ['生ラッシュ', true, '生ラッシュ']].map(([t, a, l]) => [t, a, l]));
+      assert.deepEqual(r.di, [1, true, 'rgb(14, 15, 17)']);
+      assert.deepEqual(r.dp.slice(0, 3), [2, 'rgb(127, 152, 255)', 'rgb(27, 42, 102)']);
+      assert.match(r.dp[3], /inset/);
+      assert.deepEqual(r.sa, [1, 'rgb(242, 238, 230)', 'rgb(34, 37, 42)']);
+      assert.match(r.tag[0], /^matrix\(/);
+      assert.equal(r.tag[1], 'rgb(74, 80, 89)');
+      assert.ok(r.drGlow.every((x) => x.includes('rgba(77, 242, 124')), r.drGlow.join());
+      assert.ok(r.saGlow.every((x) => x === 'none'));
+      assert.ok(r.dotGlow.length === 2 && r.dotGlow.every((x) => x.includes('rgba(255, 116, 16')), r.dotGlow.join());
+      assert.ok(r.strDot.every((x) => x === 'none'));
+      assert.deepEqual(r.odText[0][0], 'rgb(255, 116, 16)');
+      assert.match(r.odText[0][1], /rgba\(255, 116, 16/);
+      assert.deepEqual(r.rushSize, ['12px', '12px']);
+    });
+    await gotoHash(page, '#/c/ryu');
+    await check(`${tag} 17a 一覧(S): »は9px、DPは1pxの枠、DIの切り欠きは4px。ODにも発光なし`, async () => {
+      const r = await page.evaluate(() => {
+        const sc = (s) => getComputedStyle(document.querySelector(`.item .row.S ${s}`));
+        const it = [...document.querySelectorAll('.item')].find((e) => e.textContent.includes('全部入り'));
+        const s2 = (sel) => getComputedStyle(it.querySelector(sel));
+        return [s2('.sys-dr .rush').width, s2('.sys-dp').borderTopWidth, s2('.sys-di').getPropertyValue('--c'), s2('.dot.od').boxShadow, s2('.ltr.od').textShadow, s2('.sys-dr').boxShadow, sc('.chip').height];
+      });
+      assert.deepEqual(r.slice(0, 6), ['9px', '1px', '4px', 'none', 'none', 'none']);
+    });
+    await gotoHash(page, '#/c/ryu/r/c9');
+    await page.getByRole('button', { name: '凡例' }).click();
+    await check(`${tag} 17a 凡例: システム技は種別ごとの行、L寸法の見た目、ODと注記の説明`, async () => {
+      await page.waitForSelector('.sheet.tall');
+      const t = await page.locator('.leg').innerText();
+      for (const w of ['緑の枠と»', '角を切った銀の板', '紺の二重枠', '白い枠', '橙の●2つ（重ねて表示）', '斜めの小さな板']) assert.ok(t.includes(w), w);
+      assert.equal(await page.locator('.leg .sys-dr').count(), 2);
+      assert.equal(await page.locator('.leg .row:not(.S) .sys').count(), 8); // CDR・生ラッシュ・DI・DP・Dリバ・SA1〜3
+      assert.ok(await noHScroll(page));
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.sheet', { state: 'detached' });
+    });
+
+    // 編集画面: パッドとUIに発光なし、システム行の帯、ODキーの橙、タグ［追加］が折れない
+    await gotoHash(page, '#/c/ryu/r/c9/edit');
+    await check(`${tag} 17a 編集: パッドに発光なし、帯は種別の色（注記には付かない）、ODキーは橙、［追加］は折れない`, async () => {
+      assert.deepEqual(await noGlow(page, '.pad .key, .pad .key *, .pad'), []);
+      const bands = await page.$$eval('.sys-keys .key', (els) => els.map((e) => [e.getAttribute('aria-label'), e.classList.contains('band') ? getComputedStyle(e, '::before').backgroundColor : null]));
+      const col = { キャンセルドライブラッシュ: 'rgb(77, 242, 124)', パリィドライブラッシュ: 'rgb(77, 242, 124)', ドライブインパクト: 'rgb(163, 169, 178)', ドライブパリィ: 'rgb(127, 152, 255)', ドライブリバーサル: 'rgb(127, 152, 255)' };
+      for (const [name, c] of bands) {
+        const want = col[name] ?? (/^スーパーアーツ/.test(name) ? 'rgb(242, 238, 230)' : null);
+        assert.equal(c, want, name);
+      }
+      assert.equal(bands.filter(([, c]) => c).length, 8);
+      assert.equal(await page.locator('.okey .ltr.od').first().evaluate((e) => getComputedStyle(e).color), 'rgb(255, 116, 16)');
+      assert.equal(await page.locator('.okey .dot.od').first().evaluate((e) => getComputedStyle(e).color), 'rgb(255, 116, 16)');
+      const add = await page.locator('.tag-add .btn').boundingBox();
+      assert.ok(add.height <= 48 && add.width >= 44, JSON.stringify(add));
+      assert.equal(await page.locator('.tag-add .btn').innerText(), '追加');
+    });
+    await check(`${tag} 17a ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+
+    // reduced-motion: 点灯は動かず、最終状態で表示される
+    const rm = await newPage(width, dmgSeed(), { reducedMotion: 'reduce' });
+    await check(`${tag} 17a reduced-motion では起動時の点灯が動かない（animation なし、opacity 1）`, async () => {
+      const r = await rm.$$eval('.cell.boot .cell-en', (els) => els.map((e) => [getComputedStyle(e).animationName, getComputedStyle(e).opacity]));
+      assert.equal(r.length, 6);
+      assert.ok(r.every((x) => x[0] === 'none' && x[1] === '1'), JSON.stringify(r));
+    });
+    await rm.context().close();
+  }
+
+  // 17b. デザイン刷新v2の後半（T-017b。design-spec-v2 4章・5.4・9章の6・7）: ［完了］キー、格納バー、Enter、ダメージ入力欄
+  {
+    const active = (page) => page.evaluate(() => { const a = document.activeElement; return a === document.body ? 'body' : `${a.tagName.toLowerCase()}#${a.id}`; });
+    const padVisible = (page) => page.locator('.pad').isVisible();
+    const dockVisible = (page) => page.locator('.pad-dock').isVisible();
+    const seed = seedState();
+    seed.combos[0].damage = 3240;
+    const page = await newPage(width, seed);
+    await gotoHash(page, '#/c/ryu/new?s=s1');
+
+    await check(`${tag} 17b ［完了］キー: R1の右端に固定、幅64以上・高さ44以上、▾16pxと「完了」14px/700、aria-label・aria-controls`, async () => {
+      const r = await page.evaluate(() => {
+        const k = document.querySelector('.r1 .done');
+        const b = k.getBoundingClientRect();
+        const rec = document.querySelector('.r1 .recent-keys').getBoundingClientRect();
+        const ic = k.querySelector('svg').getBoundingClientRect();
+        const t = getComputedStyle(k.querySelector('.done-t'));
+        return { w: b.width, h: b.height, right: b.right, padRight: document.querySelector('.pad').getBoundingClientRect().right - 6, recW: rec.width, ic: [ic.width, ic.height], rot: k.querySelector('svg').style.transform, t: [k.querySelector('.done-t').textContent, t.fontSize, t.fontWeight],
+          label: k.getAttribute('aria-label'), ctl: k.getAttribute('aria-controls'), padId: document.querySelector('section.pad').id, tabindex: document.querySelector('section.pad').getAttribute('tabindex'), tag: k.tagName, glow: getComputedStyle(k).boxShadow };
+      });
+      assert.ok(r.w >= 64 && r.h >= 44, JSON.stringify(r));
+      assert.equal(r.right, r.padRight);
+      assert.equal(r.recW, width - 12 - 4 - 64); // 直近の列の見える幅（360pxで280px）
+      assert.deepEqual([r.ic, r.rot, r.t], [[16, 16], 'rotate(90deg)', ['完了', '14px', '700']]);
+      assert.deepEqual([r.label, r.ctl, r.padId, r.tabindex, r.tag, r.glow], ['パッドを閉じて項目の入力へ', 'pad', 'pad', '-1', 'BUTTON', 'none']);
+      assert.equal(await page.locator('.pad-dock').isVisible(), false); // パッドが出ている間は格納バーなし
+    });
+    await check(`${tag} 17b 直近の技が空でも［完了］は右端に残る（案内文は残り幅）`, async () => {
+      const q = await newPage(width, { sections: [sec('s1', 'ryu', '通常', 0)], combos: [] });
+      await gotoHash(q, '#/c/ryu/new?s=s1');
+      const r = await q.evaluate(() => [document.querySelector('.r1 .recent-empty').getBoundingClientRect().width, document.querySelector('.r1 .done').getBoundingClientRect().width]);
+      assert.deepEqual(r, [width - 12 - 4 - 64, 64]);
+      await q.context().close();
+    });
+    // ペンディング（↓）を作ってから［完了］
+    await page.getByRole('radio', { name: 'しゃがみ', exact: true }).click();
+    const before = await storedRaw(page);
+    await page.getByRole('button', { name: 'パッドを閉じて項目の入力へ' }).click();
+    await check(`${tag} 17b ［完了］: パッドが隠れ、格納バーが出て、#f-sec にフォーカス。ペンディングは保持、保存しない`, async () => {
+      assert.equal(await padVisible(page), false);
+      assert.equal(await dockVisible(page), true);
+      assert.equal(await active(page), 'select#f-sec');
+      assert.equal(await page.locator('.cmd .pending').count(), 1);
+      assert.equal(await page.locator('.pad').getAttribute('hidden') !== null, true);
+      assert.match(await hash(page), /^#\/c\/ryu\/new/); // 保存していない（詳細へ移っていない）
+      assert.equal(await storedRaw(page), before);
+    });
+    await shot(page, '40-edit-dock', width);
+    await check(`${tag} 17b 格納バー: パッドの位置（下端）、高さ56、副ボタン［▴ 技を入力］を左寄せに1つ、aria-controls・aria-expanded`, async () => {
+      const r = await page.evaluate(() => {
+        const d = document.querySelector('footer.bottombar.pad-dock');
+        const b = d.getBoundingClientRect();
+        const bs = [...d.querySelectorAll('button')];
+        const x = bs[0].getBoundingClientRect();
+        return { top: b.top, bottom: b.bottom, h: b.height, n: bs.length, left: x.left - b.left, bh: x.height, t: bs[0].textContent.trim(), c: bs[0].getAttribute('aria-controls'), e: bs[0].getAttribute('aria-expanded'), cls: bs[0].className, primary: !!d.querySelector('.primary'), fixed: getComputedStyle(d).position };
+      });
+      assert.deepEqual([r.h, r.bottom, r.n, r.t, r.c, r.e, r.primary], [56, 740, 1, '技を入力', 'pad', 'false', false], JSON.stringify(r));
+      assert.ok(r.left <= 20 && r.bh >= 44, JSON.stringify(r)); // 左寄せ
+      assert.equal(r.fixed, 'sticky'); // 浮動ボタンではなく下部バー
+      assert.equal(await page.locator('.pad-dock svg').count(), 1);
+    });
+    await page.locator('.pad-dock button').click();
+    await check(`${tag} 17b 格納バーの［▴ 技を入力］: パッドが戻り、フォーカスは section.pad。寸法は368・y>=372のまま`, async () => {
+      assert.equal(await padVisible(page), true);
+      assert.equal(await dockVisible(page), false);
+      assert.equal(await active(page), 'section#pad');
+      const b = await page.locator('.pad').boundingBox();
+      assert.ok(b.y >= 372 && b.height === 368, JSON.stringify(b));
+      assert.equal(await page.locator('.cmd .pending').count(), 1);
+    });
+    await page.getByRole('button', { name: 'パッドを閉じて項目の入力へ' }).click();
+    await page.locator('.cmd').click({ position: { x: 5, y: 5 } });
+    await check(`${tag} 17b コマンド列のタップでもパッドが戻り、格納バーは消える`, async () => {
+      assert.equal(await padVisible(page), true);
+      assert.equal(await dockVisible(page), false);
+    });
+    await page.getByLabel('メモ').click();
+    await check(`${tag} 17b テキスト欄へのフォーカスでパッドが隠れたときも格納バーが出る`, async () => {
+      assert.equal(await padVisible(page), false);
+      assert.equal(await dockVisible(page), true);
+    });
+    // Enter 相当
+    await page.locator('#f-title').click();
+    await page.keyboard.press('Enter');
+    await check(`${tag} 17b タイトル欄で Enter すると blur する（パッドは隠れたまま、格納バーが見える）`, async () => {
+      assert.equal(await active(page), 'body');
+      assert.equal(await padVisible(page), false);
+      assert.equal(await dockVisible(page), true);
+    });
+    await page.locator('#f-dmg').click();
+    await page.keyboard.press('Enter');
+    await check(`${tag} 17b ダメージ欄で Enter すると blur する`, async () => {
+      assert.equal(await active(page), 'body');
+      assert.equal(await dockVisible(page), true);
+    });
+    await check(`${tag} 17b 変換中（isComposing）の Enter では blur しない。メモ欄の Enter は改行のまま`, async () => {
+      await page.locator('#f-title').click();
+      await page.evaluate(() => document.querySelector('#f-title').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })));
+      assert.equal(await active(page), 'input#f-title');
+      await page.locator('#f-memo').click();
+      await page.keyboard.press('Enter');
+      assert.equal(await active(page), 'textarea#f-memo');
+      assert.equal(await page.locator('#f-memo').inputValue(), '\n');
+      await page.locator('#f-memo').fill('');
+    });
+
+    // ダメージ入力欄
+    await check(`${tag} 17b ダメージ欄: 並び（セクション・タイトル・位置・ダメージ・タグ・メモ）、属性、ラベル、ヒント、幅120`, async () => {
+      assert.deepEqual(await page.$$eval('.fields #f-sec, .fields #f-title, .fields input[name=pos], .fields #f-dmg, .fields #f-tag, .fields #f-memo', (els) => els.map((e) => e.id || e.name).filter((x, i, arr) => arr.indexOf(x) === i)), ['f-sec', 'f-title', 'pos', 'f-dmg', 'f-tag', 'f-memo']);
+      const a = await page.$eval('#f-dmg', (e) => Object.fromEntries(['type', 'inputmode', 'pattern', 'maxlength', 'enterkeyhint', 'autocomplete'].map((k) => [k, e.getAttribute(k)])));
+      assert.deepEqual(a, { type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '5', enterkeyhint: 'done', autocomplete: 'off' });
+      assert.equal(await page.locator('label[for=f-dmg]').innerText(), 'ダメージ（任意）');
+      assert.equal(await page.getByLabel('ダメージ（任意）').count(), 1);
+      const h = await page.$eval('.dmg-hint', (e) => { const cs = getComputedStyle(e); return [e.textContent, cs.fontSize, cs.color, e.getBoundingClientRect().left > document.querySelector('#f-dmg').getBoundingClientRect().right]; });
+      assert.deepEqual(h, ['0〜99999', '12px', 'rgb(170, 166, 157)', true]);
+      assert.equal((await page.locator('#f-dmg').boundingBox()).width, 120);
+      assert.equal(await page.locator('#f-dmg').getAttribute('aria-describedby'), 'f-dmg-hint');
+    });
+    const typeDmg = async (text) => { await page.locator('#f-dmg').fill(''); await page.locator('#f-dmg').click(); await page.keyboard.insertText(text); };
+    await check(`${tag} 17b ダメージ欄: 全角数字は半角に、数字以外は除き、5桁に切る`, async () => {
+      await typeDmg('３,２４０');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '3240');
+      await typeDmg('1a2-3');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '123');
+      await typeDmg('１２３４５６７');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '12345'); // maxlength=5（入力の段階で切る）
+      await typeDmg('abc');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '');
+    });
+    await check(`${tag} 17b ダメージ欄: フォーカスが外れたら先頭の0を除く（0050→50、0→0、000→0）`, async () => {
+      for (const [typed, want] of [['0050', '50'], ['0', '0'], ['000', '0'], ['００７', '7'], ['100', '100']]) {
+        await typeDmg(typed);
+        assert.equal(await page.locator('#f-dmg').inputValue(), typed.replace(/[０-９]/g, (c) => String(c.charCodeAt(0) - 0xFF10)), '入力中は触らない');
+        await page.locator('#f-title').click(); // フォーカスを外す
+        assert.equal(await page.locator('#f-dmg').inputValue(), want, typed);
+      }
+    });
+    // 保存して値が一致する（3240）
+    await typeDmg('３,２４０');
+    await check(`${tag} 17b ダメージ: 下書きに数値で入る`, async () => {
+      const d = JSON.parse(await storedRaw(page, 'sf6memo.drafts'));
+      assert.equal(d['new:s1'].damage, 3240);
+    });
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.waitForFunction(() => /\/r\//.test(location.hash));
+    const newId = (await hash(page)).split('/r/')[1];
+    await check(`${tag} 17b ダメージ: 保存すると 3240（数値）で sf6memo.data に入り、詳細に 20px で出る`, async () => {
+      const d = (await stored(page)).combos.find((c) => c.id === newId);
+      assert.deepEqual([d.damage, typeof d.damage], [3240, 'number']);
+      assert.match(await storedRaw(page), new RegExp(`"id":"${newId}"[^}]*"damage":3240[,}]`));
+      assert.deepEqual(await page.$eval('.d-stat', (e) => [e.innerText.replace(/\s+/g, ' '), getComputedStyle(e.querySelector('.d-stat-n')).fontSize]), ['ダメージ 3,240', '20px']);
+    });
+    await shot(page, '41-detail-damage', width);
+    await check(`${tag} 17b ダメージ: 一覧に「ダメージ 3,240」、再読み込み後も詳細・一覧・編集で一致する`, async () => {
+      await page.reload();
+      await page.waitForSelector('.d-stat');
+      assert.equal(await page.locator('.d-stat-n').innerText(), '3,240');
+      await gotoHash(page, '#/c/ryu');
+      assert.equal(await page.locator(`a[href$="/r/${newId}"] .dmg`).innerText(), 'ダメージ 3,240');
+      await gotoHash(page, `#/c/ryu/r/${newId}/edit`);
+      assert.equal(await page.locator('#f-dmg').inputValue(), '3240');
+    });
+    // 空は未入力: キーを持たず、一覧にも詳細にも出ない
+    await page.locator('#f-dmg').fill('');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.waitForFunction((id) => location.hash === `#/c/ryu/r/${id}`, newId);
+    await check(`${tag} 17b ダメージ: 空にして保存すると damage キーが消え、詳細・一覧に出ない（元の値に戻らない）`, async () => {
+      const d = (await stored(page)).combos.find((c) => c.id === newId);
+      assert.equal(Object.hasOwn(d, 'damage'), false);
+      assert.equal(await page.locator('.d-stat').count(), 0);
+      await gotoHash(page, '#/c/ryu');
+      assert.equal(await page.locator(`a[href$="/r/${newId}"] .dmg`).count(), 0);
+    });
+    await check(`${tag} 17b ダメージ: 0 は 0 として保存され、「ダメージ 0」と出る`, async () => {
+      await gotoHash(page, `#/c/ryu/r/${newId}/edit`);
+      await typeDmg('0');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await page.waitForFunction((id) => location.hash === `#/c/ryu/r/${id}`, newId);
+      assert.equal((await stored(page)).combos.find((c) => c.id === newId).damage, 0);
+      assert.equal(await page.locator('.d-stat').innerText().then((t) => t.replace(/\s+/g, ' ')), 'ダメージ 0');
+    });
+    // 下書き復元
+    await check(`${tag} 17b ダメージ: 下書きの復元で値が保たれる（新規）`, async () => {
+      await gotoHash(page, '#/c/ryu/new?s=s2');
+      await typeDmg('777');
+      await page.reload();
+      await page.waitForSelector('#f-dmg');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '777');
+      assert.match(await page.locator('.notice').innerText(), /前回の下書きを開きました/);
+      await page.locator('.notice .btn').click(); // 破棄して新規
+      assert.equal(await page.locator('#f-dmg').inputValue(), '');
+    });
+    await check(`${tag} 17b ダメージ: 既存記録の編集でも下書きに保たれ、空にした下書きは元の値に戻らない`, async () => {
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '3240'); // 既存記録の値
+      await typeDmg('555');
+      await page.reload();
+      await page.waitForSelector('#f-dmg');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '555');
+      await page.locator('#f-dmg').fill('');
+      await page.locator('#f-dmg').dispatchEvent('input');
+      await page.reload();
+      await page.waitForSelector('#f-dmg');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '');
+      assert.match(await page.locator('.notice').innerText(), /前回の下書きを開きました/);
+      await page.locator('.notice .btn').click(); // 破棄して保存済みに戻す
+      assert.equal(await page.locator('#f-dmg').inputValue(), '3240');
+    });
+    await check(`${tag} 17b ダメージ: 保存した記録の sf6memo.data の damage はすべて数値`, async () => {
+      const ds = (await stored(page)).combos.filter((c) => Object.hasOwn(c, 'damage')).map((c) => typeof c.damage);
+      assert.ok(ds.length >= 2 && ds.every((t) => t === 'number'), JSON.stringify(ds));
+    });
+    await check(`${tag} 17b ページエラーなし`, async () => assert.deepEqual(page.errors, []));
     await page.context().close();
   }
 

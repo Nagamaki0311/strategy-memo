@@ -19,6 +19,25 @@
 
 ---
 
+## 2026-10-15 T-016・T-017: APK配布の準備、デザイン刷新v2、合計ダメージ、入力完了キー
+
+### 実施内容
+- T-016: Capacitor（Android）で `app/` を包むビルド構成（`apk/`）と、タグ `v*` のpushと手動実行で起動するGitHub Actions（`.github/workflows/apk.yml`）を作った（D-011）。ローカルでデバッグAPK（約4.1MB）と使い捨て鍵のリリースAPKをビルドし、`aapt` で package・label・sdkVersion、`assets/public` が `app/` と一致することを確認した。ワークフローは actionlint と shellcheck を通過した。
+- T-017: ユーザー指示（SF6公式コマンドリストを参考にしたブラッシュアップ、ネオン街モチーフ、システム技の色分け、キャラ選択の表記の作り変え、合計ダメージ欄、入力完了の導線）に基づき、docs/design-spec-v2.md（D-012）を実装した。v2トークン、Tilt Neonのサブセット（woff2 6KB、data URI）、システム技のチップ（DR＝緑の枠と»、DI＝銀の板、DP・Dリバ＝紺の二重枠、SA＝白い枠、OD＝橙、CH・PC＝斜めの板）、キャラ選択の斜めのタイルと点灯、一覧と詳細のダメージ表示、編集画面のダメージ入力欄、パッドの［完了］キーと格納バー、Enterでblurを実装した。コンボの任意の `damage` を追加した（schemaVersionは据え置き）。
+- フォントの生成コマンド: `fonttools varLib.instancer 'TiltNeon[XROT,YROT].ttf' XROT=0 YROT=0 -o tn-static.ttf` → `pyftsubset tn-static.ttf --unicodes='U+0020,U+002D,U+002E,U+0030-0039,U+0041-005A' --flavor=woff2 --layout-features=kern --output-file=tn-sub.woff2` → `base64 -w0`。入手元は raw.githubusercontent.com/google/fonts/main/ofl/tiltneon/（ディレクトリURLは404、ファイル名指定で取得できる）。
+
+### 結果
+- `npm test` は53テスト pass、fail 0、終了コード0（Managerが再実行）。e2e（`FAST=1`）は360幅・430幅で432件すべて合格。check.html は360・390・430でCHECK-PASS。
+- コントラスト比39ペアを再計算し、すべて基準以上（文字4.5:1、図形3:1）。グレースケール・Protanopia・Deuteranopiaのスクリーンショットで、DR・DI・DP・SA・OD・CH/PCを形で区別できることを目視した。
+- CPU 4倍スロットルのスクロールで約57〜60fps（ヘッドレス、ソフトウェア描画。実機の低〜中スペックAndroidでの確認は未実施）。
+- 敵対的レビューはユーザー指示により完成後に後追いで実行する（未実施）。実機でのAPKの起動、GitHub Actionsの初回実行、機内モードでの英字表示は未確認。
+- 注意: ダメージ欄の `maxlength="5"` は整形より先に効くため、「3,2400」のように区切りを含めて貼ると先頭5文字（3,240）に切られる。問題が出たら maxlength を外して整形側だけで5桁に切る。apk/ 配下に旧地色 `#16140F` が残っている（アイコンの差し替え時に更新する）。
+
+### 次回開始位置
+- T-012（設定とデータ: 書き出し・取り込み・設定。APK内の書き出しは apk/README.md のネイティブAPIを使う）とT-013（PWAと配信: manifest・sw・アイコン）。設定画面にバージョン行を作り、その下に書体の表記（プレースホルダー内の1行を移す）を置く。
+
+---
+
 ## 2026-10-15 T-010・T-011: 編集画面（タップパッド）・詳細画面
 
 ### 実施内容

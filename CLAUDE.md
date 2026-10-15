@@ -44,10 +44,12 @@ Skills（`.claude/skills/`配下のSKILL.md）は、再利用可能な具体的�
 
 ## デザイントークン
 
-正本は docs/design-spec.md 2章。ダーク固定。
+正本は docs/design-spec-v2.md 2章（v1の docs/design-spec.md はv2に書かれていない部分のみ有効）。ダーク固定。実体は app/styles.css の `:root`。
 
-- 色: `--bg` #16140F / `--surface` #22201A / `--key` #2E2B24 / `--line` #3A372F / `--line-strong` #57524A / `--fg` #EDE8DC / `--fg-muted` #A8A397 / `--conn` #8A867D / `--ink` #16140F / `--str-l` #8FD3F0 / `--str-m` #F0D870 / `--str-h` #F29A8E / `--od` #9ED8A0 / `--scrim` rgba(0,0,0,.6)
-- 文字: system-ui, "Noto Sans CJK JP", "Noto Sans JP", sans-serif。太さ400と700のみ。`--t-xs` 12px/1.4、`--t-sm` 13px/1.4、`--t-md` 15px/1.5、`--t-lg` 17px/1.4
+- 色: `--bg` #0E0F11 / `--surface` #17191C / `--key` #22252A / `--line` #2E3238 / `--line-strong` #4A5059 / `--fg` #F2EEE6 / `--fg-muted` #AAA69D / `--conn` #8C8A85 / `--ink` #0E0F11 / `--lit` #FFF4DE / `--str-l` #8FD3F0 / `--str-m` #F0D870 / `--str-h` #F29A8E / `--od` #FF7410 / `--dr` #4DF27C / `--di` #A3A9B2 / `--dp` #1B2A66 / `--dp-line` #7F98FF / `--scrim` rgba(0,0,0,.6)
+- 発光（L寸法のDR・OD、点灯した名前、ワードマークだけ。`box-shadow`と`text-shadow`のみ、動かさない）: `--glow-dr` / `--tx-dr` / `--glow-od` / `--tx-od` / `--tx-lit`
+- 文字: `--font` system-ui, "Noto Sans CJK JP", "Noto Sans JP", sans-serif（和文とUI。太さ400と700のみ）、`--font-sign` "Tilt Neon"（英字の看板。400のみ、`letter-spacing:.04em`。サブセットをstyles.css先頭にdata URIで埋め込み、ライセンスは app/OFL-TiltNeon.txt）。`--t-xs` 12px/1.4、`--t-sm` 13px/1.4、`--t-md` 15px/1.5、`--t-lg` 17px/1.4、`--sign-l` 20px/1、`--sign-m` 18px/1、`--sign-s` 15px/1
 - 余白: `--s1`〜`--s6` = 4 / 8 / 12 / 16 / 24 / 32px
-- 角丸: `--r-tag` 2px、`--r-chip` 6px、`--r-key` 8px、`--r-sheet` 12px（上2角のみ）、円は●だけ
-- 影・グロー・グラデーション・すりガラスなし
+- 角丸・形: `--r-tag` 2px、`--r-chip` 6px、`--r-key` 8px、`--r-sheet` 12px（上2角のみ）、円は●だけ。傾きは `--skew` -12deg の1種類、面取りは `--chamfer-l` 6px・`--chamfer-s` 4px
+- 時間: `--dur-key` 80ms、`--dur-chip` 120ms、`--dur-screen` 160ms、`--dur-sheet` 200ms、`--ease-out` cubic-bezier(.2,.8,.2,1)
+- 使わない: 紫・青紫、グラデーション、すりガラス、`filter`/`backdrop-filter`、常時の明滅。影のぼかしは8px以下

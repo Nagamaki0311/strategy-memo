@@ -11,6 +11,7 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const ROTATE = { 6: 0, 3: 45, 2: 90, 1: 135, 4: 180, 7: 225, 8: 270, 9: 315 }; // i-arrow は右向き
 const STR_CLASS = { L: 'str-l', M: 'str-m', H: 'str-h' };
 const STR_TEXT = { L: '弱', M: '中', H: '強' };
+const SYS_KIND = { CDR: 'dr', RAW_DR: 'dr', DI: 'di', PARRY: 'dp', REVERSAL: 'dp' }; // システム技の種別。チップの色と枠の形（design-spec-v2 3章）
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -79,8 +80,8 @@ function chipNodes(token, label, notation) {
           : [dot(token.key, STR_CLASS[token.str], token.str)]),
       ];
     }
-    default: // system / sa。表示文字は読み上げ名と同じ（CDR、DI、DP、Dリバ、SA3）
-      return [document.createTextNode(label)];
+    default: // system / sa。表示文字は読み上げ名と同じ（CDR、DI、DP、Dリバ、SA3）。DR系だけ先頭に»を置く
+      return [...(SYS_KIND[token.id] === 'dr' ? [icon('i-rush', 'rush')] : []), document.createTextNode(label)];
   }
 }
 
@@ -111,7 +112,8 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
     grp = el('span', 'grp');
     for (const n of d.notes) grp.append(onChip ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
     if (d.token) {
-      const cls = d.token.type === 'system' || d.token.type === 'sa' ? 'chip sys' : 'chip';
+      const kind = d.token.type === 'sa' ? 'sa' : SYS_KIND[d.token.id]; // system・sa 以外は undefined
+      const cls = kind ? `chip sys sys-${kind}` : 'chip';
       const nodes = chipNodes(d.token, d.label, notation);
       if (onChip) grp.append(tapPart(cls, d.label, d.index, d.token, nodes, onChip));
       else {
@@ -156,6 +158,8 @@ const iconBtn = (id, label, onClick, attrs = {}, rotate = 0) => {
 };
 const pad2 = (n) => String(n).padStart(2, '0');
 const charName = (id) => CHARACTERS.find((c) => c.id === id)?.name;
+const charEn = (id) => CHARACTERS.find((c) => c.id === id)?.en;
+const fmtDamage = new Intl.NumberFormat('ja-JP');
 const byFk = (k) => document.querySelector(`[data-fk="${CSS.escape(k)}"]`);
 
 // ===== SECTION: 保存層 =====
@@ -516,21 +520,36 @@ const POS = { any: 'どこでも', corner: '画面端', midscreen: '画面中央
 function shell({ title, back, right = [], notices = [], main, bottom }) {
   const bar = h('header', 'topbar');
   if (back) bar.append(iconBtn('i-chev', back.label, () => goBack(back.to), {}, 180));
-  bar.append(at(h('h1', back ? '' : 'solo', title), { tabindex: '-1' }), ...right);
+  bar.append(at(h('h1', back ? '' : 'solo', ...[title].flat()), { tabindex: '-1' }), ...right);
   return h('div', 'screen', bar, ...notices, h('main', 'main', ...main), ...(bottom ? [bottom] : []));
 }
+
+// 起動時の点灯（design-spec-v2 6章）: アプリ起動後の最初のキャラ選択の描画で1回だけ、点灯タイル（記録あり）の先頭6件の英字を60msずつずらして点ける
+let bootPlayed = false;
+const BOOT_MAX = 6;
+// 360px幅の1列（英字の幅92px）で20pxだと収まらない名前（実測。KIMBERLY 93.5px。tests/e2e.mjs が360・390・430幅で収まりを確認する）
+const LONG_EN = new Set(['kimberly']);
 
 function homeScreen() {
   const counts = new Map();
   for (const c of data.combos) counts.set(c.characterId, (counts.get(c.characterId) ?? 0) + 1);
   const grid = at(h('nav', 'grid'), { 'aria-label': 'キャラクター' });
+  let booted = 0;
   for (const c of CHARACTERS) {
     const n = counts.get(c.id);
-    grid.append(at(h('a', 'cell', h('span', 'cell-name', c.name), ...(n ? [h('span', 'cell-n', `${n}件`)] : [])), { href: `#/c/${c.id}` }));
+    const cell = at(h('a', `cell${n ? ' lit' : ''}${LONG_EN.has(c.id) ? ' long' : ''}`,
+      at(h('span', 'cell-en', c.en), { 'aria-hidden': 'true' }), h('span', 'cell-name', c.name), ...(n ? [h('span', 'cell-n', `${n}件`)] : [])),
+    { href: `#/c/${c.id}`, 'aria-label': n ? `${c.name} ${n}件` : c.name });
+    if (n && !bootPlayed && booted < BOOT_MAX) {
+      cell.classList.add('boot');
+      cell.style.setProperty('--d', `${booted++ * 60}ms`);
+    }
+    grid.append(cell);
   }
+  bootPlayed = true;
   const recent = settings.recentCharacters;
   const bottom = h('footer', 'bottombar recent', ...(recent.length
-    ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'btn', charName(id)), { href: `#/c/${id}` }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
+    ? [at(h('div', 'recent-list', ...recent.map((id) => at(h('a', 'rc', at(h('span', 'rc-en', charEn(id)), { 'aria-hidden': 'true' })), { href: `#/c/${id}`, 'aria-label': charName(id) }))), { role: 'group', 'aria-label': '最近使ったキャラクター' })]
     : [h('p', 'hint', 'キャラクターを選ぶと記録を始められます')]));
   return shell({ title: 'SF6戦略メモ', right: [at(h('a', 'btn top-action', '設定'), { href: '#/settings' })], notices: banners(), main: [grid], bottom });
 }
@@ -540,7 +559,7 @@ function recordRow(c) {
   return at(h('a', 'item',
     ...(c.title ? [h('div', 'item-title', c.title)] : []),
     h('div', 'preview', renderRow(c.tokens, { size: 'S', notation: settings.notation, strengthLabels: settings.strengthLabels })),
-    h('div', 'item-meta', meta)), { href: `#/c/${c.characterId}/r/${c.id}` });
+    h('div', 'item-meta', h('span', 'meta-t', meta), ...(c.damage === undefined ? [] : [h('span', 'dmg', 'ダメージ ', h('b', '', fmtDamage.format(c.damage)))]))), { href: `#/c/${c.characterId}/r/${c.id}` });
 }
 
 function sectionHead(s, i, count, collapsed, canEdit) {
@@ -615,7 +634,7 @@ function listScreen({ cid }) {
       (() => { const b = btn('', [svgIcon('i-plus'), 'セクション'], () => addSectionSheet(b, cid), { 'data-fk': 'add-section' }); return b; })(),
       addRecord);
   }
-  return shell({ title: name, back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
+  return shell({ title: [at(h('span', 'wm', charEn(cid)), { 'aria-hidden': 'true' }), h('span', 'kn', name)], back: { label: 'キャラクター選択に戻る', to: '#/' }, notices: banners(), main, bottom });
 }
 
 // ===== SECTION: 凡例 =====
@@ -631,7 +650,10 @@ function legendTable() {
   const motion = (m) => h('div', 'row S', ...dirNodes(m, settings.notation));
   const diagram = () => h('div', 'diag', ...[7, 8, 9, 4, 5, 6, 1, 2, 3].map((d) => h('div', 'diag-c', arrow(String(d)), h('span', 'diag-n', String(d)))));
   const conn = () => h('div', 'row S', icon('i-conn', 'conn'));
-  const sys = (id) => [shape([{ type: 'system', id }]), `${SYS_FULL[id]}（${tokenLabel({ type: 'system', id })}）`, tokenLabel({ type: 'system', id })];
+  // システム技・SAは枠の形と発光が見分けの手がかりなので、実際のL寸法で出す（ODはL寸法だと幅が足りず折り返すためS）
+  const L = { size: 'L' };
+  const SYS_LOOK = { CDR: '緑の枠と»', RAW_DR: '緑の枠と»', DI: '角を切った銀の板', PARRY: '紺の二重枠', REVERSAL: '紺の二重枠' };
+  const sys = (id) => [shape([{ type: 'system', id }], L), `${SYS_FULL[id]}（${tokenLabel({ type: 'system', id })}）。${SYS_LOOK[id]}`, tokenLabel({ type: 'system', id })];
   const groups = [
     ['ボタン', [
       [shape([nm('stand', 'L', 'P')]), '水色の円＝弱。円の中の文字がP（パンチ）かK（キック）', '弱P'],
@@ -649,12 +671,12 @@ function legendTable() {
       [diagram(), '8方向とニュートラル（N）。数字はテンキーの位置', '1〜9（5はニュートラル）'],
     ]],
     ['モーションのプリセットと通称', PRESETS.map((m) => [motion(m), MOTION_MEANING[m] ?? MOTION_NAMES[m], m])],
-    ['OD', [[shape([{ type: 'special', motion: '236', key: 'P', str: 'OD' }]), 'OD必殺技。「OD」の文字とボタンの円2つ', 'OD236P']]],
+    ['OD', [[shape([{ type: 'special', motion: '236', key: 'P', str: 'OD' }]), 'OD必殺技。橙の「OD」の文字と、橙の●2つ（重ねて表示）', 'OD236P']]],
     ['システム技・SA', [
       ...['CDR', 'RAW_DR', 'DI', 'PARRY', 'REVERSAL'].map(sys),
-      [h('div', 'leg-sa', ...[1, 2, 3].map((level) => shape([{ type: 'sa', level }]))), 'スーパーアーツ1〜3', 'SA1〜SA3'],
+      [h('div', 'leg-sa', ...[1, 2, 3].map((level) => shape([{ type: 'sa', level }], L))), 'スーパーアーツ1〜3。白い枠', 'SA1〜SA3'],
     ]],
-    ['注記（直後の技に付く）', ['CH', 'PC'].map((id) => [shape([{ type: 'note', id }]), NOTE_FULL[id], id])],
+    ['注記（直後の技に付く）', ['CH', 'PC'].map((id) => [shape([{ type: 'note', id }]), `${NOTE_FULL[id]}。斜めの小さな板`, id])],
     ['つなぎ', [[conn(), '技と技のつなぎ。自動で入る', '▶']]],
   ];
   const table = h('table', 'leg', h('thead', '', h('tr', '', h('th', '', '形'), h('th', '', '意味'), h('th', '', '書き出し時の表記'))));
@@ -691,6 +713,7 @@ function detailScreen({ cid, rid }) {
   const main = h('div', 'detail',
     h('p', 'd-meta', [sec.name, POS[c.position], c.tags.join(' ')].filter(Boolean).join('・')),
     ...(c.title ? [h('h2', 'd-title', c.title)] : []),
+    ...(c.damage === undefined ? [] : [h('p', 'd-stat', h('span', 'd-stat-l', 'ダメージ'), h('b', 'd-stat-n', fmtDamage.format(c.damage)))]),
     h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip })),
     ...(c.memo ? [h('section', 'd-memo', h('h2', 'd-memo-h', 'メモ'), h('p', '', c.memo))] : []));
   const bottom = h('footer', 'bottombar', other, btn('', '複製', () => duplicate(c)), at(h('a', 'btn primary', '編集'), { href: `#/c/${cid}/r/${rid}/edit` }));
@@ -731,7 +754,7 @@ function readDrafts() {
 }
 function writeDraft() {
   const all = readDrafts();
-  all[ed.draftKey] = { sectionId: ed.sectionId, title: ed.title, position: ed.position, tokens: ed.pad.tokens, memo: ed.memo, tags: ed.tags, savedAt: now() };
+  all[ed.draftKey] = { sectionId: ed.sectionId, title: ed.title, position: ed.position, tokens: ed.pad.tokens, memo: ed.memo, tags: ed.tags, damage: ed.damage, savedAt: now() }; // damage が undefined なら JSON でキーごと消える
   return write(KEYS.drafts, JSON.stringify(all));
 }
 function removeDraft(key) {
@@ -743,12 +766,12 @@ function removeDraft(key) {
 function initEdit({ cid, rid, sid }, secs) {
   const base = rid ? data.combos.find((c) => c.id === rid) : null;
   const fresh = base
-    ? { sectionId: base.sectionId, title: base.title, position: base.position, tokens: structuredClone(base.tokens), memo: base.memo, tags: [...base.tags] }
+    ? { sectionId: base.sectionId, title: base.title, position: base.position, tokens: structuredClone(base.tokens), memo: base.memo, tags: [...base.tags], ...(base.damage !== undefined && { damage: base.damage }) }
     : { sectionId: secs.some((s) => s.id === sid) ? sid : secs[0].id, title: '', position: 'any', tokens: [], memo: '', tags: [] };
   const draftKey = base ? `edit:${rid}` : `new:${fresh.sectionId}`;
   const all = readDrafts();
   const draft = Object.hasOwn(all, draftKey) ? sanitizeDraft(all[draftKey]) : null;
-  const { tokens, ...f } = draft ? { ...fresh, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
+  const { tokens, ...f } = draft ? { ...fresh, damage: undefined, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
   saveError = null;
   return { cid, rid, draftKey, ...f, pad: initialPadState(tokens), padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
 }
@@ -763,7 +786,7 @@ const padKey = (cls, label, onClick, ...kids) => {
 
 // パッド（design-spec 4章）。キーは action を act に渡すだけ。入力の規則は core.js の applyPadInput にある。
 // sync(pending) で姿勢とプリセットの選択表示を更新する。
-function buildPad(act, recents, notation, strengthLabels) {
+function buildPad(act, recents, notation, strengthLabels, onDone) {
   const stanceKeys = [];
   const presetKeys = [];
   const recent = recents.length
@@ -775,11 +798,11 @@ function buildPad(act, recents, notation, strengthLabels) {
     presetKeys.push([v, k]);
     return k;
   }));
-  const sysKey = (label, aria, action) => padKey('', aria, () => act(action), label);
+  const sysKey = (label, aria, action, band) => padKey(band ? `band band-${band}` : '', aria, () => act(action), label); // band: 下端の帯の色（種別。注記には付けない）
   const system = at(h('div', 'sys-keys',
-    ...['CDR', 'RAW_DR', 'DI'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id })),
-    ...[1, 2, 3].map((level) => sysKey(`SA${level}`, `スーパーアーツ${level}`, { type: 'sa', level })),
-    ...['PARRY', 'REVERSAL'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id })),
+    ...['CDR', 'RAW_DR', 'DI'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id }, SYS_KIND[id])),
+    ...[1, 2, 3].map((level) => sysKey(`SA${level}`, `スーパーアーツ${level}`, { type: 'sa', level }, 'sa')),
+    ...['PARRY', 'REVERSAL'].map((id) => sysKey(tokenLabel({ type: 'system', id }), SYS_FULL[id], { type: 'system', id }, SYS_KIND[id])),
     ...['CH', 'PC'].map((id) => sysKey(id, NOTE_FULL[id], { type: 'note', id }))), { role: 'group', 'aria-label': 'システム技' });
   const dirs = h('div', 'dirs', ...PAD_DIRS.map((d) => padKey('dkey', PAD_DIR_NAMES[d], () => act({ type: 'dir', value: d }), arrow(String(d)))));
   const stance = at(h('div', 'stance', ...[['stand', '立ち', '立ち'], ['crouch', 'しゃがみ', arrow('2')], ['jump', 'ジャンプ', 'J']].map(([v, label, face]) => {
@@ -792,8 +815,9 @@ function buildPad(act, recents, notation, strengthLabels) {
     ...['L', 'M', 'H'].map((s) => padKey('bkey', `${STR_TEXT[s]}${k}`, () => act({ type: 'button', key: k, str: s }), dot(k, STR_CLASS[s], s))),
     padKey('okey', `OD ${k}`, () => act({ type: 'button', key: k, str: 'OD' }), el('span', 'ltr od', 'OD'), h('span', 'dots', dot(k, 'od'), dot(k, 'od'))),
   ]);
-  const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, recent, presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
-    h('div', 'lower', dirs, h('div', 'btns', stance, undo, ...buttons))), { 'aria-label': '入力パッド' });
+  const done = at(padKey('done', 'パッドを閉じて項目の入力へ', onDone, svgIcon('i-chev', 90), h('span', 'done-t', '完了')), { 'aria-controls': 'pad' });
+  const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, h('div', 'r1', recent, done), presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
+    h('div', 'lower', dirs, h('div', 'btns', stance, undo, ...buttons))), { 'aria-label': '入力パッド', id: 'pad', tabindex: '-1' });
   const sync = ({ stance: st, dirs: ds }) => {
     // ↓を押したあとモーションを選ぶと、確定する技に↓は入らない。姿勢の選択も立ちに戻して見た目と一致させる。
     const shown = st === 'crouch' && ds.join('').length >= 2 ? 'stand' : st;
@@ -941,17 +965,31 @@ function editScreen(route) {
   const tagFld = h('div', 'fld', at(h('label', 'field-label', 'タグ'), { for: 'f-tag' }), tagList,
     h('div', 'tag-add', tagInput, btn('', '追加', () => addTag(tagInput.value), { 'aria-label': 'タグを追加' })), suggest);
 
+  // ダメージ（design-spec-v2 5.4）: type=number は指数・小数のキーが出るので使わず、入力のたびに全角数字を半角にして数字以外を除き5桁に切る。先頭の0はフォーカスが外れたときに除く
+  const dmgIn = at(h('input', 'field'), { type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '5', enterkeyhint: 'done', autocomplete: 'off', id: 'f-dmg', 'aria-describedby': 'f-dmg-hint' });
+  dmgIn.value = ed.damage ?? '';
+  dmgIn.addEventListener('input', () => {
+    dmgIn.value = dmgIn.value.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/\D/g, '').slice(0, 5);
+    ed.damage = dmgIn.value === '' ? undefined : Number(dmgIn.value);
+    touch();
+  });
+  dmgIn.addEventListener('blur', () => { dmgIn.value = dmgIn.value.replace(/^0+(?=\d)/, ''); });
+  const dmgFld = h('div', 'fld', at(h('label', 'field-label', 'ダメージ（任意）'), { for: 'f-dmg' }), h('div', 'dmg-row', dmgIn, at(h('span', 'dmg-hint', '0〜99999'), { id: 'f-dmg-hint' })));
+
   const fields = h('div', 'fields',
     h('div', 'fld', at(h('label', 'field-label', 'セクション'), { for: 'f-sec' }), secSel),
     input('f-title', 'タイトル（任意）', ed.title, { type: 'text', maxlength: String(LIMITS.title), autocomplete: 'off', enterkeyhint: 'done' }, (v) => { ed.title = v; touch(); }),
-    posSet, tagFld,
+    posSet, dmgFld, tagFld,
     input('f-memo', 'メモ', ed.memo, { maxlength: String(LIMITS.memo), rows: '4' }, (v) => { ed.memo = v; touch(); }, 'textarea'));
 
   // ---- パッド ----
-  const { pad: padEl, sync } = buildPad(act, recentTokens(data.combos, cid), notation, strengthLabels);
-  const setPad = (hidden) => { padEl.hidden = hidden; ed.padHidden = hidden; };
+  const { pad: padEl, sync } = buildPad(act, recentTokens(data.combos, cid), notation, strengthLabels, () => { setPad(true); secSel.focus(); }); // ［完了］: ペンディングは保持。保存はしない
+  // パッドが隠れている間だけ、同じ位置に格納バー（副ボタン1つ）を出す。浮動ボタンは使わない
+  const dock = h('footer', 'bottombar pad-dock', btn('', [svgIcon('i-chev', 270), '技を入力'], () => { setPad(false); padEl.focus(); }, { 'aria-controls': 'pad', 'aria-expanded': 'false' }));
+  const setPad = (hidden) => { padEl.hidden = hidden; dock.hidden = !hidden; ed.padHidden = hidden; };
   setPad(ed.padHidden);
   cmd.addEventListener('click', () => setPad(false)); // コマンド列の領域をタップしたらパッドを戻す
+  fields.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.target.matches('#f-title, #f-dmg')) e.target.blur(); }); // キーボードを閉じる。パッドは隠れたまま
   fields.addEventListener('focusin', (e) => { if (e.target.matches('input[type=text], textarea')) setPad(true); }); // ソフトキーボードの場所を空ける
 
   // ---- 保存 ----
@@ -959,10 +997,11 @@ function editScreen(route) {
     if (tagInput.value.trim()) addTag(tagInput.value); // 入力途中のタグも取り込む
     const t = now();
     const base = rid ? data.combos.find((c) => c.id === rid) : null;
-    const edited = { sectionId: ed.sectionId, title: ed.title.trim(), position: ed.position, tokens: structuredClone(ed.pad.tokens), memo: ed.memo, tags: [...ed.tags] };
+    const edited = { sectionId: ed.sectionId, title: ed.title.trim(), position: ed.position, tokens: structuredClone(ed.pad.tokens), memo: ed.memo, tags: [...ed.tags], ...(ed.damage !== undefined && { damage: ed.damage }) };
     const combo = base
       ? { ...base, ...edited, updatedAt: t }
       : { id: newId(), characterId: cid, controlType: 'classic', ...edited, favorite: false, createdAt: t, updatedAt: t };
+    if (edited.damage === undefined) delete combo.damage; // 空は未入力（キーを持たせない）。元の値を {...base} から引き継がない
     const combos = base ? data.combos.map((c) => (c.id === base.id ? combo : c)) : [...data.combos, combo];
     const prev = data;
     if (!commit({ sections: data.sections, combos })) {
@@ -989,6 +1028,7 @@ function editScreen(route) {
     notices: [errSlot], main: [...notice, timeEl, cmd, fields], bottom: padEl,
   });
   screen.classList.add('edit');
+  screen.append(dock);
   renderTags();
   updateRow();
   sync(ed.pad.pending);
@@ -1001,7 +1041,7 @@ function editScreen(route) {
 function placeholder({ title, backLabel, to, lines }) {
   return shell({
     title, back: { label: backLabel, to },
-    main: [h('div', 'placeholder', h('p', '', '次のタスクで実装します。'), ...lines.map((l) => h('p', 'muted', l)))],
+    main: [h('div', 'placeholder', h('p', '', '次のタスクで実装します。'), ...lines.map((l) => h('p', 'hint', l)))],
   });
 }
 
@@ -1011,7 +1051,8 @@ const SCREENS = {
   detail: detailScreen,
   edit: editScreen,
   new: editScreen,
-  settings: () => placeholder({ title: '設定', backLabel: 'キャラクター選択に戻る', to: '#/', lines: [] }),
+  // 書体の表記（OFL 1.1 の求める表示。design-spec-v2 2.4）。T-012 の設定画面ではバージョン行の下に置く
+  settings: () => placeholder({ title: '設定', backLabel: 'キャラクター選択に戻る', to: '#/', lines: ['英字書体: Tilt Neon（SIL Open Font License 1.1）'] }),
 };
 
 // ===== SECTION: ルーティング =====

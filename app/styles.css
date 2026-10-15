@@ -1,36 +1,65 @@
+/* Tilt Neon（SIL OFL 1.1、Copyright 2019 The Tilt Project Authors、https://github.com/google/fonts/tree/main/ofl/tiltneon）。U+0020 U+002D U+002E 0-9 A-Z のサブセット、XROT=YROT=0。作り方は docs/design-spec-v2.md 2.4、ライセンス全文は app/OFL-TiltNeon.txt */
+@font-face { font-family: "Tilt Neon"; src: url(data:font/woff2;base64,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) format("woff2"); font-weight: 400; font-display: swap; }
+
 :root {
-  --bg: #16140F;
-  --surface: #22201A;
-  --key: #2E2B24;
-  --line: #3A372F;
-  --line-strong: #57524A;
-  --fg: #EDE8DC;
-  --fg-muted: #A8A397;
-  --conn: #8A867D;
-  --ink: #16140F;
+  /* 地 */
+  --bg: #0E0F11;
+  --surface: #17191C;
+  --key: #22252A;
+  --line: #2E3238;
+  --line-strong: #4A5059;
+  /* 文字 */
+  --fg: #F2EEE6;
+  --fg-muted: #AAA69D;
+  --conn: #8C8A85;
+  --ink: #0E0F11;
+  --lit: #FFF4DE;
+  /* 信号色（強度・システム） */
   --str-l: #8FD3F0;
   --str-m: #F0D870;
   --str-h: #F29A8E;
-  --od: #9ED8A0;
+  --od: #FF7410;
+  --dr: #4DF27C;
+  --di: #A3A9B2;
+  --dp: #1B2A66;
+  --dp-line: #7F98FF;
   --scrim: rgba(0,0,0,.6);
-
+  /* 発光（design-spec-v2 2.6。付けてよいのはL寸法のDR・OD、点灯した名前、ワードマークだけ。影は動かさない） */
+  --glow-dr: 0 0 6px rgb(77 242 124 / .45), inset 0 0 4px rgb(77 242 124 / .30);
+  --tx-dr: 0 0 4px rgb(77 242 124 / .5);
+  --glow-od: 0 0 6px rgb(255 116 16 / .5);
+  --tx-od: 0 0 4px rgb(255 116 16 / .5);
+  --tx-lit: 0 0 1px rgb(255 244 222 / .8), 0 0 8px rgb(255 196 120 / .35);
+  /* 書体 */
   --font: system-ui, "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
+  --font-sign: "Tilt Neon", system-ui, sans-serif;
   --t-xs: 12px/1.4;
   --t-sm: 13px/1.4;
   --t-md: 15px/1.5;
   --t-lg: 17px/1.4;
-
+  --sign-l: 20px/1;
+  --sign-m: 18px/1;
+  --sign-s: 15px/1;
+  /* 余白・角丸・形 */
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
   --s4: 16px;
   --s5: 24px;
   --s6: 32px;
-
   --r-tag: 2px;
   --r-chip: 6px;
   --r-key: 8px;
   --r-sheet: 12px;
+  --skew: -12deg;
+  --chamfer-l: 6px;
+  --chamfer-s: 4px;
+  /* 時間（--dur-chip はチップ追加の演出用。現状は未使用） */
+  --dur-key: 80ms;
+  --dur-chip: 120ms;
+  --dur-screen: 160ms;
+  --dur-sheet: 200ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
 }
 
 body {
@@ -96,7 +125,7 @@ h1, h2 { word-break: auto-phrase; }
 button.chip::after { content: ''; position: absolute; inset: -5px; }
 button.tag::after { content: ''; position: absolute; inset: -12px -2px; }
 button.chip:active, button.tag:active { background: var(--line-strong); }
-.chip.sel, .tag.sel { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 6px; }
+.chip.sel, .tag.sel { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: var(--r-chip); }
 
 .dot {
   position: relative;
@@ -126,29 +155,51 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .ltr.od { color: var(--od); margin-inline: var(--in); }
 .num { font: 700 var(--num)/1 var(--font); font-variant-numeric: tabular-nums; color: var(--fg); }
 
-/* システム技・SA */
+/* システム技・SA・OD・注記（design-spec-v2 3章）。種別ごとに色と枠の形を変える。発光はL寸法（.row:not(.S)）のDR・ODだけ */
 .sys {
+  position: relative; isolation: isolate;
   box-sizing: border-box;
   height: var(--chip-h);
   padding: 0 var(--chip-px);
-  border: 2px solid var(--fg);
+  border: 2px solid transparent;
   border-radius: var(--r-chip);
-  background: var(--key);
+  background: none;
   color: var(--fg);
   font: 700 var(--fs)/1 var(--font);
 }
+.sys-sa { border-color: var(--fg); background: var(--key); }
+.sys-dr { border-color: var(--dr); color: var(--dr); }
+.sys-dr .rush { width: 12px; height: 12px; }
+.row.S .sys-dr .rush { width: 9px; height: 9px; }
+.sys-dp {
+  border-color: var(--dp-line); background: var(--dp); padding-inline: 12px;
+  box-shadow: inset 0 0 0 2px var(--dp), inset 0 0 0 3px var(--dp-line);
+}
+.row.S .sys-dp { border-width: 1px; padding-inline: 8px; box-shadow: inset 0 0 0 1px var(--dp), inset 0 0 0 2px var(--dp-line); }
+.sys-di { border: 0; color: var(--ink); --c: var(--chamfer-l); }
+.row.S .sys-di { --c: var(--chamfer-s); }
+/* clip-path は ::before だけ（本体に当てると選択枠とフォーカスリングが切れる）。::after はボタンのタップ領域用 */
+.sys-di::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; background: var(--di);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .35);
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+.row:not(.S) .sys-dr { box-shadow: var(--glow-dr); text-shadow: var(--tx-dr); }
+.row:not(.S) .dot.od { box-shadow: var(--glow-od); }
+.row:not(.S) .ltr.od { text-shadow: var(--tx-od); }
 
-/* 注記CH・PC */
+/* 注記CH・PC: 枠のない小さな斜めの板 */
 .tag {
+  position: relative; isolation: isolate;
   display: inline-flex;
   align-items: center;
   height: var(--tag-h);
-  padding: 0 var(--s1);
-  border-radius: var(--r-tag);
-  background: var(--line-strong);
+  padding: 0 6px;
+  background: none;
   color: var(--fg);
   font: 700 var(--t-xs) var(--font);
 }
+.tag::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--line-strong); border-radius: var(--r-tag); transform: skewX(var(--skew)); }
 
 /* 強度の補助文字（設定オンで .str-labels を付ける） */
 .badge {
@@ -177,8 +228,8 @@ a { color: inherit; }
 .ic { display: block; width: 24px; height: 24px; flex: none; }
 
 .screen { box-sizing: border-box; display: flex; flex-direction: column; max-width: 480px; min-height: 100dvh; margin: 0 auto; background: var(--bg); }
-.screen.enter-fwd { animation: enter 160ms ease-out; --from: 24px; }
-.screen.enter-back { animation: enter 160ms ease-out; --from: -24px; }
+.screen.enter-fwd { animation: enter var(--dur-screen) ease-out; --from: 24px; }
+.screen.enter-back { animation: enter var(--dur-screen) ease-out; --from: -24px; }
 @keyframes enter { from { opacity: 0; transform: translateX(var(--from)); } }
 .main { flex: 1; }
 
@@ -188,8 +239,12 @@ a { color: inherit; }
   height: calc(48px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) var(--s2) 0;
   background: var(--bg); border-bottom: 1px solid var(--line);
 }
-.topbar h1 { flex: 1; min-width: 0; margin: 0; padding: 0 var(--s1); font: 700 var(--t-lg) var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* overflow:hidden が上下の発光（8px）を切らないよう、縦に余白を持たせる */
+.topbar h1 { flex: 1; min-width: 0; margin: 0; padding: 10px var(--s1); font: 700 var(--t-lg) var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar h1.solo { padding-left: var(--s2); }
+/* 一覧の上部バー: 英字のワードマーク（点灯した看板）＋カナ */
+.wm { margin-right: var(--s2); font: 400 var(--sign-m) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--lit); text-shadow: var(--tx-lit); }
+.kn { font: 400 var(--t-sm) var(--font); color: var(--fg-muted); }
 .bottombar {
   position: sticky; bottom: 0; z-index: 3; box-sizing: border-box; display: flex; align-items: center; gap: var(--s2);
   min-height: calc(56px + env(safe-area-inset-bottom)); padding: 0 var(--s4) env(safe-area-inset-bottom);
@@ -199,8 +254,15 @@ a { color: inherit; }
 .bottombar .primary { margin-left: auto; }
 .bottombar.recent { min-height: calc(48px + env(safe-area-inset-bottom)); }
 .recent-list { display: flex; gap: var(--s2); flex: 1; min-width: 0; }
-.recent-list .btn { flex: 1; min-width: 0; padding: 0 var(--s2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; line-height: 42px; text-align: center; }
-.hint { margin: 0; font: var(--t-xs); color: var(--fg-muted); }
+/* 最近使ったキャラ: 斜めの板に点灯した英字。板は ::before だけを傾ける */
+.rc {
+  position: relative; isolation: isolate; flex: 1; min-width: 0; box-sizing: border-box; display: flex; align-items: center; justify-content: center; height: 44px;
+  color: var(--lit); text-decoration: none; white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.rc::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--key); transform: skewX(var(--skew)); }
+.rc:active::before { background: var(--line); }
+.rc-en { font: 400 var(--sign-s) var(--font-sign); font-synthesis: none; letter-spacing: .04em; text-shadow: var(--tx-lit); }
+.hint { margin: 0; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 
 /* ボタン: 主ボタンは塗り反転、副ボタンは key 塗りと1pxの枠。色相は使わない */
 .btn {
@@ -221,16 +283,30 @@ a { color: inherit; }
 .icon-btn:active { background: var(--line-strong); }
 .icon-btn:disabled { opacity: .3; cursor: default; }
 
-/* キャラクター選択 */
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
+/* キャラクター選択（design-spec-v2 5.1）。斜めの板の3列。隣の板との平行な3pxの隙間が路地。overflow-x:clip は傾いた板のはみ出しを切る */
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px 0; overflow-x: clip; }
 .cell {
-  box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 52px; padding: var(--s1) 2px; /* 「エドモンド本田」(15px×7字)が360幅の1列に収まる幅 */
-  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: center; text-decoration: none;
+  position: relative; isolation: isolate; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: end;
+  height: 54px; padding: 6px 12px 6px 14px; text-decoration: none; -webkit-tap-highlight-color: transparent;
 }
-.cell:nth-child(3n) { border-right: 0; }
-.cell:active { background: var(--line-strong); }
-.cell-name { font: 700 var(--t-md) var(--font); }
-.cell-n { font: var(--t-xs) var(--font); color: var(--fg-muted); }
+.cell::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--surface); transform: skewX(var(--skew)); }
+.cell.lit::before { background: var(--key); }
+.cell:active::before { background: var(--line); }
+.cell:focus-visible { outline-offset: -3px; }
+/* 英字: 消灯は muted、点灯（記録あり）と押下中は lit＋発光。押下は即時（トランジションなし）。余白は text-shadow を overflow:hidden で切らないため */
+.cell-en {
+  grid-column: 1 / -1; min-width: 0; margin: -8px; padding: 8px; overflow: hidden; white-space: nowrap;
+  font: 400 var(--sign-l) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--fg-muted);
+}
+/* .long は、20pxだと英字が1列に収まらない幅（KIMBERLY 93.5pxに対し、列の内幅は (幅-6)/3-26 なので367px未満）でだけ16pxにする。360px未満は全員16px（320pxで実測: 20pxだと6名が溢れる） */
+@media (max-width: 366px) { .cell.long .cell-en { font-size: 16px; } }
+@media (max-width: 359px) { .cell-en { font-size: 16px; } }
+.cell.lit .cell-en, .cell:active .cell-en { color: var(--lit); text-shadow: var(--tx-lit); }
+.cell-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 var(--t-xs) var(--font); color: var(--fg-muted); }
+.cell-n { padding-left: var(--s1); font: 700 var(--t-xs) var(--font); color: var(--lit); }
+/* 起動時の点灯: 最初の描画で1回だけ（.boot は app.js が先頭6件に付ける）。opacity だけを動かす */
+.cell.boot .cell-en { animation: flick 480ms linear var(--d, 0ms) backwards; }
+@keyframes flick { 0% { opacity: 0; } 20% { opacity: 1; } 30% { opacity: .3; } 45% { opacity: 1; } 55% { opacity: .6; } 70%, 100% { opacity: 1; } }
 
 /* 一覧: セクション見出しの帯と記録の行 */
 .sec-head {
@@ -243,14 +319,17 @@ a { color: inherit; }
   flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s2);
   border: 0; background: none; text-align: left; cursor: pointer;
 }
-.sec-no { font: var(--t-sm) var(--font); color: var(--fg-muted); }
+.sec-no { font: 400 var(--sign-s) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--fg-muted); }
 .sec-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--t-md) var(--font); }
 .sec-count { margin-left: var(--s1); flex: none; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .item { display: block; box-sizing: border-box; min-height: 64px; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); text-decoration: none; }
-.item:active { background: var(--line-strong); }
+.item:active { background: var(--key); }
 .item-title { margin-bottom: var(--s1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--t-md) var(--font); }
 .preview { height: 28px; overflow: hidden; }
-.item-meta { margin-top: var(--s1); font: var(--t-xs) var(--font); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-meta { display: flex; gap: var(--s2); margin-top: var(--s1); font: var(--t-xs) var(--font); color: var(--fg-muted); }
+.meta-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dmg { flex: none; white-space: nowrap; }
+.dmg b { font: 700 var(--t-sm) var(--font); font-variant-numeric: tabular-nums; color: var(--fg); } /* font ショートハンドは tabular-nums を戻すので数字は個別に指定する */
 .empty, .placeholder { padding: var(--s5) var(--s4); }
 .empty p, .placeholder p { margin: 0 0 var(--s4); }
 .empty > .btn { margin-top: var(--s4); }
@@ -277,11 +356,11 @@ a { color: inherit; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
 /* ボトムシート: 面の明度差と暗幕で重なりを示す。閉じるは下端 */
-.scrim { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center; background: var(--scrim); animation: scrim-in 200ms linear; }
+.scrim { position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center; background: var(--scrim); animation: scrim-in var(--dur-sheet) linear; }
 .sheet {
   box-sizing: border-box; display: flex; flex-direction: column; width: 100%; max-width: 480px; max-height: 90dvh;
-  padding-bottom: env(safe-area-inset-bottom); background: var(--surface); border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  animation: sheet-in 200ms cubic-bezier(.2, .8, .2, 1);
+  padding-bottom: env(safe-area-inset-bottom); background: var(--surface); border-top: 1px solid var(--line-strong); border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  animation: sheet-in var(--dur-sheet) var(--ease-out);
 }
 .sheet h2 { margin: 0; padding: var(--s4) var(--s4) var(--s2); font: 700 var(--t-lg) var(--font); overflow-wrap: anywhere; }
 .sheet-body { overflow: auto; padding: 0 var(--s4) var(--s2); }
@@ -313,6 +392,9 @@ a { color: inherit; }
 .detail { padding: var(--s4); }
 .d-meta { margin: 0; font: var(--t-sm) var(--font); color: var(--fg-muted); overflow-wrap: anywhere; }
 .d-title { margin: var(--s2) 0 0; font: 700 var(--t-lg) var(--font); overflow-wrap: anywhere; }
+.d-stat { display: flex; align-items: baseline; gap: 6px; margin: var(--s2) 0 0; }
+.d-stat-l { font: 400 var(--t-xs) var(--font); color: var(--fg-muted); }
+.d-stat-n { font: 700 20px/1.2 var(--font); font-variant-numeric: tabular-nums; color: var(--fg); }
 .d-cmd { margin: var(--s5) 0; }
 .d-memo-h { margin: 0 0 var(--s1); font: var(--t-sm) var(--font); color: var(--fg-muted); }
 .d-memo p { margin: 0; font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -344,7 +426,11 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .tag-list, .suggest { display: flex; flex-wrap: wrap; gap: var(--s1); }
 .tag-list:not(:empty) { margin-bottom: var(--s2); }
 .suggest:not(:empty) { margin-top: var(--s2); }
+.dmg-row { display: flex; align-items: center; gap: var(--s3); }
+#f-dmg { flex: none; width: 120px; font-variant-numeric: tabular-nums; }
+.dmg-hint { font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .tag-add { display: flex; gap: var(--s2); }
+.tag-add .btn { flex: none; white-space: nowrap; }
 .pill { padding: 0 var(--s3); font-size: 14px; }
 .pill .ic { width: 16px; height: 16px; }
 
@@ -380,19 +466,31 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
   flex: none; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 5px 6px calc(6px + env(safe-area-inset-bottom));
   background: var(--surface); border-top: 1px solid var(--line); touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
 }
-.pad[hidden] { display: none; }
+.pad[hidden], .pad-dock[hidden] { display: none; }
 .key {
   box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; padding: 0;
-  border: 1px solid var(--line-strong); border-radius: var(--r-key); background: var(--key); color: var(--fg);
+  position: relative; border: 1px solid var(--line-strong); border-radius: var(--r-key); background: var(--key); color: var(--fg);
   font: 700 14px/1.2 var(--font); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
   --arrow: 18px; --fs: 15px;
-  transition: background 80ms linear;
+  transition: background var(--dur-key) linear;
 }
 .key:active { background: var(--line-strong); transition: none; }
 .key[aria-checked="true"], .key[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--fg); }
+/* システム行のキーの帯（種別の色。幅は変えない）。ODキーの橙は .ltr.od・.dot.od の色による */
+.band::before { content: ''; position: absolute; left: 8px; right: 8px; bottom: 4px; height: 3px; border-radius: 1.5px; background: var(--band); }
+.band-dr { --band: var(--dr); }
+.band-di { --band: var(--di); }
+.band-dp { --band: var(--dp-line); }
+.band-sa { --band: var(--fg); }
 .pad :focus-visible { outline-offset: -3px; }
 .recent-keys, .sys-keys { display: flex; gap: 4px; height: 44px; overflow-x: auto; scrollbar-width: none; }
 .recent-keys { scroll-snap-type: x proximity; }
+/* R1: 直近の技（左、残り幅。360pxで280px）＋［完了］キー（右端に固定） */
+.r1 { display: flex; gap: 4px; height: 44px; }
+.r1 > .recent-keys, .r1 > .recent-empty { flex: 1; min-width: 0; }
+.done { flex: none; width: 64px; height: 44px; gap: 0; }
+.done .ic { width: 16px; height: 16px; }
+.done-t { font: 700 14px/1.2 var(--font); }
 .recent-keys .key { flex: none; flex-direction: row; min-width: 44px; padding: 0 8px; scroll-snap-align: start; }
 .recent-keys .row { flex-wrap: nowrap; pointer-events: none; }
 .recent-empty { display: flex; align-items: center; height: 44px; padding: 0 8px; color: var(--fg-muted); font: var(--t-xs) var(--font); }
@@ -422,6 +520,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
   .screen.edit .cmd { order: 1; }
   .screen.edit .pad { order: 2; }
   .screen.edit .fields { order: 3; }
+  .screen.edit .pad-dock { order: 4; }
   .screen.edit .banners { position: sticky; }
 }
 
@@ -431,4 +530,5 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+  .cell.boot .cell-en { animation: none; } /* 遅延も付くので止める（最終状態で表示） */
 }

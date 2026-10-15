@@ -255,3 +255,49 @@
 - 「LP or MP」などのor表記は強度の選択と解釈したが、ページ上に説明はない。
 
 ---
+
+## D-011: APK配布（Capacitorで包む）
+
+- 日付: 2026-10-15
+- 状態: 採用
+
+### 背景
+- ユーザーが、インストールアプリ（apk）としてダウンロードリンクを出せる準備を求めた。D-002は、apkが必要になったらPWAを後から包む形（TWAやCapacitor）で追加するとしている。
+
+### 決定
+- Capacitor（Android）で `app/` をそのまま同梱する。ビルド用の構成は `apk/`（package.json、capacitor.config.json、android/）と `.github/workflows/apk.yml` に置き、Webアプリ本体（`app/`）には依存を追加しない。
+- appIdは `io.github.nagamaki0311.sf6memo`、アプリ名は「SF6戦略メモ」、縦固定、バー色は `#16140F`。Capacitor 8 の要件により、Android SDK 36、JDK 21 を使う。
+- 署名は、環境変数（`KEYSTORE_FILE` ほか）があればリリース署名、なければデバッグ署名とする。配布前にユーザーがリリース鍵を作り、GitHubのSecrets（`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`）に登録する。鍵はリポジトリ外にバックアップする。
+- ワークフローは `workflow_dispatch` とタグ `v*` のpushで起動し、アーティファクトに加え、タグのときはGitHub Releaseに `sf6memo.apk` を添付する。ダウンロードリンクは `https://github.com/Nagamaki0311/strategy-memo/releases/latest/download/sf6memo.apk`（リポジトリが公開のとき有効）。
+- JSONの書き出しはAndroid WebViewで `<a download>` と `navigator.share` が使えないため、`window.Capacitor?.isNativePlatform?.()` が真のときだけ `@capacitor/filesystem` と `@capacitor/share` 経由にする（T-012で実装。呼び出し例は apk/README.md）。
+
+### 理由
+- TWAは、GitHub Pagesのプロジェクトサイトではドメイン直下にassetlinks.jsonを置けず検証できない（URLバーが残る）うえ、ホスティングとPWAが先に要る。Capacitorはオフラインで動き、ホスティングに依存しない。
+
+### 影響
+- 署名鍵を登録しないと、Actionsの実行ごとに別のデバッグ鍵で署名される。署名が変わると上書き更新できず、アンインストールで端末内のlocalStorageのデータが消える。配布前に必ず鍵を登録する。
+- ローカルでデバッグAPKとリリースAPKのビルドと中身の確認はできたが、実機での起動、Actionsの実行は未確認（T-016）。
+
+---
+
+## D-012: デザイン刷新v2（ネオン街）と合計ダメージ欄
+
+- 日付: 2026-10-15
+- 状態: 採用
+
+### 背景
+- ユーザーが、SF6公式のコマンドリストを参考にした全体のブラッシュアップ（ネオン管・ネオン街・暗い路地裏・電飾のモチーフ）、システム技の色分け（DI＝鈍い銀、DP＝紺、DR系＝蛍光グリーン、OD＝蛍光オレンジ）、キャラ選択画面の表記の作り変え、合計ダメージの入力と表示、入力完了の導線を求めた。メモ画面（編集画面）は現状のスタイルを維持する。
+
+### 決定
+- 仕様は docs/design-spec-v2.md とし、v1（docs/design-spec.md）の該当章を差し替える。要点: 地を `#0E0F11` に変更、発光はDR・OD（L寸法のみ）と記録があるキャラの名前に限定、システム技は種別ごとに色と形を変える、英字の看板書体はTilt Neon（SIL OFL 1.1）のサブセットをdata URIで埋め込む、キャラ選択は斜めのタイルの3列に英字とカナを併記、パッドのR1に［完了］キーを置き、閉じたパッドは格納バーまたはコマンド列のタップで開き直す。
+- コンボに任意の `damage`（0〜99999の整数、未入力はキーなし）を追加する。D-004のコンボのフィールドに加える。`schemaVersion` は上げない（任意の追加で、既存の書き出しと取り込みはそのまま有効）。requirements 4.1のダメージ（Phase 2の付加情報）をPhase 1に前倒しする。
+- requirements 3.3の「システム技・SA＝角丸の文字チップ」は、「システム技・SA＝文字チップ。種別ごとに枠の形を変える」に読み替える。ODの色は緑から橙に変わる（D-005のOD表示の色のみ）。Dリバの色はDPと同じ紺の二重枠、英字の表記はGOUKI・VEGA。
+- ユーザー指示により、敵対的レビューは完成後に後追いで実行する。
+
+### 理由
+- ユーザー指示。発光を意味のある2種類に限り、requirements 5章の「理由なく既定にしない要素」との整合を保つ。
+
+### 影響
+- CLAUDE.mdのデザイントークン節を更新する。e2eとcheck.htmlに、システム技の構造判定とダメージの検証を足す。ネオンの質感により、性能（60fps）の実測が要る。
+
+---

@@ -40,6 +40,8 @@ const ALL = [
   note('CH'), S('236', 'H', 'P'), note('PC'), N('crouch', 'M', 'K'), note('CH'),
 ];
 const KENSAN = [N('crouch', 'M', 'K'), S('236', 'H', 'P'), sys('CDR'), N('crouch', 'M', 'K'), S('236', 'H', 'P')];
+// システム技・OD・注記の比較列（design-spec-v2 8章）。L・Sで並べ、グレースケール（?gray=1）でも形で区別できることを見る
+const SYSMIX = [sys('CDR'), sys('RAW_DR'), sys('DI'), sys('PARRY'), sys('REVERSAL'), sa(1), S('236', 'OD', 'P'), note('CH'), S('236', 'H', 'P')];
 const STRESS = [S('23634123641236412364', 'H', 'P'), N('stand', 'L', 'P'), S('[4]6', 'OD', 'K')]; // 20文字の方向列
 
 const DIRS = [S('123456789', 'H', 'P'), S('2565', 'H', 'P')];
@@ -51,6 +53,8 @@ const CASES = [
   ['S・数字', ALL, { size: 'S', notation: 'numpad' }],
   ['L・矢印・補助文字オン', ALL, { size: 'L', strengthLabels: true }],
   ['S・矢印・補助文字オン', ALL, { size: 'S', strengthLabels: true }],
+  ['システム技・OD・注記の比較 L（CDR・生ラッシュ・DI・DP・Dリバ・SA1・OD236P・CH＋技）', SYSMIX, { size: 'L' }],
+  ['システム技・OD・注記の比較 S', SYSMIX, { size: 'S' }],
   ['検算の列 L', KENSAN, { size: 'L' }],
   ['検算の列 S', KENSAN, { size: 'S' }],
   ['全方向（1〜9）と5入り L', DIRS, { size: 'L' }],
@@ -107,6 +111,25 @@ for (const row of dirRows) {
     if (motion.includes('5') && !row.querySelectorAll('.chip')[i].getAttribute('aria-label').includes('ニュートラル')) problems.push('方向5のaria-labelがニュートラルでない');
   });
 }
+// システム技・注記の構造（v2。色を除いた形の手がかりが実際に描かれている）
+for (const row of document.querySelectorAll('.row')) {
+  const size = row.classList.contains('S') ? 'S' : 'L';
+  for (const c of row.querySelectorAll('.sys-dr')) if (!c.querySelector('svg.rush')) problems.push(`${size}: .sys-dr に .rush（»）がない`);
+  for (const c of row.querySelectorAll('.sys-di')) if (getComputedStyle(c, '::before').clipPath === 'none') problems.push(`${size}: .sys-di::before の clip-path が none`);
+  for (const c of row.querySelectorAll('.tag')) if (getComputedStyle(c, '::before').transform === 'none') problems.push(`${size}: .tag::before の transform が none`);
+}
+if (!document.querySelector('.sys-dr') || !document.querySelector('.sys-di') || !document.querySelector('.sys-dp') || !document.querySelector('.sys-sa') || !document.querySelector('.tag')) problems.push('システム技・注記の比較列が描画されていない');
+// 発光はL寸法のDR・ODだけ。S寸法には、ぼかしのある影・外側の影・text-shadow がない（DPの二重枠は0ぼかしのinsetで、形そのもの）
+const glows = (e) => {
+  const cs = getComputedStyle(e);
+  const parts = cs.boxShadow === 'none' ? [] : cs.boxShadow.split(/,(?![^(]*\))/).map((x) => x.trim());
+  const n = (x) => x.replace(/rgba?\([^)]*\)/, '').replace('inset', '').trim().split(/\s+/).map(parseFloat);
+  return parts.some((x) => !x.includes('inset') || n(x)[2] > 0) || cs.textShadow !== 'none';
+};
+for (const e of document.querySelectorAll('.row.S, .row.S *')) if (glows(e)) problems.push(`S寸法に発光 ${e.className}`);
+const glowL = [...document.querySelectorAll('.row:not(.S) .sys-dr, .row:not(.S) .dot.od, .row:not(.S) .ltr.od')];
+if (!glowL.length || !glowL.every(glows)) problems.push('L寸法のDR・ODに発光がない');
+for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .sys-di, .row:not(.S) .sys-dp, .row:not(.S) .dot:not(.od)')) if (glows(e)) problems.push(`L寸法で発光してはいけない要素 ${e.className}`);
 const rows = document.querySelectorAll('.row').length;
 document.getElementById('result').textContent = problems.length
   ? `CHECK-FAIL w=${window.innerWidth} rows=${rows} ${[...new Set(problems)].join(' / ')}`
