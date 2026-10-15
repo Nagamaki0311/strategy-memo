@@ -1,5 +1,7 @@
 # デザイン仕様
 
+注: ネオン街モチーフへの刷新（v2）は docs/design-spec-v2.md にあり、v2に書かれた章はv1に優先する（D-012）。
+
 Designerが作成した仕様（2026-10-15）に、Manager側の確定事項（D-005、D-010、ユーザー回答）を反映したもの。Developerは本書に従って実装する。デザイントークンはT-007でCLAUDE.mdへ短い節として記録する（docs/design-workflow.mdの手順）。
 
 ## 1. 方針
