@@ -2504,7 +2504,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ON
         assert.doesNotMatch(t, /入力内容はこの画面に残っています/);
         assert.equal(await storedRaw(page), '{broken');
         assert.equal(await page.getByRole('button', { name: 'JSONを書き出す' }).count(), 0);
-        assert.deepEqual(await toast(page), []);
+        assert.deepEqual((await toast(page)).filter((t) => /取り込みました/.test(t)), []); // 成功のトーストは出ない（直前の書き出しのトーストは、保存に失敗した操作では消さずに時間で消える）
       });
       await page.reload();
       await gotoHash(page, '#/settings');
@@ -4876,7 +4876,7 @@ for (const width of process.env.ONLY_26 ? [] : [360, 390, 430]) {
 }
 
 // ===== SECTION: 26 連携・分岐（T-027。D-021・D-022、design-spec-v2.4 7章の基準1〜12） =====
-// 360・390・430幅。木の表示・折りたたみ・追加編集・上限・削除と取り消し・複製と移動・件数・下書き・迷子・グレースケール・色。
+// 360・390・430幅。木の表示・折りたたみ・追加編集・上限・削除と取り消し・複製と移動・件数・下書き・2タブと取り込み・グレースケール・色。
 // 期待値は design-spec-v2.4 の表と文言を直接書く（app.js・styles.css から読まない）。
 for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390, 430].filter((w) => !process.env.WIDTH || Number(process.env.WIDTH) === w)) { // WIDTH=360 で1つの幅だけ
   const tag = `[${width}]`;
@@ -5200,21 +5200,24 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
     });
     await page.context().close();
 
-    // チップが［…］の真下にある行（SA1・必殺技・前ステップ・DI。幅360・390・430のどれでも、チップの当たり領域が［…］に重なる）
-    const under = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('u0', 's1', '根', PK), kid('u1', 'u0', '重なる行', [{ type: 'sa', level: 1 }, SP('236', 'H', 'P'), { type: 'move', id: 'FWD_STEP' }, { type: 'system', id: 'DI' }])] };
+    // チップが［…］の真下にある行。チップの並びは幅で変わるので、幅ごとに［…］の中ほどへ重なる並びを3つ置く（H=CH S=波動 C=CDR A=SA1 D=DI F=前ステップ M=屈中K。幅360・390・430で、どれかが重なる）
+    const U = { H: { type: 'note', id: 'CH' }, S: SP('236', 'H', 'P'), C: { type: 'system', id: 'CDR' }, A: { type: 'sa', level: 1 }, D: { type: 'system', id: 'DI' }, F: { type: 'move', id: 'FWD_STEP' }, M: N('crouch', 'M', 'K') };
+    const under = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('u0', 's1', '根', PK), ...['HMCFM', 'ASFD', 'ASCA'].map((q, i) => kid(`u${i + 1}`, 'u0', q, [...q].map((c) => U[c])))] };
     const pageU = await newPage(width, under);
     await gotoHash(pageU, '#/c/ryu/r/u0');
-    await check(`${tag} 26e チップが［…］の真下に来る行でも、［…］の下端（左右・中央）は［…］自身が受ける（.t-row の z-index）`, async () => {
-      const m = await pageU.$eval('#t-u1', (n) => {
+    await check(`${tag} 26e チップが［…］の真下に来る行でも、［…］の下端（中ほど10〜34px。縁は角丸の外）は［…］自身が受ける（.t-row の z-index）`, async () => {
+      const m = await pageU.$$eval('.t-node', (nodes) => nodes.map((n) => {
         const b = n.querySelector('.t-row .icon-btn');
         b.scrollIntoView({ block: 'center' });
         const r = b.getBoundingClientRect();
-        const overlap = [...n.querySelectorAll(':scope > .t-cmd button')].filter((c) => { const q = c.getBoundingClientRect(); return q.top - 5 < r.bottom && q.right > r.left && q.left < r.right; }).length;
-        const bad = [14, 22, 30].map((dx) => document.elementFromPoint(r.left + dx, r.bottom - 1)).filter((e) => !b.contains(e)).length;
+        const chips = [...n.querySelectorAll(':scope > .t-cmd button')];
+        const overlap = chips.filter((c) => { const q = c.getBoundingClientRect(); return q.top - 5 < r.bottom && q.right > r.left + 10 && q.left < r.left + 34; }).length;
+        let bad = 0;
+        for (let dx = 10; dx <= 34; dx += 4) for (const dy of [1, 3]) if (!b.contains(document.elementFromPoint(r.left + dx, r.bottom - dy))) bad++;
         return { overlap, bad };
-      });
-      assert.ok(m.overlap >= 1, 'チップの当たり領域が［…］に重なる行になっている'); // 重ならない行では z-index を外しても気づけない
-      assert.equal(m.bad, 0);
+      }));
+      assert.ok(m.some((x) => x.overlap >= 1), JSON.stringify(m)); // 重ならない行だけでは、z-index を外しても気づけない
+      assert.deepEqual(m.map((x) => x.bad), [0, 0, 0]);
     });
     await pageU.context().close();
   }

@@ -40,7 +40,7 @@
 | T-024 | 技名表記のチップから強度の●を外す（接頭辞だけで強度を示す） | 高 | 完了 | developer | ユーザー指示（2026-10-16）、D-019、docs/design-spec-v2.2.md 0・2・3・5・6章。コマンド表記・辞書にない入力は●のまま。e2e 24章・check.html を更新。結果は docs/progress.md |
 | T-025 | 設定「メモの文字サイズ」［大｜中｜小］。メモの内容（コマンド列・メモ本文・タグ・ダメージ、一覧のプレビューも）だけを段階的に縮める | 高 | 完了 | developer | ユーザー要望（2026-10-16）、D-020、docs/design-spec-v2.3.md。詳細・編集の丸 34/29/24、一覧の丸 24/21/18。初期値は大（従来と同じ見た目）。e2e 25章・check.html の段階別の行。結果は docs/progress.md |
 | T-026 | 連携（コンボ後の行動と分岐の木）のデータ層 | 高 | 完了 | developer | ユーザー要望（2026-10-16）、D-021。core.js の `parentId`・検証・取り込みの整合・削除/複製/移動の子孫連動・一覧用の関数、schemaVersion 3、tests/core.test.js。UI（app.js・styles.css）は含まない。結果は docs/progress.md |
-| T-027 | 連携のUI（一覧・詳細・編集・削除/複製/移動の切り替え） | 高 | 完了 | developer | 依存: T-026。docs/design-spec-v2.4.md、D-022。app.js の削除・複製・編集のセクション変更を `deleteCombo`・`duplicateTree`・`moveCombo` へ切り替え、詳細の木・追加編集・上限・下書き・迷子・一覧の「連携 N」。e2e 26章（3幅）、check.html の木の行。結果は docs/progress.md。レビュー（reviewer）は未実施 |
+| T-027 | 連携のUI（一覧・詳細・編集・削除/複製/移動の切り替え） | 高 | 完了 | developer | 依存: T-026。docs/design-spec-v2.4.md、D-022。app.js の削除・複製・編集のセクション変更を `deleteCombo`・`duplicateTree`・`moveCombo` へ切り替え、詳細の木・追加編集・上限・下書き・迷子・一覧の「連携 N」。e2e 26章（3幅）、check.html の木の行。結果は docs/progress.md。レビュー2観点の指摘（M-1・L-1〜L-5・B-1〜B-7）は修正済み（2026-10-16）。再レビューは未実施 |
 | T-015 | Phase 1: 受け入れの総点検 | 高 | 完了 | reviewer | 観点別3並列の敵対的レビュー（A: データ・保存、B: UI、C: PWA・APK・セキュリティ）を実施し、修正1段目（A+C、D-014）と2段目（B、D-015）を反映した。7.3の基準7（実機）はT-014でユーザー待ち。修正後の再レビューは未実施（T-020の前にユーザーが判断する） |
 
 ## バックログ（未着手・優先度未確定）
