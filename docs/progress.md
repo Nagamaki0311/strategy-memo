@@ -22,17 +22,17 @@
 ## 2026-10-16 T-026 連携（コンボ後の行動と分岐の木）のデータ層（D-021）
 
 ### 実施内容
-- app/core.js: 記録に任意の `parentId`、`LIMITS.depth`（3）・`LIMITS.children`（8）、`SCHEMA_VERSION` 3。`validateDoc` に親子の検証（親の存在・同セクション・自己参照・循環・深さ・子の数）を足した。新しい区画 `// ===== SECTION: 連携・分岐（D-021） =====` に `rootsOf`・`childrenOf`・`descendantTree`・`countDescendants`・`canAddChild`・`deleteCombo`・`duplicateTree`・`moveCombo` を置いた。`sanitizeDraft` は `parentId` を通す。`mergeImport` の関数本体は変えていない（マージ後の `validateDoc` が親子の整合も見る）。
-- 仕様との差: 兄弟の並びに `position` を使う指定だったが、`position` は画面位置（`any`／`corner`／`midscreen`）の列挙で順序を持たない。兄弟は `createdAt` の昇順（同じなら配列の順）にし、新しい連携の `position` を決める関数は作らなかった（新しい `createdAt` が末尾になる）。兄弟の並べ替えは未対応。
+- app/core.js: 記録に任意の `parentId`、`LIMITS.depth`（3）・`LIMITS.children`（8）、`SCHEMA_VERSION` 3。`validateDoc` に親子の検証（親の存在・同セクション・自己参照・循環・深さ・子の数）を足した。新しい区画 `// ===== SECTION: 連携・分岐（D-021） =====` に `rootsOf`（根と迷子）・`rootCount`・`comboCount`・`isOrphan`・`childrenOf`・`descendantTree`・`countDescendants`・`addChildBlock`（追加できない理由 null／'depth'／'siblings'／'missing'）・`nextChildCreatedAt`・`newChildCombo`・`deleteCombo`・`duplicateTree`・`moveCombo` を置いた。`sanitizeDraft` は `parentId` を通す。`mergeImport` の関数本体は変えていない（マージ後の `validateDoc` が親子の整合も見る）。
+- 仕様との差（要判断）: 兄弟の並びに `position` の昇順を使う指定だったが、`position` は画面位置（`any`／`corner`／`midscreen`）の列挙で、数の順序ではない。保存形式の他の項目を変えない制約があるため、兄弟は `createdAt` の昇順、同じなら `id` の順にした。「兄弟の最後」は `nextChildCreatedAt` で決める。複製は子の `createdAt` を元のまま保つので順序も保たれる。並べ替えを作るときは、順序用の項目を足す決定が必要。
 - 検証で `characterId` と `controlType` の照合は省いた。セクションが1キャラのものなので、同セクションなら同キャラになり、`controlType` は `classic` だけ。変異テストで、この2つの検査を外しても検出できないことを確認して整理した。
 - app.js は変更なし。保存層は版の値を見ず `parseDocText`／`exportDoc` を通すだけなので、既存の版2は読み込み時にそのまま有効で、次の保存から版3になる。件数（タイル・`neonLevel`・セクション）は app.js が `combos` の全件を数えており、連携・分岐も含む（ユーザー決定どおり）。
 - 既存のテストの期待値のうち、`schemaVersion` の2を3に、「新しすぎる版」の3を4に更新した（tests/core.test.js の4件、tests/e2e.mjs の20b・20e・24b。理由は仕様の版の繰り上げ）。意味は変えていない。
 
 ### 結果（実行コマンドと結果）
-- `npm test`: 111件すべて合格（追加14件。検証、版、取り込みの混在ケース、削除・複製・移動、件数、一覧用、下書き、不正入力、計算量）。
+- `npm test`: 114件すべて合格（追加17件。検証、版、取り込みの混在ケース、削除・複製・移動、件数、一覧用、下書き、不正入力、計算量）。
 - 取り込みの混在ケース（tests/core.test.js「取り込み: 親子の整合…」）: 端末側で根が別セクションへ移動済み（新しい）で取り込み側の子が旧セクション → 拒否。取り込み側で根が移動済みで端末側の子が新しい → 拒否。端末の根の8個の子へ9個目 → 拒否。深さ4になる付け替え → 拒否。親子の逆転による循環 → 拒否。根と子がともに新しい移動、端末の根に取り込み側の子が付く、親だけ新しい → 通る。拒否のときは入力の `local` が変わらないことも確認した。
 - 計算量（記録1万件、根:連携:分岐:分岐 = 1:2:4:8 の木）: `validateDoc` は2500件で約25〜30ms、1万件で約105〜155ms（件数4倍で約4〜5倍）。`descendantTree` は1回あたり1万件で約7〜10ms（呼び出しごとに全件から子の表を作る。一覧で根ごとに呼ぶと全体が根の数に比例するので、画面ごとに1回にする）。`rootsOf` は1万件で約0.5ms。
-- 変異テスト（`app/core.js` を1箇所ずつ壊して `npm test`。毎回戻した）: 深さ上限を4 → 3件失敗。子の上限を9 → 4件。削除で子孫を消さない → 1件。複製で `parentId` を付け替えない → 1件。移動で子孫を動かさない → 1件。連携・分岐だけの移動を許す → 1件。同セクションの検査を外す → 3件。親の存在確認を外す → 1件（初回は見逃し。「子が先に並び、親の親がない」ケースを足して検出）。兄弟のソートを外す → 2件。`rootsOf` が子も含む → 2件。版2の `parentId` を許す → 1件。12種すべて検出。
+- 変異テスト（`app/core.js` を1箇所ずつ壊して `npm test`。毎回戻した）: 深さ上限を4 → 3件失敗。子の上限を9 → 4件。削除で子孫を消さない → 1件。複製で `parentId` を付け替えない → 1件。移動で子孫を動かさない → 1件。連携・分岐だけの移動を許す → 1件。同セクションの検査を外す → 3件。親の存在確認を外す → 1件（初回は見逃し。「子が先に並び、親の親がない」ケースを足して検出）。兄弟のソートを外す → 2件。`rootsOf` が子も含む → 2件。版2の `parentId` を許す → 1件。12種すべて検出。続けて、設計追補（design-spec-v2.4）を受けた追加分の変異（迷子の段数、追加可否の深さ・理由、兄弟の末尾保証、新しい子のお気に入り、兄弟のid順、複製の createdAt、根の件数、`rootsOf` の迷子）も全部検出した。
 - e2e（`python3 -m http.server 8000`、`FAST=1 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/e2e.mjs`）: 1232/1232 合格（360・430幅。e2e が期待する schemaVersion を2→3、「新しすぎる版」の3→4に更新した以外、変更なし）
 
 ### 次回開始位置

@@ -548,11 +548,14 @@
 - schemaVersion: 3。書き出しは常に3。取り込みは1〜3を受け付け（版1・2は `parentId` を持たない文書として変換なしで有効。版1・2の文書に `parentId` があれば未対応の項目として拒否）、4以上は拒否する。マイグレーション関数はない。保存データ（`sf6memo.data`）の既存の版2は読み込み時にそのまま有効で、次の保存から版3になる。保存層（app.js の `loadData`・`commit`）は版の値を見ず、`parseDocText` と `exportDoc` を通すだけなので、app.js の変更は不要だった。
 - 取り込み（`mergeImport`）: id一致は `updatedAt` の新しい方（D-006）。マージ後の文書を `validateDoc` に通し、親子の整合（親の存在・同セクション・深さ・個数）が崩れるときは取り込み全体を拒否する（データは変えない）。崩れるのは、片方の端末だけで根が別セクションへ移動された、片方だけが9個目の子を足した、親子が逆転して循環した、などの混在ケース。tests/core.test.js に固定した。
 - 削除: 記録を消すと子孫も消える（`deleteCombo`）。取り消しは、呼び出し側が持つ削除前の state を書き戻す既存の仕組みのまま。確認文のために `countDescendants` で子孫の件数を返す。
-- 複製: `duplicateTree` が子孫も新しい id で複製し、`parentId` を付け替える。連携・分岐の複製は同じ親の下の兄弟になるので、親の子がすでに8個なら例外（呼び出し側は `canAddChild(combos, 子.parentId)` で事前に判定する）。
+- 複製: `duplicateTree` が子孫も新しい id で複製し、`parentId` を付け替える。連携・分岐の複製は同じ親の下の兄弟になるので、親の子がすでに8個なら例外（呼び出し側は `addChildBlock(combos, 子.parentId)` が null か事前に判定する）。子孫の `createdAt`・`position` は元のまま、`updatedAt` だけ now にする（兄弟の順序が保たれる）。複製した記録自身の `createdAt` は now。
 - セクション移動: 根は `moveCombo` で子孫ごと移る。連携・分岐だけの移動は例外（根と別のセクションになり、検証にも通らない）。セクションの削除（`deleteSection`）は、根と子孫が同じ `sectionId` を持つので、そのまま一緒に移る。
-- 兄弟の並び: `position` は画面位置（`any`／`corner`／`midscreen`）の列挙で順序を持たないため使わない。兄弟は `createdAt` の昇順（同じなら配列の順）に並べる。新しい連携は新しい `createdAt` を持つので末尾に並ぶ。兄弟の並べ替えは行わない。
-- 件数: キャラ選択のタイルの件数・ネオン段階（`neonLevel` の入力）・読み上げ名の件数・セクションの件数は、連携・分岐も数える（ユーザー決定）。app.js は `combos` の全件を数えているので、データ層に数え方の関数は足していない。一覧に出す記録だけを根に絞るときは `rootsOf` を使う。
+- 兄弟の並び: 既存の `position` は画面位置（`any`／`corner`／`midscreen`）の列挙で、順序を持たないうえ、型を変えると保存形式の他の項目に触れる。兄弟は `createdAt` の昇順、同じなら `id` の順に並べる。新しい連携の `createdAt` は `nextChildCreatedAt`（now と兄弟の最大 `createdAt`+1 の大きい方）で決め、末尾に並ぶ。`newChildCombo` が `sectionId`・`characterId`・`controlType` を親から写し、`favorite` は false、`position` は 'any' にする。兄弟の並べ替えは行わない（将来作るときは、順序用の項目を足す決定が要る）。
+- 件数: キャラ選択のタイルの件数・ネオン段階（`neonLevel` の入力）・読み上げ名の件数は、連携・分岐も数える（ユーザー決定。app.js は `combos` の全件を数えており、データ層に関数は足していない）。セクションの帯の「N件」と削除シートの件数は一覧に出す行の数で、`rootCount(combos, sectionId)`。セクションの全件は `comboCount`。一覧に出す記録は `rootsOf`（根と迷子）。
 - 候補: `recentTokens`・`tagCandidates` は、そのキャラの全記録（連携・分岐を含む）から集計する。技名の判定（`specialNames`）は、記録ごとにコマンド列を単独で判定する（親のコマンド列を前置きしない）。変更は不要だった。
+
+- 迷子: 親を最大3回たどって `parentId` のない記録に着けば木の中、着かなければ迷子（`isOrphan`）。`validateDoc` が拒否するので通常は起きない。UIの防御として、`rootsOf`・`rootCount` は迷子を根として含め、`addChildBlock` は迷子の下への追加を 'depth' にする。
+- 追加できない理由: `addChildBlock(combos, id)` が null（追加できる）・'depth'・'siblings'・'missing' を返す。
 
 ### 却下した案
 - 入れ子の配列（記録の中に `children` を持つ）: 記録のid一致によるマージ（D-006）が木の単位になり、片方の端末で子だけを編集した変更が、親ごとの置き換えで失われる。深さ・個数の検証も、各記録を平らに調べるより複雑になる。

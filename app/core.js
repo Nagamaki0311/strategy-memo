@@ -606,19 +606,47 @@ export function deleteSection(state, sectionId, moveToId, now) {
 
 // ===== SECTION: 連携・分岐（D-021） =====
 // 記録の parentId で木を作る。parentId のない記録が根（従来のコンボ）、あるものが連携・分岐。木の整合は validateDoc が保証する。
-// 兄弟の並びは createdAt の昇順、同じなら配列の順（position は画面位置 any/corner/midscreen で順序ではないため使わない）。新しい子は末尾に並ぶ。
-// 以下の関数は combos（state.combos）を受け取り、入力を変更しない。件数（キャラ選択のタイル・neonLevel・セクションの件数）は連携・分岐も含めた combos 全体の数。
+// 兄弟の並びは createdAt の昇順、同じなら id の順（position は画面位置 any/corner/midscreen の列挙で順序を持たないため使わない）。新しい子は nextChildCreatedAt で末尾に並ぶ。
+// 以下の関数は combos（state.combos）を受け取り、入力を変更しない。件数のうち、キャラ選択・neonLevel・読み上げ名は連携・分岐も含む combos 全体の数、
+// セクションの帯と削除シートの件数は rootCount（一覧に出す行の数）、セクションの全件は comboCount。
+const compareSiblings = (a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const childMap = (combos) => {
   const m = new Map();
   for (const c of combos) if (c.parentId !== undefined) m.set(c.parentId, [...(m.get(c.parentId) ?? []), c]);
-  for (const list of m.values()) list.sort((a, b) => a.createdAt - b.createdAt); // 安定ソート: 同時刻は配列の順
+  for (const list of m.values()) list.sort(compareSiblings);
   return m;
 };
 
-/** セクションの一覧に出す記録（根だけ）。並びは配列の順 */
-export const rootsOf = (combos, sectionId) => combos.filter((c) => c.sectionId === sectionId && c.parentId === undefined);
+// 親を LIMITS.depth 回までたどって parentId のない記録に着けば木の中、着かなければ迷子（親がない・循環・深すぎる）。validateDoc が拒否するので通常は起きない
+function lostIn(byId, c) {
+  let cur = c;
+  for (let i = 0; cur.parentId !== undefined; i++) {
+    cur = i < LIMITS.depth ? byId.get(cur.parentId) : undefined;
+    if (!cur) return true;
+  }
+  return false;
+}
 
-/** 直下の子（createdAt の昇順、同じなら配列の順） */
+/** 迷子の判定（UIの防御用）。記録がなければ false */
+export function isOrphan(combos, id) {
+  const byId = new Map(combos.map((c) => [c.id, c]));
+  const c = byId.get(id);
+  return Boolean(c) && lostIn(byId, c);
+}
+
+/** セクションの一覧に出す記録（根と、迷子。データを隠さない）。並びは配列の順 */
+export function rootsOf(combos, sectionId) {
+  const byId = new Map(combos.map((c) => [c.id, c]));
+  return combos.filter((c) => c.sectionId === sectionId && (c.parentId === undefined || lostIn(byId, c)));
+}
+
+/** セクションの帯の「N件」・削除シートの件数: 一覧に出す行（rootsOf）の数 */
+export const rootCount = (combos, sectionId) => rootsOf(combos, sectionId).length;
+
+/** セクションの全件数（連携・分岐を含む） */
+export const comboCount = (combos, sectionId) => combos.filter((c) => c.sectionId === sectionId).length;
+
+/** 直下の子（createdAt の昇順、同じなら id の順） */
 export const childrenOf = (combos, id) => childMap(combos).get(id) ?? [];
 
 /** 子孫を先行順（親→子、兄弟は childrenOf の順）に並べた [{ combo, depth }]。depth は id の記録から数え、直下の子が1。id 自身は含まない */
@@ -640,14 +668,35 @@ export function descendantTree(combos, id) {
 /** 子孫の件数（削除の確認文に使う） */
 export const countDescendants = (combos, id) => descendantTree(combos, id).length;
 
-/** id の記録の下に新しい連携・分岐を足せるか（その記録の深さが LIMITS.depth 未満で、直下の子が LIMITS.children 個未満）。記録がなければ false。
- *  兄弟を足せるかは親の id で調べる（子の複製の可否は canAddChild(combos, 子.parentId)） */
-export function canAddChild(combos, id) {
+/** id の記録の下に新しい連携・分岐を足せない理由。足せるなら null、深さの上限（その記録の深さが LIMITS.depth 以上、迷子を含む）なら 'depth'、
+ *  直下の子が LIMITS.children 個なら 'siblings'、記録がなければ 'missing'。連携・分岐の複製の可否は、その親の id で調べる */
+export function addChildBlock(combos, id) {
   const byId = new Map(combos.map((c) => [c.id, c]));
-  let cur = byId.get(id);
+  const c = byId.get(id);
+  if (!c) return 'missing';
+  if (lostIn(byId, c)) return 'depth';
   let depth = 0;
-  while (cur && cur.parentId !== undefined && depth <= LIMITS.depth) { cur = byId.get(cur.parentId); depth++; }
-  return Boolean(cur) && depth < LIMITS.depth && combos.filter((c) => c.parentId === id).length < LIMITS.children;
+  for (let cur = c; cur.parentId !== undefined; cur = byId.get(cur.parentId)) depth++;
+  if (depth >= LIMITS.depth) return 'depth';
+  return combos.filter((x) => x.parentId === id).length >= LIMITS.children ? 'siblings' : null;
+}
+
+/** 新しい連携・分岐の createdAt（updatedAt にも使う）: 兄弟の最後に並ぶよう、now と、兄弟の最大の createdAt+1 の大きい方 */
+export const nextChildCreatedAt = (combos, parentId, now) =>
+  combos.reduce((t, c) => (c.parentId === parentId ? Math.max(t, c.createdAt + 1) : t), now);
+
+/** 新しい連携・分岐の記録を作る。sectionId・characterId・controlType は親の値、favorite は false、position は 'any'、createdAt は nextChildCreatedAt。
+ *  fields は { title, tokens, memo, tags, damage? }（省略は空）。足せない親（addChildBlock が null でない）なら例外。state.combos の末尾に足す */
+export function newChildCombo(combos, parentId, fields, now) {
+  const block = addChildBlock(combos, parentId);
+  if (block) throw new Error({ missing: 'つなぐ元の記録が見つかりません', depth: '分岐は3段目までです', siblings: `分岐は${LIMITS.children}個までです` }[block]);
+  const p = combos.find((c) => c.id === parentId);
+  const { title = '', tokens = [], memo = '', tags = [], damage } = fields ?? {};
+  const t = nextChildCreatedAt(combos, parentId, now);
+  return {
+    id: newId(), characterId: p.characterId, controlType: p.controlType, sectionId: p.sectionId, title, position: 'any',
+    tokens, memo, tags, favorite: false, createdAt: t, updatedAt: t, ...(damage !== undefined && { damage }), parentId,
+  };
 }
 
 /** 記録を子孫ごと削除した新しい state。元の state は変えない（取り消しは呼び出し側が持つ削除前の state を書き戻す）。記録がなければ例外 */
@@ -657,17 +706,18 @@ export function deleteCombo(state, id) {
   return { sections: state.sections, combos: state.combos.filter((c) => !gone.has(c.id)) };
 }
 
-/** 記録を子孫ごと新しい id・日時で複製した配列（先頭が複製した記録）。子孫は parentId を新しい id に付け替え、タイトルは元のまま。
+/** 記録を子孫ごと新しい id で複製した配列（先頭が複製した記録。createdAt・updatedAt は now）。子孫は parentId を新しい id に付け替え、
+ *  タイトルと createdAt・position は元のまま（兄弟の順序が保たれる）、updatedAt だけ now（createdAt より前にならないよう max）。
  *  連携・分岐の複製は同じ親の下の兄弟になるので、親の子が上限なら例外。呼び出し側は state.combos の末尾に足す */
 export function duplicateTree(combos, id, now) {
   const src = combos.find((c) => c.id === id);
   if (!src) throw new Error('記録が見つかりません');
-  if (src.parentId !== undefined && !canAddChild(combos, src.parentId)) throw new Error('連携・分岐の数が上限のため複製できません');
+  if (src.parentId !== undefined && addChildBlock(combos, src.parentId) !== null) throw new Error('連携・分岐の数が上限のため複製できません');
   const copy = duplicateCombo(src, now);
   const ids = new Map([[id, copy.id]]);
   const out = [copy];
   for (const { combo } of descendantTree(combos, id)) { // 先行順なので親の新しい id は決まっている
-    const d = { ...duplicateCombo(combo, now), title: combo.title, parentId: ids.get(combo.parentId) };
+    const d = { ...duplicateCombo(combo, now), title: combo.title, createdAt: combo.createdAt, updatedAt: Math.max(now, combo.createdAt), parentId: ids.get(combo.parentId) };
     ids.set(combo.id, d.id);
     out.push(d);
   }

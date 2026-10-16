@@ -7,7 +7,8 @@ import {
   LIMITS, strengthChoices, changeStrength, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft, isDamage, DAMAGE_MAX,
   exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport, NEON_STEPS, neonLevel,
   specialNames, specialCandidates, specialLabel, candidateLabel, hasSpecials,
-  rootsOf, childrenOf, descendantTree, countDescendants, canAddChild, deleteCombo, duplicateTree, moveCombo,
+  rootsOf, childrenOf, descendantTree, countDescendants, addChildBlock, deleteCombo, duplicateTree, moveCombo,
+  isOrphan, rootCount, comboCount, nextChildCreatedAt, newChildCombo,
   SPECIAL_NOTATIONS, DEFAULT_SPECIAL_NOTATION, sanitizeSpecialNotation,
 } from '../app/core.js';
 import { SPECIALS } from '../app/specials.js';
@@ -1752,7 +1753,10 @@ test('複製: 子孫も新しい id で複製し parentId を付け替える。�
   assert.deepEqual(state, before);
   assert.equal(copies.length, 4);
   const old = new Set(state.combos.map((c) => c.id));
-  assert.ok(copies.every((c) => !old.has(c.id) && c.createdAt === T0 + 500 && c.updatedAt === T0 + 500));
+  assert.ok(copies.every((c) => !old.has(c.id) && c.updatedAt === T0 + 500));
+  assert.equal(copies[0].createdAt, T0 + 500); // 複製した記録は新しい。子孫の createdAt は元のまま（兄弟の順序を保つ）
+  assert.deepEqual(copies.slice(1).map((c) => c.createdAt).sort(), [T0, T0 + 1, T0 + 2]);
+  assert.deepEqual(copies.slice(1).map((c) => c.position), ['any', 'any', 'any']);
   assert.equal(new Set(copies.map((c) => c.id)).size, 4);
   const [root, ...rest] = copies;
   assert.equal(root.title, '根のコピー');
@@ -1774,6 +1778,9 @@ test('複製: 子孫も新しい id で複製し parentId を付け替える。�
   // 親の子が上限（8個）の連携は複製できない
   const full = st(rec('r'), ...Array.from({ length: 8 }, (_, i) => rec(`k${i}`, 'r')));
   assert.throws(() => duplicateTree(full.combos, 'k0', T0), /上限/);
+  // 元より古い now でも updatedAt が createdAt を下回らない
+  const old2 = duplicateTree([rec('r'), rec('c', 'r', { createdAt: T0 + 50, updatedAt: T0 + 50 })], 'r', T0 + 10);
+  assert.deepEqual(validateDoc(exportDoc(st(...old2))), { ok: true });
   assert.equal(duplicateTree(full.combos, 'r', T0).length, 9);
   assert.throws(() => duplicateTree(state.combos, 'nope', T0), /見つかりません/);
   // 1件だけの複製（duplicateCombo）は従来どおり
@@ -1816,10 +1823,10 @@ test('件数: 連携・分岐も数える。キャラ別・セクション別の
   assert.equal(neonLevel(countOf('ken')), 1);
 });
 
-test('一覧用: rootsOf は根だけ、childrenOf は createdAt 昇順（同じなら配列順）、descendantTree は先行順で深さつき、canAddChild は深さ3未満かつ子8個未満', () => {
+test('一覧用: rootsOf は根だけ、childrenOf は createdAt 昇順（同じなら id 順）、descendantTree は先行順で深さつき、addChildBlock は追加できない理由', () => {
   const combos = [
     rec('r'), rec('late', 'r', { createdAt: T0 + 5, updatedAt: T0 + 5 }), rec('early', 'r', { createdAt: T0 + 1, updatedAt: T0 + 1 }),
-    rec('tie1', 'r', { createdAt: T0 + 3, updatedAt: T0 + 3 }), rec('tie2', 'r', { createdAt: T0 + 3, updatedAt: T0 + 3 }),
+    rec('tie2', 'r', { createdAt: T0 + 3, updatedAt: T0 + 3 }), rec('tie1', 'r', { createdAt: T0 + 3, updatedAt: T0 + 3 }), // 配列の順と id の順が逆
     rec('g', 'early'), rec('gg', 'g'), rec('other', undefined, { sectionId: 's1b' }), rec('ok', 'other', { sectionId: 's1b' }),
   ];
   assert.deepEqual(rootsOf(combos, 's1').map((c) => c.id), ['r']);
@@ -1832,11 +1839,12 @@ test('一覧用: rootsOf は根だけ、childrenOf は createdAt 昇順（同じ
   assert.deepEqual(descendantTree(combos, 'early').map((n) => [n.combo.id, n.depth]), [['g', 1], ['gg', 2]]);
   assert.deepEqual(descendantTree(combos, 'nope'), []);
   // 追加可否: 深さ3の記録の下には足せない。根・深さ1・2は足せる。8個の子を持つ親には足せない。存在しない id は false
-  assert.deepEqual(['r', 'early', 'g', 'gg', 'nope'].map((id) => canAddChild(combos, id)), [true, true, true, false, false]);
+  assert.deepEqual(['r', 'early', 'g', 'gg', 'nope'].map((id) => addChildBlock(combos, id)), [null, null, null, 'depth', 'missing']);
   const full = Array.from({ length: 8 }, (_, i) => rec(`k${i}`, 'r'));
-  assert.equal(canAddChild([rec('r'), ...full.slice(0, 7)], 'r'), true);
-  assert.equal(canAddChild([rec('r'), ...full], 'r'), false);
-  assert.equal(canAddChild([rec('r'), ...full], 'k0'), true);
+  assert.equal(addChildBlock([rec('r'), ...full.slice(0, 7)], 'r'), null);
+  assert.equal(addChildBlock([rec('r'), ...full], 'r'), 'siblings');
+  assert.equal(addChildBlock([rec('r'), ...full], 'k0'), null);
+  assert.equal(addChildBlock([rec('r'), ...full, rec('gg1', 'k0'), rec('gg2', 'gg1'), rec('gg3', 'gg2')], 'gg3'), 'depth'); // 深さと個数が両方なら深さ
   // 追加した子は新しい createdAt なら兄弟の末尾に並ぶ
   const added = [...combos, rec('new', 'r', { createdAt: T0 + 9, updatedAt: T0 + 9 })];
   assert.equal(childrenOf(added, 'r').at(-1).id, 'new');
@@ -1853,7 +1861,8 @@ test('連携・分岐の関数は不正な入力で例外を出さない（検�
   const cyc = [rec('a', 'b'), rec('b', 'a')];
   assert.equal(validateDoc(exportDoc(st(...cyc))).ok, false);
   assert.ok(descendantTree(cyc, 'a').length <= 1);
-  assert.equal(canAddChild(cyc, 'a'), false);
+  assert.equal(addChildBlock(cyc, 'a'), 'depth');
+  assert.equal(isOrphan(cyc, 'a'), true);
   assert.deepEqual(childrenOf([], 'x'), []);
   assert.deepEqual(rootsOf([], 's1'), []);
   assert.equal(countDescendants([], 'x'), 0);
@@ -1896,4 +1905,53 @@ test('計算量: 記録1万件（深さ3の木）でも検証・子孫の取得�
   assert.ok(big.v < 1000, `validateDoc 1万件が${big.v}ms`);
   assert.ok(big.d < 2000, `descendantTree 50回が${big.d}ms`);
   assert.ok(big.v < Math.max(small.v, 5) * 12, 'validateDoc は件数4倍で12倍未満（二乗なら16倍以上）');
+});
+
+test('迷子: 親を最大3回たどって親のない記録に着けば木の中、着かなければ迷子（親がない・循環・4段目以降）。記録がなければ false', () => {
+  const ok = chain(3); // 深さ3まで
+  assert.deepEqual(ok.map((c) => isOrphan(ok, c.id)), [false, false, false, false]);
+  const deep = chain(5);
+  assert.deepEqual(deep.map((c) => isOrphan(deep, c.id)), [false, false, false, false, true, true]);
+  assert.equal(isOrphan([rec('c', 'ghost')], 'c'), true);
+  assert.equal(isOrphan([rec('a', 'a')], 'a'), true);
+  assert.equal(isOrphan([rec('a', 'b'), rec('b', 'c'), rec('c', 'a')], 'b'), true);
+  assert.equal(isOrphan([rec('r')], 'nope'), false);
+  assert.equal(isOrphan([], 'nope'), false);
+  // 迷子を含む文書は validateDoc が拒否する（アプリ内には通常ない）
+  assert.equal(validateDoc(exportDoc(st(...deep))).ok, false);
+});
+
+test('件数: rootCount はセクションの一覧に出す行（根と迷子）、comboCount はセクションの全件。キャラ全体の件数は combos 全体', () => {
+  const combos = [rec('r1'), rec('c1', 'r1'), rec('g1', 'c1'), rec('r2'), rec('o', 'ghost'), rec('b', undefined, { sectionId: 's1b' }), rec('k', undefined, { sectionId: 's2', characterId: 'ken' })];
+  assert.equal(rootCount(combos, 's1'), 3); // r1・r2・迷子 o
+  assert.deepEqual(rootsOf(combos, 's1').map((c) => c.id), ['r1', 'r2', 'o']);
+  assert.equal(comboCount(combos, 's1'), 5);
+  assert.equal(rootCount(combos, 's1b'), 1);
+  assert.equal(rootCount(combos, 'none'), 0);
+  assert.equal(comboCount(combos, 'none'), 0);
+  assert.equal(combos.filter((c) => c.characterId === 'ryu').length, 6); // タイル・neonLevel・読み上げ名の件数
+});
+
+test('新しい連携: 親の sectionId・characterId を写し、favorite は false、position は any、createdAt は兄弟の最後。上限では例外', () => {
+  const combos = [rec('r', undefined, { sectionId: 's1b' }), rec('a', 'r', { sectionId: 's1b', createdAt: T0 + 100, updatedAt: T0 + 100 })];
+  assert.equal(nextChildCreatedAt(combos, 'r', T0 + 500), T0 + 500);
+  assert.equal(nextChildCreatedAt(combos, 'r', T0), T0 + 101); // now が古くても兄弟の後ろ
+  assert.equal(nextChildCreatedAt(combos, 'a', T0), T0); // 子のいない親は now
+  const c = newChildCombo(combos, 'r', { title: 'ガード時', tokens: [N('stand', 'L', 'P')], memo: 'm', tags: ['t'], damage: 300 }, T0);
+  assert.equal(c.parentId, 'r');
+  assert.equal(c.sectionId, 's1b');
+  assert.equal(c.characterId, 'ryu');
+  assert.equal(c.favorite, false);
+  assert.equal(c.position, 'any');
+  assert.equal(c.createdAt, T0 + 101);
+  assert.equal(c.updatedAt, c.createdAt);
+  assert.equal(c.damage, 300);
+  const next = [...combos, c];
+  assert.deepEqual(validateDoc(exportDoc(st(...next.map((x) => ({ ...x }))))), { ok: true });
+  assert.deepEqual(childrenOf(next, 'r').map((x) => x.id), ['a', c.id]);
+  assert.equal(Object.hasOwn(newChildCombo(combos, 'r', {}, T0), 'damage'), false);
+  assert.deepEqual(newChildCombo(combos, 'r', undefined, T0).tokens, []);
+  assert.throws(() => newChildCombo(combos, 'nope', {}, T0), /見つかりません/);
+  assert.throws(() => newChildCombo(chain(3), 'n3', {}, T0), /3段目/);
+  assert.throws(() => newChildCombo([rec('r'), ...Array.from({ length: 8 }, (_, i) => rec(`k${i}`, 'r'))], 'r', {}, T0), /8個/);
 });
