@@ -4288,8 +4288,8 @@ for (const width of [360, 390, 430]) {
       await ap.waitForTimeout(450);
       await cand(ap, '追撃').focus();
       await ap.keyboard.down('Enter');
-      await ap.keyboard.down('Enter');
-      await ap.keyboard.down('Enter');
+      await ap.waitForTimeout(450); // 300msの受け付けない時間を過ぎてからのリピート
+      await ap.keyboard.down('Enter'); // リピート（選択と解除の組にならないよう1回）
       await ap.keyboard.up('Enter');
       assert.equal((await draft(ap, 'new:sa')).tokens.length, 2);
       assert.deepEqual(await pressed(ap), []);
