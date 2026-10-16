@@ -5035,13 +5035,13 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       await setSettings(page, { memoSize: sz });
       await gotoHash(page, '#/c/ryu/r/r1');
       await page.locator('[data-fk="fold:la1"]').click();
-      await check(`${tag} 26c メモの文字サイズ ${sz}: .t-cmd の丸 ${DOT[sz]}、メモ ${MEMO[sz]}、メタ ${META[sz]}。見出し15px・［…］44・折りたたみ13px は固定`, async () => {
+      await check(`${tag} 26c メモの文字サイズ ${sz}: .t-cmd の丸 ${DOT[sz]}、メモ ${MEMO[sz]}、メタ ${META[sz]}。見出し15px（太さ700・行の高さ21px）・［…］44・折りたたみ13px は固定`, async () => {
         const cmd = await page.$$eval('.t-cmd > .row', (rows) => rows.map((r) => getComputedStyle(r).getPropertyValue('--dot').trim()));
         assert.ok(cmd.length >= 5 && cmd.every((v) => v === DOT[sz]), JSON.stringify(cmd));
         assert.equal(await page.$eval('#t-la > .t-cmd .dot', (e) => e.offsetWidth), parseInt(DOT[sz]));
         assert.equal(await page.$eval('.t-memo', (e) => getComputedStyle(e).fontSize), MEMO[sz]);
         assert.equal(await page.$eval('.t-meta', (e) => getComputedStyle(e).fontSize), META[sz]);
-        assert.deepEqual(await page.$$eval('.t-title', (e) => [...new Set(e.map((x) => getComputedStyle(x).fontSize))]), ['15px']);
+        assert.deepEqual(await page.$$eval('.t-title', (e) => [...new Set(e.map((x) => { const c = getComputedStyle(x); return `${c.fontSize}/${c.fontWeight}/${c.lineHeight}`; }))]), ['15px/700/21px']);
         assert.deepEqual(await page.$$eval('.t-fold', (e) => [...new Set(e.map((x) => getComputedStyle(x).fontSize))]), ['13px']);
         assert.deepEqual(await page.$$eval('.t-row .icon-btn', (e) => [...new Set(e.map((x) => `${x.offsetWidth}x${x.offsetHeight}`))]), ['44x44']);
         assert.equal(await page.$eval('.d-cmd > .row', (r) => getComputedStyle(r).getPropertyValue('--dot').trim()), DOT[sz]); // 根の行も同じ段階（従来どおり）

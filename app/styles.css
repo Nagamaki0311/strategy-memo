@@ -487,7 +487,7 @@ a { color: inherit; }
 .t-list > li::after { content: ''; position: absolute; left: calc(-1 * var(--s3)); top: calc(var(--gap) + 22px); width: var(--s2); border-top: 1px solid var(--line-strong); }
 .t-row { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: var(--s2); }
 .t-no { flex: none; padding: 11px 0; font: 400 var(--sign-s) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--fg-muted); }
-.t-title { flex: 1; min-width: 0; margin: 0; padding: 11px 0; font: 700 var(--t-md)/1.4 var(--font); overflow-wrap: anywhere; }
+.t-title { flex: 1; min-width: 0; margin: 0; padding: 11px 0; font: 700 15px/1.4 var(--font); overflow-wrap: anywhere; } /* --t-md は「15px/1.5」なので、行の高さを変える /1.4 は変数の後ろに書けない */
 .t-title .none { font-weight: 400; color: var(--fg-muted); }
 .t-cmd { min-width: 0; }
 .t-cmd-none { margin: 0; font: var(--t-sm) var(--font); color: var(--fg-muted); }
