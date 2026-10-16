@@ -2,6 +2,7 @@ import {
   CHARACTERS, MOVE_NAMES, neonLevel, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
   sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
   applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft,
+  specialNames, specialCandidates, specialLabel, candidateLabel, hasSpecials, sanitizeSpecialNotation, DEFAULT_SPECIAL_NOTATION,
   mergeImport, exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
 } from './core.js';
 
@@ -62,33 +63,46 @@ function dirNodes(motion, notation) {
   });
 }
 
-function chipNodes(token, label, notation) {
+// 技名のチップに強度の●を残すか。消す案が通ったら false の1行で済む（design-spec-v2.2 2章）
+const NAME_WITH_DOT = true;
+
+// 強度の●（ODは橙の●●、強度なしは灰色の●）
+const strDots = (token) => (token.str === 'OD' ? [dot(token.key, 'od'), dot(token.key, 'od')] : [dot(token.key, STR_CLASS[token.str], token.str)]);
+
+// 強度の接頭辞＋技名の1つの文字列。ODの接頭辞だけは橙の .ltr.od のまま（コマンド表記と発光する要素の数を同じにする）
+function nameNode({ name, base }) {
+  const prefix = name.slice(0, name.length - base.length);
+  const n = el('span', 'ltr sname');
+  n.append(...(prefix === 'OD' ? [el('span', 'ltr od', 'OD')] : prefix ? [prefix] : []), base);
+  return n;
+}
+
+// named: 技名で表示するときの specialNames の要素（なければコマンド表示）
+function chipNodes(token, label, notation, named = null) {
+  if (named) return [nameNode(named), ...(NAME_WITH_DOT ? strDots(token) : [])];
   switch (token.type) {
     case 'normal': {
       const dirs = `${token.stance === 'crouch' ? '2' : ''}${token.dir ?? ''}`;
       return [
         ...(token.stance === 'jump' ? [el('span', 'ltr', 'J')] : []),
         ...(dirs ? dirNodes(dirs, notation) : []),
-        dot(token.key, STR_CLASS[token.str], token.str),
+        ...strDots(token),
       ];
     }
-    case 'special': {
-      const od = token.str === 'OD';
+    case 'special':
       return [
         ...(token.stance === 'jump' ? [el('span', 'ltr', 'J')] : []),
         ...dirNodes(token.motion, notation),
-        ...(od
-          ? [el('span', 'ltr od', 'OD'), dot(token.key, 'od'), dot(token.key, 'od')]
-          : [dot(token.key, STR_CLASS[token.str], token.str)]),
+        ...(token.str === 'OD' ? [el('span', 'ltr od', 'OD')] : []),
+        ...strDots(token),
       ];
-    }
     default: // system / sa / move。表示文字は読み上げ名と同じ（CDR、DI、DP、Dリバ、SA3）。DR系だけ先頭に»を置く
       return [...(SYS_KIND[token.id] === 'dr' ? [icon('i-rush', 'rush')] : []), document.createTextNode(label)];
   }
 }
 
 // onChip を渡すと、技とタグを <button> にしてタップできる（詳細・編集）。渡さなければ読み上げ用の span のまま（一覧・直近のS）。
-// canTap(token) が偽のチップは、onChip があっても span のまま（詳細で、出す情報がないチップをボタンにしないため）。
+// canTap(token, info) が偽のチップは、onChip があっても span のまま（詳細で、出す情報がないチップをボタンにしないため）。
 function tapPart(cls, label, index, token, nodes, onChip) {
   const b = el('button', cls);
   b.type = 'button';
@@ -101,8 +115,11 @@ function tapPart(cls, label, index, token, nodes, onChip) {
   return b;
 }
 
-// tokens → .row 要素。opts: { size: 'L'|'S', notation: 'arrow'|'numpad', strengthLabels: boolean, onChip?: (index, token, button) => void, canTap?: (token) => boolean }
-export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabels = false, onChip = null, canTap = () => true } = {}) {
+// tokens → .row 要素。opts: { size: 'L'|'S', notation: 'arrow'|'numpad', strengthLabels: boolean, onChip?: (index, token, button) => void, canTap?: (token, info) => boolean,
+//   characterId?: 辞書を引くキャラ（なければ技名なし）, specialNotation?: 'cmd'|'name' }
+// info は specialNames の要素。技名は表示のたびに1回だけ（行ごとに）引く。読み上げ名は表記にかかわらず技名を含む（見えている表記が先）。
+export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabels = false, onChip = null, canTap = () => true, characterId = null, specialNotation = DEFAULT_SPECIAL_NOTATION } = {}) {
+  const infos = characterId ? specialNames(tokens, characterId) : [];
   const row = el('div', `row ${size}${strengthLabels ? ' str-labels' : ''}`);
   let grp = null;
   for (const d of describeRow(tokens, notation)) {
@@ -116,12 +133,14 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
     if (d.token) {
       const kind = d.token.type === 'sa' ? 'sa' : d.token.type === 'move' ? 'mv' : SYS_KIND[d.token.id]; // system・sa・move 以外は undefined
       const cls = kind ? `chip sys sys-${kind}` : 'chip';
-      const nodes = chipNodes(d.token, d.label, notation);
-      if (onChip && canTap(d.token)) grp.append(tapPart(cls, d.label, d.index, d.token, nodes, onChip));
+      const info = infos[d.index] ?? null;
+      const label = specialLabel(d.token, info, specialNotation, notation);
+      const nodes = chipNodes(d.token, label, notation, specialNotation === 'name' && info?.name ? info : null);
+      if (onChip && canTap(d.token, info)) grp.append(tapPart(cls, label, d.index, d.token, nodes, onChip));
       else {
         const chip = el('span', cls);
         chip.setAttribute('role', 'img');
-        chip.setAttribute('aria-label', d.label);
+        chip.setAttribute('aria-label', label);
         chip.append(...nodes);
         grp.append(chip);
       }
@@ -175,13 +194,14 @@ let saveError = null; // 直近のデータ保存の失敗（Error、{ invalid }
 let lastSeen = null; // sf6memo.data を最後に読んだ・書いた文字列。他タブの書き込みの検出に使う
 let persisted = false;
 
-const DEFAULT_SETTINGS = () => ({ notation: 'arrow', strengthLabels: false, recentCharacters: [], lastExportAt: null, lastChangeAt: null, firstChangeAt: null, remindSnoozeUntil: null, collapsed: {} });
+const DEFAULT_SETTINGS = () => ({ notation: 'arrow', specialNotation: DEFAULT_SPECIAL_NOTATION, strengthLabels: false, recentCharacters: [], lastExportAt: null, lastChangeAt: null, firstChangeAt: null, remindSnoozeUntil: null, collapsed: {} });
 
 // settings は端末ごとの表示設定。壊れていても既定値で起動し、必要なフィールドだけ型を確かめて取り込む。
 function sanitizeSettings(raw) {
   const out = DEFAULT_SETTINGS();
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return out;
   if (raw.notation === 'numpad') out.notation = 'numpad';
+  out.specialNotation = sanitizeSpecialNotation(raw.specialNotation);
   out.strengthLabels = raw.strengthLabels === true;
   if (Array.isArray(raw.recentCharacters)) {
     out.recentCharacters = [...new Set(raw.recentCharacters.filter((id) => charName(id)))].slice(0, 3);
@@ -583,7 +603,7 @@ function recordRow(c) {
   const meta = [POS[c.position], c.tags.join(' '), `全${c.tokens.filter((t) => t.type !== 'note').length}手`].filter(Boolean).join('・');
   return at(h('a', 'item',
     ...(c.title ? [h('div', 'item-title', c.title)] : []),
-    h('div', 'preview', renderRow(c.tokens, { size: 'S', notation: settings.notation, strengthLabels: settings.strengthLabels })),
+    h('div', 'preview', renderRow(c.tokens, { size: 'S', notation: settings.notation, strengthLabels: settings.strengthLabels, characterId: c.characterId, specialNotation: settings.specialNotation })),
     h('div', 'item-meta', h('span', 'meta-t', meta), ...(c.damage === undefined ? [] : [h('span', 'dmg', 'ダメージ ', h('b', '', fmtDamage.format(c.damage)))]))), { href: `#/c/${c.characterId}/r/${c.id}` });
 }
 
@@ -706,6 +726,7 @@ function legendTable() {
       [diagram(), '8方向とニュートラル（N）。数字はテンキーの位置', '1〜9（5はニュートラル）'],
     ]],
     ['モーションのプリセットと通称', PRESETS.map((m) => [motion(m), MOTION_MEANING[m] ?? MOTION_NAMES[m], m])],
+    ['必殺技', [[shape([{ type: 'special', motion: '236', key: 'P', str: 'M' }], { characterId: 'ryu', specialNotation: 'name' }), '必殺技（技名で表示。設定で切り替え）。派生は直前の技に▶でつながる', '236 中P']]],
     ['OD', [[shape([{ type: 'special', motion: '236', key: 'P', str: 'OD' }]), 'OD必殺技。橙の「OD」の文字と、橙の●2つ（重ねて表示）', 'OD236P']]],
     ['システム技・SA', [
       ...['CDR', 'RAW_DR', 'DI', 'PARRY', 'REVERSAL'].map(sys),
@@ -740,16 +761,34 @@ function openLegend(opener) {
 // 閲覧専用（input・textarea・contenteditable を置かない）。チップのタップは「意味」の表示だけ。
 const motionNote = (motion) => h('div', 'pop-note', ...dirNodes(motion, 'arrow'), ' ＝ ', motion, ...(MOTION_NAMES[motion] ? [`（${MOTION_NAMES[motion]}）`] : []));
 
+// 必殺技・派生のポップオーバーの中身（設定にかかわらず技名とコマンドの両方）。info は specialNames の要素。
+// 技名（派生なら親の技名の行）→ コマンド。技名が決まらないときは design-spec-v2.2 3章の文言。通常技の形の派生は「→ ＝ 6」、方向がなければ「ボタンのみ」
+const WHY_TEXT = { unlisted: '技名なし（技の一覧にない入力）', strength: '技名は強さで変わります' };
+function specialPop(token, info) {
+  const out = [];
+  if (info?.name) {
+    out.push(h('div', 'pop-note pop-name', info.name));
+    if (info.derived) out.push(h('div', 'pop-note', `${info.parent}の派生`));
+  } else if (info?.why) out.push(h('div', 'pop-note', info.why === 'multi' ? `${info.choices.join('／')} のどちらか` : WHY_TEXT[info.why]));
+  if (token.type === 'special') out.push(motionNote(token.motion));
+  else if (info?.name) {
+    const dirs = `${token.stance === 'crouch' ? '2' : ''}${token.dir ?? ''}`;
+    out.push(dirs ? motionNote(dirs) : h('div', 'pop-note', 'ボタンのみ'));
+  }
+  return out;
+}
+
 function detailScreen({ cid, rid }) {
   const c = data.combos.find((x) => x.id === rid);
   const sec = data.sections.find((s) => s.id === c.sectionId);
-  const { notation, strengthLabels } = settings;
-  // 出す情報（モーションの対応表示、正式名称）がある技・注記だけがボタン。通常技は表示名と読み上げ名が同じなので、ボタンにしない
+  const { notation, strengthLabels, specialNotation } = settings;
+  const infos = specialNames(c.tokens, cid);
+  // 出す情報（モーションの対応表示、正式名称、技名）がある技・注記だけがボタン。通常技は表示名と読み上げ名が同じなので、ボタンにしない（派生と判定された通常技の形は技名を出す）
   const onChip = (index, token, chip) => {
     const sh = openSheet(chip, { pop: true });
-    sh.pop(h('div', 'pop-body', token.type === 'special' ? motionNote(token.motion) : h('div', 'pop-note pop-name', fullName(token))));
+    sh.pop(h('div', 'pop-body', ...(token.type === 'special' || infos[index]?.name ? specialPop(token, infos[index]) : [h('div', 'pop-note pop-name', fullName(token))])));
   };
-  const canTap = (t) => t.type === 'special' || fullName(t) !== null;
+  const canTap = (t, info) => t.type === 'special' || fullName(t) !== null || Boolean(info?.name);
   const other = btn('', 'その他…', () => {
     const sh = openSheet(other);
     sh.show('その他', h('div', 'sheet-body flush', menuItem('削除', () => sh.close(() => removeCombo(c)))));
@@ -758,7 +797,7 @@ function detailScreen({ cid, rid }) {
     h('p', 'd-meta', [sec.name, POS[c.position], c.tags.join(' ')].filter(Boolean).join('・')),
     ...(c.title ? [h('h2', 'd-title', c.title)] : []),
     ...(c.damage === undefined ? [] : [h('p', 'd-stat', h('span', 'd-stat-l', 'ダメージ'), h('b', 'd-stat-n', fmtDamage.format(c.damage)))]),
-    h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip, canTap })),
+    h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip, canTap, characterId: cid, specialNotation })),
     ...(c.memo ? [h('section', 'd-memo', h('h2', 'd-memo-h', 'メモ'), h('p', '', c.memo))] : []));
   const bottom = h('footer', 'bottombar', other, btn('', '複製', () => duplicate(c)), at(h('a', 'btn primary', '編集'), { href: `#/c/${cid}/r/${rid}/edit` }));
   return shell({ title: `${charName(cid)}/${sec.name}`, back: { label: `${charName(cid)}の一覧に戻る`, to: `#/c/${cid}` }, right: [helpButton()], notices: banners(), main: [main], bottom });
@@ -819,7 +858,7 @@ function initEdit({ cid, rid, sid }, secs) {
   const draft = Object.hasOwn(all, draftKey) ? sanitizeDraft(all[draftKey], fresh) : null;
   const { tokens, ...f } = draft ? { ...fresh, damage: undefined, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
   saveError = null;
-  return { cid, rid, draftKey, ...f, pad: initialPadState(tokens), padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
+  return { cid, rid, draftKey, ...f, pad: initialPadState(tokens), nameOn: settings.specialNotation === 'name' && hasSpecials(cid), sel: null, padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
 }
 
 const PAD_DIRS = [7, 8, 9, 4, 5, 6, 1, 2, 3];
@@ -831,14 +870,11 @@ const padKey = (cls, label, onClick, ...kids) => {
 };
 
 // パッド（design-spec 4章）。キーは action を act に渡すだけ。入力の規則は core.js の applyPadInput にある。
-// sync(pending) で姿勢とプリセットの選択表示を更新する。
-function buildPad(act, recents, notation, strengthLabels, onDone) {
+// sync(pending) で姿勢とプリセットの選択表示を更新する。R1（［技名］キー、直近の技／技名の候補、［完了］）の中身は editScreen の renderR1 が作る。
+function buildPad(act, notation, strengthLabels, onDone, onName) {
   const stanceKeys = [];
   const presetKeys = [];
-  const recent = recents.length
-    ? at(h('div', 'recent-keys', ...recents.map((t) => padKey('', `${tokenLabel(t, notation)}を追加`, () => act({ type: 'recent', token: t }),
-      renderRow([t], { size: 'S', notation, strengthLabels })))), { role: 'group', 'aria-label': '直近の技' })
-    : h('div', 'recent-empty', '入力した技がここに並びます');
+  const nameKey = at(padKey('name-key', '技名の候補', onName, '技名'), { 'aria-pressed': 'false', 'aria-controls': 'r1-scroll' });
   const presetRow = (list) => h('div', 'preset-grid', ...list.map((v) => {
     const k = padKey('', `${MOTION_NAMES[v] ?? ''} ${v}`.trim(), () => act({ type: 'preset', value: v }), h('span', 'pk-arrows', ...dirNodes(v, notation)), h('span', 'pk-name', MOTION_NAMES[v] ?? ''));
     presetKeys.push([v, k]);
@@ -873,7 +909,7 @@ function buildPad(act, recents, notation, strengthLabels, onDone) {
     padKey('okey', `OD ${k}`, () => act({ type: 'button', key: k, str: 'OD' }), el('span', 'ltr od', 'OD'), h('span', 'dots', dot(k, 'od'), dot(k, 'od'))),
   ]).concat(['P', 'K'].map((k) => padKey('nkey', `${k} ${STR_TEXT.N}`, () => act({ type: 'button', key: k, str: 'N' }), dot(k, STR_CLASS.N), h('span', 'nkey-t', STR_TEXT.N)))); // 4段目: 強度の指定なし
   const done = at(padKey('done', 'パッドを閉じて項目の入力へ', onDone, svgIcon('i-chev', 90), h('span', 'done-t', '完了')), { 'aria-controls': 'pad' });
-  const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, h('div', 'r1', recent, done), presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
+  const pad = at(h('section', `pad${strengthLabels ? ' str-labels' : ''}`, h('div', 'r1', nameKey, h('div', 'recent-empty'), done), presetRow(PRESETS.slice(0, 4)), presetRow(PRESETS.slice(4)), system,
     h('div', 'lower', dirs, h('div', 'btns', stance, undo, ...buttons))), { 'aria-label': '入力パッド', id: 'pad', tabindex: '-1' });
   const sync = ({ stance: st, dirs: ds }) => {
     // ↓を押したあとモーションを選ぶと、確定する技に↓は入らない。姿勢の選択も立ちに戻して見た目と一致させる。
@@ -881,16 +917,16 @@ function buildPad(act, recents, notation, strengthLabels, onDone) {
     for (const [v, k] of stanceKeys) { k.setAttribute('aria-checked', String(v === shown)); k.tabIndex = v === shown ? 0 : -1; }
     for (const [v, k] of presetKeys) k.setAttribute('aria-pressed', String(ds.length === 1 && ds[0] === v));
   };
-  return { pad, sync };
+  return { pad, sync, nameKey, r1: pad.firstElementChild };
 }
 
 // ペンディング（仮チップ）: 不透明度60%の記号＋塗りのない円。確定する技に合わせて、↓は単独のときだけ見せる。
-function pendingNode({ stance, dirs }, notation) {
+function pendingNode({ stance, dirs }, notation, picked = false) {
   const motion = dirs.join('');
   const shown = stance === 'crouch' && motion.length < 2 && motion !== '2' ? `2${motion}` : motion;
-  if (!shown && stance === 'stand') return null;
+  if (!shown && stance === 'stand' && !picked) return null; // 方向のない派生の候補を選んだ間は、空の円だけを見せる
   const sym = h('span', 'pend-sym', ...(stance === 'jump' ? [el('span', 'ltr', 'J')] : []), ...(shown ? dirNodes(shown, notation) : []));
-  return at(h('span', 'grp pending', sym, el('span', 'ghost')), { 'aria-hidden': 'true' });
+  return at(h('span', 'grp pending', ...(sym.hasChildNodes() ? [sym] : []), el('span', 'ghost')), { 'aria-hidden': 'true' });
 }
 
 // 挿入カーソルを、index がカーソル以降の最初のチップの前（技のグループの先頭なら、グループの前）に置く。なければ末尾。
@@ -905,7 +941,7 @@ function editScreen(route) {
   const secs = sectionsOf(data, cid);
   if (!ed) ed = initEdit(route, secs);
   if (!secs.some((s) => s.id === ed.sectionId)) ed.sectionId = secs[0].id;
-  const { notation, strengthLabels } = settings;
+  const { notation, strengthLabels, specialNotation } = settings;
 
   const errSlot = h('div', 'err-slot');
   const timeEl = h('p', 'draft-time');
@@ -930,17 +966,95 @@ function editScreen(route) {
   // ---- コマンド列 ----
   const updateRow = () => {
     const { tokens, cursor, pending } = ed.pad;
-    const row = renderRow(tokens, { size: 'L', notation, strengthLabels, onChip: openChipMenu });
-    const pend = pendingNode(pending, notation);
+    const row = renderRow(tokens, { size: 'L', notation, strengthLabels, onChip: openChipMenu, characterId: cid, specialNotation });
+    const pend = pendingNode(pending, notation, ed.sel !== null);
     placeAt(row, cursor, [...(pend ? [pend] : []), at(el('span', 'cursor'), { 'aria-hidden': 'true' })]);
     if (!tokens.length && !pend) row.append(el('span', 'cmd-hint', '下のパッドで技を入力'));
     if (cursor < tokens.length) row.append(btn('to-end', '末尾へ', () => act({ type: 'cursor', index: tokens.length })));
     cmd.replaceChildren(row);
   };
 
+  // ---- R1（直近の技／技名の候補。design-spec-v2.2 1章）----
+  // 候補は specialCandidates が決める。選択中の候補 ed.sel は画面上だけの状態で、保存するトークンは既存の形のまま。
+  const recents = recentTokens(data.combos, cid);
+  const candId = (c) => [c.name, c.motion, c.button, c.air, c.derived].join('|');
+  let scrollEl = null; // R1の中央（.recent-keys か .recent-empty）。中身が変わるたびに作り直し、スクロールを先頭に戻す
+  let r1Key = null;
+  let candKeys = [];
+  const setScroll = (e, label) => {
+    e.id = 'r1-scroll';
+    if (label) at(e, { role: 'group', 'aria-label': label });
+    scrollEl.replaceWith(e);
+    scrollEl = e;
+  };
+  let pickLockUntil = 0; // 派生を押して入れた直後のダブルタップ・キーリピートで、新しい先頭の候補を誤って選ばない
+  const candKey = (c) => {
+    const cmd = h('span', 'cand-cmd', ...(c.derived ? [icon('i-conn', 'conn')] : []), ...(c.air ? [el('span', 'ltr', 'J')] : []),
+      ...(c.motion === null ? [] : dirNodes(c.motion, notation)), el('span', 'cand-btn', c.button));
+    const b = at(padKey('cand', candidateLabel(c, notation), () => pickCand(c), el('span', 'cand-name', c.name), cmd), { 'aria-pressed': 'false' });
+    b.addEventListener('keydown', (e) => { if (e.repeat) e.preventDefault(); }); // Enter押しっぱなしのクリックを出さない
+    return b;
+  };
+  const renderR1 = () => {
+    const { tokens, cursor, pending } = ed.pad;
+    const cands = ed.nameOn ? specialCandidates({ characterId: cid, tokens, cursor, motion: pendingMotion(pending), jump: pending.stance === 'jump' }) : null;
+    nameKey.setAttribute('aria-pressed', String(ed.nameOn));
+    const key = cands ? cands.map(candId).join('\n') : 'recent';
+    if (key !== r1Key) {
+      // 作り直しでフォーカスを失わないよう、候補にフォーカスがあれば同じ候補（なければ先頭の技、それもなければ［技名］）へ戻す
+      const focused = scrollEl.contains(document.activeElement) ? candKeys.find(([, b]) => b === document.activeElement)?.[0] ?? '' : null;
+      r1Key = key;
+      candKeys = [];
+      if (!cands) {
+        const view = { size: 'S', notation, strengthLabels, characterId: cid, specialNotation };
+        setScroll(recents.length
+          ? h('div', 'recent-keys', ...recents.map((t) => padKey('', `${specialLabel(t, specialNames([t], cid)[0], specialNotation, notation)}を追加`, () => act({ type: 'recent', token: t }), renderRow([t], view))))
+          : h('div', 'recent-empty', '入力した技がここに並びます'), recents.length ? '直近の技' : null);
+      } else if (cands.length) {
+        candKeys = cands.map((c) => [candId(c), candKey(c)]);
+        setScroll(h('div', 'recent-keys', ...candKeys.map(([, b]) => b)), `技名の候補 ${cands.length}件`);
+      } else setScroll(h('div', 'recent-empty', '当てはまる技名がありません'));
+      if (focused !== null) {
+        const target = candKeys.find(([id]) => id === focused)?.[1] ?? scrollEl.querySelector('button') ?? nameKey;
+        target.focus({ preventScroll: true });
+        target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); // スクロールが先頭に戻っても、フォーカス先は見える位置に置く
+      }
+    }
+    for (const [id, b] of candKeys) b.setAttribute('aria-pressed', String(ed.sel !== null && candId(ed.sel) === id));
+  };
+  const setPending = (stance, dirs) => { ed.pad = { ...ed.pad, pending: { stance, dirs }, notice: null }; };
+  const refreshPad = () => { updateRow(); sync(ed.pad.pending); renderR1(); };
+  // 候補を押す: 強さの区別がない派生はその場で入る。それ以外は選択中にして、方向をその技のコマンドに置き換える。選択中をもう一度押すと選択と方向を外す
+  const pickCand = (c) => {
+    if (performance.now() < pickLockUntil) return;
+    dismissToast();
+    if (c.instant) { pickLockUntil = performance.now() + 300; act({ type: 'recent', token: c.instant }); return; }
+    if (ed.sel !== null && candId(ed.sel) === candId(c)) {
+      ed.sel = null;
+      setPending('stand', []);
+    } else {
+      ed.sel = c;
+      setPending(c.air ? 'jump' : 'stand', c.motion === null ? [] : PRESETS.includes(c.motion) || c.motion.includes('[') ? [c.motion] : [...c.motion]);
+      announce(`${c.name}を選びました。${c.button}の強さを押してください`);
+    }
+    refreshPad();
+  };
+  const onName = () => {
+    if (!hasSpecials(cid)) { showToast('このキャラの技名はまだ入っていません', { ms: 3000 }); return; }
+    ed.nameOn = !ed.nameOn;
+    ed.sel = null;
+    renderR1();
+  };
+
   // パッドとチップ操作の入口。成功したら true。トーストの取り消し対象は直前の1操作だけにする。
   const act = (action) => {
     const prev = ed.pad;
+    if (action.type === 'undo' && ed.sel !== null) { // 候補で入れた方向は［消す］1回でまとめて消す
+      ed.sel = null;
+      setPending('stand', []);
+      refreshPad();
+      return true;
+    }
     const next = applyPadInput(prev, action);
     if (next.tokens.length > LIMITS.tokens) {
       showToast(`1つの記録に入れられるのは${LIMITS.tokens}手までです`, { ms: 3000 });
@@ -948,11 +1062,14 @@ function editScreen(route) {
     }
     dismissToast();
     ed.pad = next;
+    if (!(next.notice && next.tokens === prev.tokens)) ed.sel = null; // 強度キーでの確定、他の方向・姿勢・システム技などの入力で選択を外す。入力が失敗したとき（ODを方向なしの派生に押す等）は保つ
     if (next.notice) showToast(next.notice, { ms: 3000 });
-    updateRow();
-    sync(next.pending);
+    refreshPad();
     if (next.tokens !== prev.tokens) {
-      if (next.tokens.length > prev.tokens.length) announce(`追加: ${tokenLabel(next.tokens[next.cursor - 1], notation)}`);
+      if (next.tokens.length > prev.tokens.length) {
+        const i = next.cursor - 1;
+        announce(`追加: ${specialLabel(next.tokens[i], specialNames(next.tokens, cid)[i], specialNotation, notation)}`);
+      }
       touch();
     }
     return true;
@@ -962,7 +1079,8 @@ function editScreen(route) {
   function openChipMenu(index, token, chip) {
     const sh = openSheet(chip, { pop: true });
     const body = h('div', 'pop-body');
-    if (token.type === 'special') body.append(motionNote(token.motion));
+    const info = specialNames(ed.pad.tokens, cid)[index]; // 強度を変えたあとに開き直せば、その強度で引き直した技名になる
+    if (token.type === 'special' || info?.name || info?.why) body.append(...specialPop(token, info));
     else if (fullName(token)) body.append(h('div', 'pop-note pop-name', fullName(token)));
     const choices = strengthChoices(token);
     if (choices.length) {
@@ -980,7 +1098,7 @@ function editScreen(route) {
       btn('opt', '削除', () => sh.close(() => {
         const before = ed.pad;
         if (!act({ type: 'remove', index })) return;
-        showToast(`「${tokenLabel(token, notation)}」を削除しました`, { label: '元に戻す', onAction: () => { ed.pad = before; updateRow(); sync(before.pending); touch(); } });
+        showToast(`「${tokenLabel(token, notation)}」を削除しました`, { label: '元に戻す', onAction: () => { ed.pad = before; refreshPad(); touch(); } });
       }))));
     sh.pop(body);
   }
@@ -1041,7 +1159,9 @@ function editScreen(route) {
     input('f-memo', 'メモ', ed.memo, { maxlength: String(LIMITS.memo), rows: '4' }, (v) => { ed.memo = v; touch(); }, 'textarea'));
 
   // ---- パッド ----
-  const { pad: padEl, sync } = buildPad(act, recentTokens(data.combos, cid), notation, strengthLabels, () => { setPad(true); secSel.focus(); }); // ［完了］: ペンディングは保持。保存はしない
+  const { pad: padEl, sync, nameKey, r1 } = buildPad(act, notation, strengthLabels, () => { setPad(true); secSel.focus(); }, onName); // ［完了］: ペンディングは保持。保存はしない
+  scrollEl = r1.children[1];
+  if (!hasSpecials(cid)) nameKey.setAttribute('aria-disabled', 'true'); // 辞書がないキャラ: 押すとトースト、R1は直近の技のまま
   // パッドが隠れている間だけ、同じ位置に格納バー（副ボタン1つ）を出す。浮動ボタンは使わない
   const dock = h('footer', 'bottombar pad-dock', btn('', [svgIcon('i-chev', 270), '技を入力'], () => { setPad(false); padEl.focus(); }, { 'aria-controls': 'pad', 'aria-expanded': 'false' }));
   const setPad = (hidden) => { padEl.hidden = hidden; dock.hidden = !hidden; ed.padHidden = hidden; };
@@ -1085,8 +1205,7 @@ function editScreen(route) {
   screen.classList.add('edit');
   screen.append(dock);
   renderTags();
-  updateRow();
-  sync(ed.pad.pending);
+  refreshPad();
   showTime();
   updateNotices();
   return screen;
@@ -1193,6 +1312,7 @@ async function readImport(file) {
 }
 
 const SAMPLE_NOTATION = [{ type: 'normal', stance: 'stand', dir: 4, key: 'P', str: 'H' }, { type: 'special', motion: '236', key: 'P', str: 'H' }, { type: 'special', motion: '623', key: 'K', str: 'OD' }];
+const SAMPLE_SPECIAL = [{ type: 'special', motion: '236', key: 'P', str: 'M' }, { type: 'special', motion: '623', key: 'P', str: 'L' }, { type: 'special', motion: '214', key: 'K', str: 'OD' }]; // 見本はリュウの辞書で描く
 const SAMPLE_STRENGTH = [{ type: 'normal', stance: 'stand', key: 'P', str: 'L' }, { type: 'normal', stance: 'stand', key: 'K', str: 'M' }, { type: 'normal', stance: 'stand', key: 'P', str: 'H' }];
 
 // 2択のラジオ（編集画面の位置と同じ .seg）。選ぶと即時に保存して描画し直す
@@ -1203,7 +1323,7 @@ function choice(legend, name, current, options, sample, onPick) {
     r.addEventListener('change', () => onPick(v));
     return h('label', 'seg-item', r, h('span', '', text));
   }));
-  return h('div', 'fld', set, h('div', 'set-sample', sample));
+  return h('div', 'fld', set, h('div', 'set-sample', ...[sample].flat()));
 }
 
 const setHead = (no, name) => h('h2', 'set-head', at(h('span', 'sec-no', no), { 'aria-hidden': 'true' }), h('span', 'sec-name', name));
@@ -1273,10 +1393,13 @@ function settingsScreen() {
       setHead('02', '表示'),
       h('div', 'set-body',
         choice('方向の表記', 'notation', settings.notation, [['arrow', '矢印'], ['numpad', '数字']], renderRow(SAMPLE_NOTATION, view), pick('notation', 'notation')),
+        choice('必殺技の表記', 'special', settings.specialNotation, [['cmd', 'コマンド'], ['name', '技名']],
+          [renderRow(SAMPLE_SPECIAL, { ...view, characterId: 'ryu', specialNotation: settings.specialNotation }), h('p', 'set-note', '例はリュウ。技名がない入力はコマンドのまま表示します')], pick('specialNotation', 'special')),
         choice('ボタンの補助文字', 'strength', settings.strengthLabels, [[false, 'オフ'], [true, 'オン']], renderRow(SAMPLE_STRENGTH, view), pick('strengthLabels', 'strength')),
         h('div', 'set-btns', legendBtn)),
       h('div', 'set-foot',
         h('p', 'set-unofficial', '非公式アプリです。Capcomとは関係ありません。'),
+        h('p', 'set-legal', '本アプリは個人が制作した非公式のファンツールであり、株式会社カプコンおよび関係各社とは一切関係がなく、公式・公認のものではありません。『STREET FIGHTER』は株式会社カプコンの商標または登録商標です。ゲーム内の名称・技名・コマンド等に関する権利は各権利者に帰属します。本アプリは無料で、広告・課金はありません。技名・コマンドは、カプコン公式サイトの公開情報を参考に独自に整理したもので、誤りや最新バージョンとの差異がある場合があります。'),
         h('p', '', `バージョン ${APP_VERSION}`),
         h('p', 'set-font', '英字書体: Tilt Neon（SIL Open Font License 1.1）')), // OFL 1.1 の求める表示（design-spec-v2 2.4）
     ],
