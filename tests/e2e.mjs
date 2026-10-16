@@ -3660,9 +3660,11 @@ for (const width of [360, 390, 430]) {
       const own = page.locator('.fld:has(legend:text("必殺技の表記")) .set-sample');
       assert.deepEqual(await own.locator('.sname').allInnerTexts(), ['中波動拳', '弱昇龍拳', 'OD竜巻旋風脚']);
       assert.equal(await own.locator('.arrow').count(), 0);
+      assert.equal(await own.locator('.dot').count(), 0); // 技名の見本に●は出ない（D-019）
       const dir = page.locator('.fld:has(legend:text("方向の表記")) .set-sample');
       assert.equal(await dir.locator('.sname').count(), 0);
       assert.ok(await dir.locator('.arrow').count() >= 3);
+      assert.ok(await dir.locator('.dot').count() >= 3); // コマンドの見本は●を出す
       assert.ok(await noHScroll(page));
     });
     await shot(page, '24-settings-name', width);
@@ -3722,14 +3724,14 @@ for (const width of [360, 390, 430]) {
     await gotoHash(page, '#/settings');
     await page.getByRole('radio', { name: '技名' }).check();
     await gotoHash(page, '#/c/ryu/r/c1');
-    await check(`${tag} 24b 技名表記: 236中P は「中波動拳」＋.dot.str-m（矢印なし）、強P→強昇龍拳、OD→OD竜巻旋風脚＋●●、強度なし→波動拳＋灰色の●。360は辞書にないのでコマンド`, async () => {
+    await check(`${tag} 24b 技名表記: 236中P は「中波動拳」の文字だけ（矢印も●もない）、強P→強昇龍拳、OD→OD竜巻旋風脚、強度なし→波動拳。360は辞書にないのでコマンドのまま●が残る（D-019）`, async () => {
       const c = await chipsInfo(page, '.d-cmd');
       assert.deepEqual(c.map((x) => x.name), RYU_C1);
       assert.deepEqual(c.map((x) => x.cmd), [true, false, false, false, false, false, true]);
-      assert.deepEqual(c[1].dots, ['str-m']);
-      assert.deepEqual(c[3].dots, ['str-h']);
-      assert.deepEqual(c[4].dots, ['od', 'od']);
-      assert.deepEqual(c[5].dots, ['str-n']);
+      for (const i of [1, 2, 3, 4, 5]) assert.deepEqual(c[i].dots, [], `技名のチップ ${i} に ●（.dot）が出ている`);
+      assert.equal(await page.locator('.d-cmd .chip:has(.sname) .dot, .d-cmd .chip:has(.sname) .badge').count(), 0);
+      assert.deepEqual(c[0].dots, ['str-m']); // 通常技（屈中K）と辞書にない360は今のまま●を出す
+      assert.deepEqual(c[6].dots, ['str-h']);
       assert.equal(c[1].label, '中波動拳、波動 ↓↘→ 中P');
       assert.equal(c[4].label, 'OD竜巻旋風脚、OD 竜巻 ↓↙← K');
       assert.equal(c[5].label, '波動拳、波動 ↓↘→ P');
@@ -3740,7 +3742,11 @@ for (const width of [360, 390, 430]) {
       assert.deepEqual(r.map((x) => x[0]), ['中波動拳', '強昇龍拳', 'OD竜巻旋風脚', '波動拳']);
       for (const x of r) assert.deepEqual(x.slice(1), ['15px', '700', FG, 'rgba(0, 0, 0, 0)', '0px', 'nowrap']);
     });
-    await check(`${tag} 24b 技名表記とコマンド表記で、発光する要素（text-shadow・box-shadow）の数が同じ`, async () => assert.equal(await glowCount(page, '.d-cmd'), cmdGlow));
+    // 技名表記のODは「OD」の文字だけ。発光（L寸法の --glow-od・--tx-od）は●●と橙の「OD」に付いていたので、技名表記のほうが少ない（D-019）
+    await check(`${tag} 24b 技名表記の発光する要素（text-shadow・box-shadow）の数は、コマンド表記以下。技名のチップ自身は発光しない`, async () => {
+      assert.ok(await glowCount(page, '.d-cmd') <= cmdGlow);
+      assert.equal(await page.locator('.d-cmd .sname').evaluateAll((els) => els.filter((e) => [e, ...e.querySelectorAll('*')].some((x) => { const cs = getComputedStyle(x); return cs.textShadow !== 'none' || cs.boxShadow !== 'none'; })).length), 0);
+    });
     await check(`${tag} 24b 保存したJSON（データ・設定）に技名の文字列がない。トークンは既存の形`, async () => {
       const raw = (await storedRaw(page)) + (await storedRaw(page, 'sf6memo.settings'));
       for (const n of ['波動拳', '昇龍拳', '竜巻旋風脚', '追撃', '大義の巨腕']) assert.ok(!raw.includes(n), n);
@@ -3752,6 +3758,8 @@ for (const width of [360, 390, 430]) {
     await check(`${tag} 24b 一覧のプレビュー（S）も技名表記。S寸法は12px`, async () => {
       assert.deepEqual(await namesOf(page, 'a.item:has-text("リュウの基本") .preview'), RYU_C1);
       assert.equal(await page.locator('.preview .sname').first().evaluate((e) => getComputedStyle(e).fontSize), '12px');
+      assert.equal(await page.locator('a.item:has-text("リュウの基本") .preview .chip:has(.sname) .dot').count(), 0);
+      assert.ok(await page.locator('a.item:has-text("リュウの基本") .preview .chip:not(:has(.sname)) .dot').count() >= 1); // 技名のないチップは●のまま
       assert.ok(await noHScroll(page));
     });
     await shot(page, '24-list-name', width);
@@ -3764,6 +3772,7 @@ for (const width of [360, 390, 430]) {
       const labels = await page.locator('.recent-keys .key').evaluateAll((ks) => ks.map((k) => k.getAttribute('aria-label')));
       assert.ok(labels.includes('中波動拳、波動 ↓↘→ 中Pを追加'), labels.join('|')); // 技名表記は技名が先
       assert.ok((await page.locator('.recent-keys .sname').allInnerTexts()).includes('中波動拳'));
+      assert.equal(await page.locator('.cmd .chip:has(.sname) .dot, .recent-keys .chip:has(.sname) .dot').count(), 0); // 編集の列・直近の技
       await aria(page, '波動 236').click();
       assert.equal(await page.locator('.cmd .pending .sname').count(), 0);
       assert.ok(await page.locator('.cmd .pending .arrow').count() >= 3);
@@ -3774,6 +3783,7 @@ for (const width of [360, 390, 430]) {
     await check(`${tag} 24b 凡例: 「必殺技」の群に1行（236中Pを技名で）。意味と書き出し`, async () => {
       const g = page.locator('.leg tbody:has(th:text("必殺技"))');
       assert.equal(await g.locator('.sname').innerText(), '中波動拳');
+      assert.equal(await g.locator('.dot').count(), 0);
       assert.equal(await g.locator('tr').count(), 2);
       assert.equal(await g.locator('td').last().innerText(), '必殺技（技名で表示。設定で切り替え）。派生は直前の技に▶でつながる\n236 中P'); // 「書き出し 」は ::before の飾り
       assert.ok(await noHScroll(page));
@@ -4036,10 +4046,10 @@ for (const width of [360, 390, 430]) {
   {
     const page = await named();
     await gotoHash(page, '#/c/arjun/r/a1');
-    await check(`${tag} 24e アルジュンの236P▶6P（技名表示）: 「弱大義の巨腕」▶「追撃」。2つ目は派生名＋灰色の●。読み上げ名は「〈派生名〉、〈親の技名〉の派生、→P」の形（通常技の形は「前P」）`, async () => {
+    await check(`${tag} 24e アルジュンの236P▶6P（技名表示）: 「弱大義の巨腕」▶「追撃」。どちらも文字だけで●は出ない。読み上げ名は「〈派生名〉、〈親の技名〉の派生、→P」の形（通常技の形は「前P」）`, async () => {
       const c = await chipsInfo(page, '.d-cmd');
       assert.deepEqual(c.map((x) => x.name), ['弱大義の巨腕', '追撃']);
-      assert.deepEqual(c.map((x) => x.dots), [['str-l'], ['str-n']]);
+      assert.deepEqual(c.map((x) => x.dots), [[], []]);
       assert.deepEqual(c.map((x) => x.cmd), [false, false]);
       assert.deepEqual(c.map((x) => x.label), ['弱大義の巨腕、波動 ↓↘→ 弱P', '追撃、大義の巨腕の派生、前P']);
       assert.equal(await page.locator('.d-cmd .conn').count(), 1); // 親との間は既存の▶のまま
