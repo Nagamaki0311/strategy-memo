@@ -4217,6 +4217,122 @@ for (const width of [360, 390, 430]) {
     await jp.context().close();
   }
 
+  // 24j レビュー対応: R1の作り直しとフォーカス、派生のダブルタップ、失敗した強度キー、下書きへの漏れ
+  {
+    const cand = (page, n) => page.locator('#r1-scroll .key.cand').filter({ has: page.locator('.cand-name', { hasText: new RegExp(`^${n}$`) }) });
+    const pressed = (page) => page.$$eval('#r1-scroll .key.cand', (ks) => ks.filter((k) => k.getAttribute('aria-pressed') === 'true').map((k) => k.querySelector('.cand-name').textContent));
+    const draft = async (page, key) => JSON.parse(await storedRaw(page, 'sf6memo.drafts'))[key];
+    const activeName = (page) => page.evaluate(() => document.activeElement.querySelector?.('.cand-name')?.textContent ?? document.activeElement.className);
+    // フォーカス先がスクロール領域の中に見えているか（左右の端が領域の内側）
+    const focusVisible = (page) => page.evaluate(() => {
+      const a = document.activeElement.getBoundingClientRect(), s = document.getElementById('r1-scroll').getBoundingClientRect();
+      return { in: a.left >= s.left - 1 && a.right <= s.right + 1, a: [a.left, a.right], s: [s.left, s.right] };
+    });
+    const padPos = (page) => page.evaluate(() => ({ top: document.getElementById('pad').getBoundingClientRect().top, y: window.scrollY }));
+
+    const kp = await named();
+    await gotoHash(kp, '#/c/ken/new?s=sk');
+    await check(`${tag} 24j R1が作り直されてスクロールが先頭に戻っても、フォーカスを復元した候補（6番目の迅雷脚）は領域の中に見える。パッドの上端 y とページのスクロール位置は変わらない`, async () => {
+      assert.equal((await kp.$$eval('#r1-scroll .cand-name', (e) => e.map((x) => x.textContent))).indexOf('迅雷脚'), 5);
+      await cand(kp, '迅雷脚').click(); // 選択（候補が絞られる）
+      const before = await padPos(kp);
+      await cand(kp, '迅雷脚').click(); // 解除（全候補に戻り、スクロールは先頭）
+      assert.deepEqual(await pressed(kp), []);
+      assert.equal(await activeName(kp), '迅雷脚');
+      const v = await focusVisible(kp);
+      assert.ok(v.in, JSON.stringify(v));
+      assert.deepEqual(await padPos(kp), before);
+    });
+    await check(`${tag} 24j 失敗した強度キー（方向なしの派生にOD）は選択中の候補を外さず、トークンも増えない。通知は出る`, async () => {
+      await kp.getByRole('button', { name: '直前の入力を取り消す', exact: true }).click(); // 方向を外す
+      await aria(kp, '波動 236').click();
+      await aria(kp, '中K').click();
+      const d = (await kp.locator('#r1-scroll .key.cand').first().locator('.cand-name').innerText());
+      assert.equal(d, '風鎌蹴り／轟雷落とし／閃火脚');
+      await kp.locator('#r1-scroll .key.cand').first().click();
+      assert.deepEqual(await pressed(kp), [d]);
+      await kp.getByRole('button', { name: 'OD K', exact: true }).click();
+      assert.deepEqual(await pressed(kp), [d]); // 選択は残る
+      assert.equal((await draft(kp, 'new:sk')).tokens.length, 1);
+      assert.ok(await kp.locator('#toast').filter({ hasText: '先にモーションを選んでください' }).count());
+      await kp.getByRole('button', { name: '強K', exact: true }).click(); // 続けて強度を押せば入る
+      assert.equal((await draft(kp, 'new:sk')).tokens.length, 2);
+      assert.deepEqual(await pressed(kp), []);
+    });
+    await check(`${tag} 24j 下書き（sf6memo.drafts）に［技名］の状態（nameOn）と選択中の候補（sel）は書かれない`, async () => {
+      await kp.locator('#r1-scroll .key.cand').first().click(); // 候補を選択中にした状態で下書きを書かせる
+      await kp.getByRole('button', { name: '強K', exact: true }).click();
+      const raw = await storedRaw(kp, 'sf6memo.drafts');
+      const dr = (await draft(kp, 'new:sk'));
+      assert.deepEqual(Object.keys(dr).sort(), ['memo', 'position', 'savedAt', 'sectionId', 'tags', 'title', 'tokens']);
+      assert.ok(!raw.includes('nameOn') && !raw.includes('"sel"'), raw);
+    });
+    await kp.context().close();
+
+    const ap = await named();
+    await gotoHash(ap, '#/c/arjun/new?s=sa');
+    await aria(ap, '波動 236').click();
+    await aria(ap, '弱P').click();
+    await check(`${tag} 24j 派生の候補（追撃）をダブルタップしても、2回目のタップで別の候補が選択されない。約300ms後は通常どおり別の候補を選べる`, async () => {
+      await cand(ap, '追撃').dblclick();
+      assert.equal((await draft(ap, 'new:sa')).tokens.length, 2);
+      assert.deepEqual(await pressed(ap), []);
+      assert.equal(await ap.locator('.cmd .pending').count(), 0);
+      await ap.waitForTimeout(450);
+      await cand(ap, '大義の巨腕').click();
+      assert.deepEqual(await pressed(ap), ['大義の巨腕']);
+      await ap.getByRole('button', { name: '直前の入力を取り消す', exact: true }).click();
+    });
+    await check(`${tag} 24j Enter押しっぱなし（キーリピート）でも、派生の候補が続けて入らない`, async () => {
+      await ap.getByRole('button', { name: '直前の入力を取り消す', exact: true }).click(); // 追撃を消して親の直後に戻る
+      await ap.waitForTimeout(450);
+      await cand(ap, '追撃').focus();
+      await ap.keyboard.down('Enter');
+      await ap.keyboard.down('Enter');
+      await ap.keyboard.down('Enter');
+      await ap.keyboard.up('Enter');
+      assert.equal((await draft(ap, 'new:sa')).tokens.length, 2);
+      assert.deepEqual(await pressed(ap), []);
+    });
+    await ap.context().close();
+
+    const rp = await named();
+    await gotoHash(rp, '#/c/ryu/new?s=s1');
+    await check(`${tag} 24j フォーカス復元: 候補にフォーカスがあれば同じ候補へ戻る（Enterで昇龍拳を選ぶ → 昇龍拳）`, async () => {
+      await cand(rp, '昇龍拳').focus();
+      await rp.keyboard.press('Enter');
+      assert.deepEqual(await pressed(rp), ['昇龍拳']);
+      assert.equal(await activeName(rp), '昇龍拳');
+      await rp.keyboard.press('Enter'); // 解除
+      assert.equal(await activeName(rp), '昇龍拳');
+      assert.deepEqual(await pressed(rp), []);
+    });
+    await check(`${tag} 24j フォーカス復元: 同じ候補がなくなれば先頭の候補へ（アルジュンの追撃 → 先頭は大義の巨腕）。候補自体がなくなれば［技名］へ`, async () => {
+      const q = await named();
+      await gotoHash(q, '#/c/arjun/new?s=sa');
+      await aria(q, '波動 236').click();
+      await aria(q, '弱P').click();
+      await cand(q, '追撃').focus();
+      await q.keyboard.press('Enter'); // 追撃が入る。R1に追撃はなくなる
+      assert.equal((await draft(q, 'new:sa')).tokens.length, 2);
+      const first = await q.locator('#r1-scroll .key.cand').first().locator('.cand-name').innerText();
+      assert.equal(await activeName(q), first);
+      // 候補を作らない状態（［技名］オフ）へ、フォーカスを動かさずに切り替える
+      await q.evaluate(() => document.querySelector('.name-key').click());
+      assert.equal(await q.locator('#r1-scroll').getAttribute('aria-label'), '直近の技');
+      assert.equal(await q.evaluate(() => document.querySelector('#r1-scroll.recent-keys button') === document.activeElement), true, '直近の技の先頭'); // 直近の技の先頭
+      await q.context().close();
+      const e = await named();
+      await gotoHash(e, '#/c/kimberly/new?s=sx');
+      await e.locator('#r1-scroll .key.cand').first().focus();
+      await e.evaluate(() => document.querySelector('.name-key').click());
+      assert.equal(await e.locator('#r1-scroll.recent-empty').count(), 1); // 直近の技もない
+      assert.equal(await e.evaluate(() => document.activeElement.classList.contains('name-key')), true, '［技名］');
+      await e.context().close();
+    });
+    await rp.context().close();
+  }
+
   // 24g 寸法・色・幅（受け入れ基準4・6・8）
   {
     const page = await named();

@@ -987,10 +987,13 @@ function editScreen(route) {
     scrollEl.replaceWith(e);
     scrollEl = e;
   };
+  let pickLockUntil = 0; // 派生を押して入れた直後のダブルタップ・キーリピートで、新しい先頭の候補を誤って選ばない
   const candKey = (c) => {
     const cmd = h('span', 'cand-cmd', ...(c.derived ? [icon('i-conn', 'conn')] : []), ...(c.air ? [el('span', 'ltr', 'J')] : []),
       ...(c.motion === null ? [] : dirNodes(c.motion, notation)), el('span', 'cand-btn', c.button));
-    return at(padKey('cand', candidateLabel(c, notation), () => pickCand(c), el('span', 'cand-name', c.name), cmd), { 'aria-pressed': 'false' });
+    const b = at(padKey('cand', candidateLabel(c, notation), () => pickCand(c), el('span', 'cand-name', c.name), cmd), { 'aria-pressed': 'false' });
+    b.addEventListener('keydown', (e) => { if (e.repeat) e.preventDefault(); }); // Enter押しっぱなしのクリックを出さない
+    return b;
   };
   const renderR1 = () => {
     const { tokens, cursor, pending } = ed.pad;
@@ -1011,7 +1014,11 @@ function editScreen(route) {
         candKeys = cands.map((c) => [candId(c), candKey(c)]);
         setScroll(h('div', 'recent-keys', ...candKeys.map(([, b]) => b)), `技名の候補 ${cands.length}件`);
       } else setScroll(h('div', 'recent-empty', '当てはまる技名がありません'));
-      if (focused !== null) (candKeys.find(([id]) => id === focused)?.[1] ?? scrollEl.querySelector('button') ?? nameKey).focus({ preventScroll: true });
+      if (focused !== null) {
+        const target = candKeys.find(([id]) => id === focused)?.[1] ?? scrollEl.querySelector('button') ?? nameKey;
+        target.focus({ preventScroll: true });
+        target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); // スクロールが先頭に戻っても、フォーカス先は見える位置に置く
+      }
     }
     for (const [id, b] of candKeys) b.setAttribute('aria-pressed', String(ed.sel !== null && candId(ed.sel) === id));
   };
@@ -1019,8 +1026,9 @@ function editScreen(route) {
   const refreshPad = () => { updateRow(); sync(ed.pad.pending); renderR1(); };
   // 候補を押す: 強さの区別がない派生はその場で入る。それ以外は選択中にして、方向をその技のコマンドに置き換える。選択中をもう一度押すと選択と方向を外す
   const pickCand = (c) => {
+    if (performance.now() < pickLockUntil) return;
     dismissToast();
-    if (c.instant) { act({ type: 'recent', token: c.instant }); return; }
+    if (c.instant) { pickLockUntil = performance.now() + 300; act({ type: 'recent', token: c.instant }); return; }
     if (ed.sel !== null && candId(ed.sel) === candId(c)) {
       ed.sel = null;
       setPending('stand', []);
@@ -1054,7 +1062,7 @@ function editScreen(route) {
     }
     dismissToast();
     ed.pad = next;
-    ed.sel = null; // 強度キーでの確定、他の方向・姿勢・システム技などの入力で選択を外す
+    if (!(next.notice && next.tokens === prev.tokens)) ed.sel = null; // 強度キーでの確定、他の方向・姿勢・システム技などの入力で選択を外す。入力が失敗したとき（ODを方向なしの派生に押す等）は保つ
     if (next.notice) showToast(next.notice, { ms: 3000 });
     refreshPad();
     if (next.tokens !== prev.tokens) {
