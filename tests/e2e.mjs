@@ -6,7 +6,7 @@
 //      - FAST=1 を付けると、時間のかかるトーストの一時停止の検証（約30秒）を省く。
 //      - SHOTS=<dir> を指定すると360幅のスクリーンショットを保存する（目視用。判定には使わない）。
 //      - Service Worker（19章）は、このファイルが立てる専用の静的サーバー（localhost、ルートとサブパス）で検証する。BASE は使わない。
-//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ実行する。
+//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ実行する。
 //      - 既存の検証は、Service Worker を無効にして動かす（browser.newContext の既定が serviceWorkers: 'block'）。
 //   3. 終わったらサーバーを止める（kill %1）。
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
@@ -167,7 +167,7 @@ const swRegs = async (page) => { await page.waitForSelector('.cell'); await page
 const cacheKeys = (page) => page.evaluate(async () => (await caches.keys()).sort());
 const pngSize = async (url) => { const r = await fetch(url); const b = Buffer.from(await r.arrayBuffer()); return [r.status, b.subarray(1, 4).toString(), b.readUInt32BE(16), b.readUInt32BE(20)]; };
 
-for (const width of [360, 430]) {
+for (const width of process.env.ONLY_24 ? [] : [360, 430]) {
   const tag = `[${width}]`;
   const root = await serveApp(SW_APP);
   const copy = mkdtempSync(path.join(tmpdir(), 'sf6-pages-'));
@@ -388,7 +388,7 @@ for (const width of [360, 430]) {
 }
 if (process.env.ONLY_SW) await finish();
 
-for (const width of [360, 430]) {
+for (const width of process.env.ONLY_24 ? [] : [360, 430]) {
   const tag = `[${width}]`;
 
   // 1. キャラ選択 -> 再読み込み -> 最近使ったキャラ
@@ -3586,6 +3586,752 @@ for (const width of [360, 430]) {
     await gotoHash(page, '#/c/ryu');
     await page.getByRole('button', { name: '通常のメニュー' }).click();
     await check(`${tag} 5 横スクロールなし（シート）`, async () => assert.ok(await noHScroll(page)));
+    await page.context().close();
+  }
+}
+
+// ===== SECTION: 24 必殺技の技名（T-023。D-017・D-018、design-spec-v2.2 6章の3〜13・16） =====
+// 360・390・430幅。リュウ（派生なし）・アルジュン（派生）・ケン（強さで名前が変わる派生）・ルーク（方向のない派生）・ジェイミー（複数の技が当たる）・キャミィ（最長の技名）で確かめる。
+for (const width of [360, 390, 430]) {
+  const tag = `[${width}]`;
+  const NN = (stance, str, key, dir) => ({ type: 'normal', stance, key, str, ...(dir && { dir }) });
+  const MV = (id) => ({ type: 'move', id });
+  const SYS = (id) => ({ type: 'system', id });
+  const seed24 = () => ({
+    sections: [sec('s1', 'ryu', '通常', 0), sec('sa', 'arjun', '通常', 0), sec('sk', 'ken', '通常', 0), sec('sl', 'luke', '通常', 0), sec('sj', 'jamie', '通常', 0), sec('sc', 'cammy', '通常', 0), sec('sx', 'kimberly', '通常', 0)],
+    combos: [
+      combo('c1', 's1', 'リュウの基本', [N('crouch', 'M', 'K'), SP('236', 'M', 'P'), SYS('CDR'), SP('623', 'H', 'P'), SP('214', 'OD', 'K'), SP('236', 'N', 'P'), SP('360', 'H', 'P')]),
+      combo('c2', 's1', '236P▶6P', [SP('236', 'L', 'P'), NN('stand', 'N', 'P', 6)]),
+      combo('a1', 'sa', '派生', [SP('236', 'L', 'P'), NN('stand', 'N', 'P', 6)], { characterId: 'arjun' }),
+      combo('a2', 'sa', '親が当たらない', [
+        NN('stand', 'N', 'P', 6), SP('22', 'H', 'P'), NN('stand', 'N', 'P', 6), SP('214', 'H', 'K'), SP('236', 'M', 'P'), MV('FWD_STEP'), NN('stand', 'N', 'P', 6),
+        SP('236', 'M', 'P'), SYS('CDR'), NN('stand', 'N', 'P', 6), SP('236', 'M', 'P'), { type: 'sa', level: 1 }, NN('stand', 'N', 'P', 6),
+        SP('236', 'M', 'P'), { type: 'note', id: 'CH' }, NN('stand', 'N', 'P', 6),
+      ], { characterId: 'arjun' }),
+      combo('a3', 'sa', '親の強度条件', [SP('22', 'H', 'K'), NN('stand', 'N', 'P')], { characterId: 'arjun' }),
+      combo('k1', 'sk', '強さで変わる派生', [SP('236', 'M', 'K'), NN('stand', 'M', 'K', 6), SP('236', 'M', 'K'), NN('stand', 'N', 'K', 6)], { characterId: 'ken' }),
+      combo('l1', 'sl', '方向のない派生', [SP('236', 'M', 'K'), NN('stand', 'N', 'P')], { characterId: 'luke' }),
+      combo('j1', 'sj', '複数', [SP('236', 'M', 'P'), SP('236', 'N', 'P')], { characterId: 'jamie' }),
+      combo('m1', 'sc', '最長', [SP('236', 'OD', 'P'), SP('236', 'H', 'P')], { characterId: 'cammy' }),
+    ],
+  });
+  // 設定が未保存のときだけ「技名」で始める（再読み込みで保存済みの設定を上書きしない）
+  const nameInit = () => { if (!localStorage.getItem('sf6memo.settings')) localStorage.setItem('sf6memo.settings', JSON.stringify({ specialNotation: 'name' })); };
+  const named = (seed = seed24()) => newPage(width, seed, {}, nameInit);
+  const aria = (page, name) => page.getByRole('button', { name, exact: true });
+  const FG = 'rgb(242, 238, 230)', MUTED = 'rgb(170, 166, 157)', CONN = 'rgb(140, 138, 133)'; // --fg --fg-muted --conn
+  // チップごとの表示。name = 技名の文字（なければ null）、cmd = 矢印・数字が出ているか、dots = ●の色クラス
+  const chipsInfo = (page, sel) => page.$$eval(`${sel} .chip`, (els) => els.map((e) => ({
+    name: e.querySelector('.sname')?.textContent ?? null,
+    cmd: !!e.querySelector('.arrow, .cw, .num, .charge'),
+    dots: [...e.querySelectorAll('.dot')].map((d) => [...d.classList].find((c) => /^(str-|od)/.test(c))),
+    label: e.getAttribute('aria-label'),
+  })));
+  const namesOf = async (page, sel) => (await chipsInfo(page, sel)).map((c) => c.name);
+  const forbidden = (page) => page.evaluate(() => {
+    const bad = [];
+    for (const e of document.querySelectorAll('*')) for (const ps of [null, '::before', '::after']) {
+      const cs = getComputedStyle(e, ps);
+      if (/gradient/.test(cs.backgroundImage) || cs.filter !== 'none' || cs.backdropFilter !== 'none') bad.push(`${e.className}${ps ?? ''}`);
+    }
+    return bad;
+  });
+  const glowCount = (page, sel) => page.$eval(sel, (root) => [root, ...root.querySelectorAll('*')].filter((e) => { const cs = getComputedStyle(e); return cs.textShadow !== 'none' || cs.boxShadow !== 'none'; }).length);
+  const RYU_C1 = [null, '中波動拳', null, '強昇龍拳', 'OD竜巻旋風脚', '波動拳', null];
+
+  // 24a 設定: 「必殺技の表記」の節・見本・保存・免責（受け入れ基準5）
+  {
+    const page = await newPage(width, seed24());
+    await gotoHash(page, '#/settings');
+    await check(`${tag} 24a 設定の「表示」の節: 方向の表記 → 必殺技の表記［コマンド｜技名］（初期はコマンド）→ ボタンの補助文字。見本の下に注記`, async () => {
+      assert.deepEqual(await page.locator('.set-body legend').allInnerTexts(), ['方向の表記', '必殺技の表記', 'ボタンの補助文字']);
+      assert.deepEqual(await page.locator('fieldset:has(legend:text("必殺技の表記")) .seg-item').allInnerTexts(), ['コマンド', '技名']);
+      assert.equal(await page.getByRole('radio', { name: 'コマンド' }).isChecked(), true);
+      const sample = page.locator('.fld:has(legend:text("必殺技の表記")) .set-sample');
+      assert.equal(await sample.locator('.sname').count(), 0);
+      assert.ok(await sample.locator('.arrow').count() >= 6); // 236 ▶ 623 ▶ 214
+      const note = sample.locator('.set-note');
+      assert.equal(await note.innerText(), '例はリュウ。技名がない入力はコマンドのまま表示します');
+      assert.deepEqual(await note.evaluate((e) => [getComputedStyle(e).fontSize, getComputedStyle(e).color]), ['12px', MUTED]);
+      assert.ok(await noHScroll(page));
+    });
+    await page.getByRole('radio', { name: '技名' }).check();
+    await check(`${tag} 24a 技名にすると見本が「中波動拳 ▶ 弱昇龍拳 ▶ OD竜巻旋風脚」。方向の表記の見本は辞書を渡さずコマンドのまま`, async () => {
+      const own = page.locator('.fld:has(legend:text("必殺技の表記")) .set-sample');
+      assert.deepEqual(await own.locator('.sname').allInnerTexts(), ['中波動拳', '弱昇龍拳', 'OD竜巻旋風脚']);
+      assert.equal(await own.locator('.arrow').count(), 0);
+      const dir = page.locator('.fld:has(legend:text("方向の表記")) .set-sample');
+      assert.equal(await dir.locator('.sname').count(), 0);
+      assert.ok(await dir.locator('.arrow').count() >= 3);
+      assert.ok(await noHScroll(page));
+    });
+    await shot(page, '24-settings-name', width);
+    await check(`${tag} 24a 選んだ値が保存され、再読み込みしても残る。ほかの設定のキーは保たれる`, async () => {
+      const before = JSON.parse(await storedRaw(page, 'sf6memo.settings'));
+      assert.equal(before.specialNotation, 'name');
+      assert.equal(before.notation, 'arrow');
+      await page.reload();
+      assert.equal(await page.getByRole('radio', { name: '技名' }).isChecked(), true);
+      assert.equal(JSON.parse(await storedRaw(page, 'sf6memo.settings')).specialNotation, 'name');
+      await page.getByRole('radio', { name: '数字' }).check();
+      const after = JSON.parse(await storedRaw(page, 'sf6memo.settings'));
+      assert.deepEqual([after.notation, after.specialNotation], ['numpad', 'name']);
+    });
+    await check(`${tag} 24a 設定の下部に免責（D-018の文面）。12px・muted の段落で、「©」を含まない`, async () => {
+      const p = page.locator('.set-foot .set-legal');
+      assert.equal(await p.innerText(), LEGAL);
+      assert.deepEqual(await p.evaluate((e) => [getComputedStyle(e).fontSize, getComputedStyle(e).color, e.tagName]), ['12px', MUTED, 'P']);
+      assert.ok(!(await page.locator('body').innerText()).includes('©'));
+      assert.ok(await noHScroll(page));
+    });
+    await check(`${tag} 24a 壊れた specialNotation は既定のコマンドに戻る`, async () => {
+      const q = await newPage(width, seed24(), {}, () => localStorage.setItem('sf6memo.settings', JSON.stringify({ specialNotation: 'x', notation: 'numpad' })));
+      await gotoHash(q, '#/settings');
+      assert.equal(await q.getByRole('radio', { name: 'コマンド' }).isChecked(), true);
+      assert.equal(await q.getByRole('radio', { name: '数字' }).isChecked(), true);
+      await q.context().close();
+    });
+    await check(`${tag} 24a 他タブが書いた別キーの設定を、技名の保存で潰さない（キー単位のマージ。D-014）`, async () => {
+      const q = await newPage(width, seed24());
+      await gotoHash(q, '#/settings');
+      await q.evaluate(() => { const s = JSON.parse(localStorage.getItem('sf6memo.settings') ?? '{}'); s.strengthLabels = true; localStorage.setItem('sf6memo.settings', JSON.stringify(s)); });
+      await q.getByRole('radio', { name: '技名' }).check();
+      const s = JSON.parse(await storedRaw(q, 'sf6memo.settings'));
+      assert.deepEqual([s.strengthLabels, s.specialNotation], [true, 'name']);
+      await q.context().close();
+    });
+    await check(`${tag} 24a ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+  }
+
+  // 24b 表示: 一覧・詳細・編集・直近の技・凡例。コマンド表記と技名表記（受け入れ基準5・8）
+  {
+    const page = await newPage(width, seed24());
+    await gotoHash(page, '#/c/ryu/r/c1');
+    await check(`${tag} 24b コマンド表記（初期値）: 236中P は矢印と .dot.str-m、技名の文字なし。読み上げ名は「コマンド、技名」の順`, async () => {
+      const c = await chipsInfo(page, '.d-cmd');
+      assert.equal(c[1].name, null);
+      assert.equal(c[1].cmd, true);
+      assert.deepEqual(c[1].dots, ['str-m']);
+      assert.equal(c[1].label, '波動 ↓↘→ 中P、中波動拳');
+      assert.equal(c[0].label, '屈中K'); // 通常技は今のまま
+      assert.deepEqual(c.map((x) => x.name), Array(7).fill(null));
+      assert.equal(c[6].label, '一回転 ↻ 強P'); // 辞書にない360はコマンドのまま、技名を足さない
+    });
+    const cmdGlow = await glowCount(page, '.d-cmd');
+    await gotoHash(page, '#/settings');
+    await page.getByRole('radio', { name: '技名' }).check();
+    await gotoHash(page, '#/c/ryu/r/c1');
+    await check(`${tag} 24b 技名表記: 236中P は「中波動拳」＋.dot.str-m（矢印なし）、強P→強昇龍拳、OD→OD竜巻旋風脚＋●●、強度なし→波動拳＋灰色の●。360は辞書にないのでコマンド`, async () => {
+      const c = await chipsInfo(page, '.d-cmd');
+      assert.deepEqual(c.map((x) => x.name), RYU_C1);
+      assert.deepEqual(c.map((x) => x.cmd), [true, false, false, false, false, false, true]);
+      assert.deepEqual(c[1].dots, ['str-m']);
+      assert.deepEqual(c[3].dots, ['str-h']);
+      assert.deepEqual(c[4].dots, ['od', 'od']);
+      assert.deepEqual(c[5].dots, ['str-n']);
+      assert.equal(c[1].label, '中波動拳、波動 ↓↘→ 中P');
+      assert.equal(c[4].label, 'OD竜巻旋風脚、OD 竜巻 ↓↙← K');
+      assert.equal(c[5].label, '波動拳、波動 ↓↘→ P');
+      assert.equal(c[6].label, '一回転 ↻ 強P');
+    });
+    await check(`${tag} 24b 技名の文字: 接頭辞と技名は1つの文字列（L15px・700・fg）。枠・塗りなし。折り返さない`, async () => {
+      const r = await page.$$eval('.d-cmd .sname', (els) => els.map((e) => { const cs = getComputedStyle(e); return [e.textContent, cs.fontSize, cs.fontWeight, cs.color, cs.backgroundColor, cs.borderTopWidth, cs.whiteSpace]; }));
+      assert.deepEqual(r.map((x) => x[0]), ['中波動拳', '強昇龍拳', 'OD竜巻旋風脚', '波動拳']);
+      for (const x of r) assert.deepEqual(x.slice(1), ['15px', '700', FG, 'rgba(0, 0, 0, 0)', '0px', 'nowrap']);
+    });
+    await check(`${tag} 24b 技名表記とコマンド表記で、発光する要素（text-shadow・box-shadow）の数が同じ`, async () => assert.equal(await glowCount(page, '.d-cmd'), cmdGlow));
+    await check(`${tag} 24b 保存したJSON（データ・設定）に技名の文字列がない。トークンは既存の形`, async () => {
+      const raw = (await storedRaw(page)) + (await storedRaw(page, 'sf6memo.settings'));
+      for (const n of ['波動拳', '昇龍拳', '竜巻旋風脚', '追撃', '大義の巨腕']) assert.ok(!raw.includes(n), n);
+      const d = await stored(page);
+      assert.deepEqual(d.combos.find((c) => c.id === 'c1').tokens[1], { type: 'special', motion: '236', key: 'P', str: 'M' });
+      assert.equal(d.schemaVersion, 2);
+    });
+    await gotoHash(page, '#/c/ryu');
+    await check(`${tag} 24b 一覧のプレビュー（S）も技名表記。S寸法は12px`, async () => {
+      assert.deepEqual(await namesOf(page, 'a.item:has-text("リュウの基本") .preview'), RYU_C1);
+      assert.equal(await page.locator('.preview .sname').first().evaluate((e) => getComputedStyle(e).fontSize), '12px');
+      assert.ok(await noHScroll(page));
+    });
+    await shot(page, '24-list-name', width);
+    await gotoHash(page, '#/c/ryu/r/c1');
+    await shot(page, '24-detail-name', width);
+    await gotoHash(page, '#/c/ryu/r/c1/edit');
+    await check(`${tag} 24b 編集の列・直近の技（S）も技名表記。編集中の仮チップは常にコマンド`, async () => {
+      assert.deepEqual(await namesOf(page, '.cmd'), RYU_C1);
+      await page.getByRole('button', { name: '技名の候補', exact: true }).click(); // 設定が技名なので初期はオン。オフにして直近の技を出す
+      const labels = await page.locator('.recent-keys .key').evaluateAll((ks) => ks.map((k) => k.getAttribute('aria-label')));
+      assert.ok(labels.includes('中波動拳、波動 ↓↘→ 中Pを追加'), labels.join('|')); // 技名表記は技名が先
+      assert.ok((await page.locator('.recent-keys .sname').allInnerTexts()).includes('中波動拳'));
+      await aria(page, '波動 236').click();
+      assert.equal(await page.locator('.cmd .pending .sname').count(), 0);
+      assert.ok(await page.locator('.cmd .pending .arrow').count() >= 3);
+      await aria(page, '直前の入力を取り消す').click();
+    });
+    await page.locator('button[aria-label="凡例を開く"]').click();
+    await page.waitForSelector('.sheet.tall');
+    await check(`${tag} 24b 凡例: 「必殺技」の群に1行（236中Pを技名で）。意味と書き出し`, async () => {
+      const g = page.locator('.leg tbody:has(th:text("必殺技"))');
+      assert.equal(await g.locator('.sname').innerText(), '中波動拳');
+      assert.equal(await g.locator('tr').count(), 2);
+      assert.equal(await g.locator('td').last().innerText(), '必殺技（技名で表示。設定で切り替え）。派生は直前の技に▶でつながる\n236 中P'); // 「書き出し 」は ::before の飾り
+      assert.ok(await noHScroll(page));
+    });
+    await shot(page, '24-legend', width);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.sheet', { state: 'detached' });
+    await check(`${tag} 24b 凡例の行は設定がコマンドでも技名で描く`, async () => {
+      await gotoHash(page, '#/settings');
+      await page.getByRole('radio', { name: 'コマンド' }).check();
+      await page.getByRole('button', { name: '凡例を見る' }).click();
+      await page.waitForSelector('.sheet.tall');
+      assert.equal(await page.locator('.leg .sname').innerText(), '中波動拳');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.sheet', { state: 'detached' });
+    });
+    await check(`${tag} 24b ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+  }
+
+  // 24c ポップオーバー: 設定にかかわらず、技名とコマンドの両方（受け入れ基準9・11・12）
+  {
+    const page = await newPage(width, seed24()); // 設定はコマンド表記（初期値）
+    const pop = page.locator('.popover');
+    const open = async (hashTo, i) => {
+      await gotoHash(page, hashTo);
+      await page.locator('.d-cmd .chip').nth(i).click();
+      await pop.waitFor();
+    };
+    const close = async () => { await page.keyboard.press('Escape'); await pop.waitFor({ state: 'detached' }); };
+    const notes = () => pop.locator('.pop-note').allInnerTexts();
+    await open('#/c/ryu/r/c1', 1);
+    await check(`${tag} 24c コマンド表記でも、1行目に強度付きの技名「中波動拳」、続けてコマンド（既存の motionNote）`, async () => {
+      assert.equal(await pop.locator('.pop-name').innerText(), '中波動拳');
+      assert.deepEqual(await notes(), ['中波動拳', '＝ 236（波動）']);
+      const b = await pop.boundingBox();
+      assert.ok(b.width <= 320 && b.x >= 0 && b.x + b.width <= width, JSON.stringify(b));
+    });
+    await shot(page, '24-popover-name', width);
+    await close();
+    await check(`${tag} 24c 強度なしは「波動拳」。辞書にない360は「技名なし（技の一覧にない入力）」とコマンド`, async () => {
+      await page.locator('.d-cmd .chip').nth(5).click();
+      await pop.waitFor();
+      assert.deepEqual(await notes(), ['波動拳', '＝ 236（波動）']);
+      await close();
+      await page.locator('.d-cmd .chip').nth(6).click();
+      await pop.waitFor();
+      assert.deepEqual(await notes(), ['技名なし（技の一覧にない入力）', '＝ 360（一回転）']);
+      await close();
+    });
+    await check(`${tag} 24c 複数の技が当たる入力（ジェイミーの236P）は「流酔拳／流酔脚 のどちらか」`, async () => {
+      await open('#/c/jamie/r/j1', 0);
+      assert.deepEqual(await notes(), ['流酔拳／流酔脚 のどちらか', '＝ 236（波動）']);
+      await close();
+    });
+    await check(`${tag} 24c 強さで名前が変わる技は、強度なしだと「技名は強さで変わります」`, async () => {
+      // 強度ごとに別の技名の技（ケンの 迅雷脚▶6K）。強度なしの6Kは通常技の形なので詳細ではボタンにならない（編集のポップオーバーで確かめる 24e）
+      await gotoHash(page, '#/c/ken/r/k1');
+      assert.deepEqual(await page.$$eval('.d-cmd .chip', (cs) => cs.map((c) => c.tagName)), ['BUTTON', 'BUTTON', 'BUTTON', 'SPAN']);
+    });
+    await check(`${tag} 24c 派生（アルジュンの236P▶6P）: 1行目に派生名、2行目に「〈親の技名〉の派生」、続けてコマンド「→ ＝ 6」。親は強度付きの技名`, async () => {
+      await open('#/c/arjun/r/a1', 1);
+      assert.deepEqual(await notes(), ['追撃', '大義の巨腕の派生', '＝ 6']);
+      assert.equal(await pop.locator('.pop-note').last().locator('.arrow').count(), 1);
+      await close();
+      await page.locator('.d-cmd .chip').nth(0).click();
+      await pop.waitFor();
+      assert.deepEqual(await notes(), ['弱大義の巨腕', '＝ 236（波動）']);
+      await close();
+    });
+    await check(`${tag} 24c 方向のない派生（ルークのアベンジャー▶P）は「ボタンのみ」。強さで変わる派生（ケンの迅雷脚▶6K）は強度の名前`, async () => {
+      await open('#/c/luke/r/l1', 1);
+      assert.deepEqual(await notes(), ['ノーチェイサー', 'アベンジャーの派生', 'ボタンのみ']);
+      await close();
+      await open('#/c/ken/r/k1', 1);
+      assert.deepEqual(await notes(), ['轟雷落とし', '迅雷脚の派生', '＝ 6']);
+      await close();
+    });
+    await check(`${tag} 24c 既知の限界: 親の直後の同じ形の通常技（CHをはさんだ6P）にも技名が付くが、ポップオーバーの「〜の派生」で内容を確かめられる`, async () => {
+      await open('#/c/arjun/r/a2', 14);
+      assert.deepEqual(await notes(), ['追撃', '大義の巨腕の派生', '＝ 6']);
+      await close();
+    });
+    await check(`${tag} 24c 詳細の canTap: 派生と判定された通常技の形はボタン、そうでない通常技（行頭の6P・親が当たらない6P）は読み上げ用の span`, async () => {
+      await gotoHash(page, '#/c/arjun/r/a2');
+      const tags = await page.$$eval('.d-cmd .chip', (cs) => cs.map((c) => c.tagName));
+      assert.deepEqual(tags.map((t, i) => (t === 'BUTTON' ? i : null)).filter((x) => x !== null), [1, 3, 4, 5, 7, 8, 10, 11, 13, 14]); // 必殺技（22HPを含む）・移動・CDR・SA（正式名称あり）と派生。通常技の6P（0・2・6・9・12）はspan
+    });
+    await check(`${tag} 24c ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+  }
+
+  // 24d 編集パッドのR1: ［技名］キー・候補・選択・打つ回数（受け入れ基準3・10）
+  {
+    const cand = (page, n) => page.locator('#r1-scroll .key.cand').filter({ has: page.locator('.cand-name', { hasText: new RegExp(`^${n}$`) }) });
+    const candNames = (page) => page.$$eval('#r1-scroll .cand-name', (e) => e.map((x) => x.textContent));
+    const draft = async (page) => JSON.parse(await storedRaw(page, 'sf6memo.drafts'))['new:s1'].tokens;
+    const live = (page) => page.evaluate(() => document.getElementById('live').textContent);
+    const pressed = (page) => page.$$eval('#r1-scroll .key.cand', (ks) => ks.filter((k) => k.getAttribute('aria-pressed') === 'true').map((k) => k.querySelector('.cand-name').textContent));
+    const page = await named();
+    await gotoHash(page, '#/c/ryu/new?s=s1');
+    const nk = page.locator('.name-key');
+    await check(`${tag} 24d ［技名］: 52×44、文字「技名」、aria-label「技名の候補」、aria-pressed（設定が技名なので初期はオン）、aria-controls は候補の領域`, async () => {
+      const r = await nk.evaluate((k) => { const b = k.getBoundingClientRect(); const cs = getComputedStyle(k); return { w: b.width, h: b.height, t: k.textContent, al: k.getAttribute('aria-label'), p: k.getAttribute('aria-pressed'), ctl: k.getAttribute('aria-controls'), fs: cs.fontSize, fw: cs.fontWeight, c: cs.color, tag: k.tagName, order: [...k.parentElement.children].map((x) => x.className.split(' ')[0]) }; });
+      assert.deepEqual([r.w, r.h, r.t, r.al, r.p, r.ctl, r.fs, r.fw, r.c, r.tag], [52, 44, '技名', '技名の候補', 'true', 'r1-scroll', '14px', '700', FG, 'BUTTON']);
+      assert.deepEqual(r.order, ['key', 'recent-keys', 'key']); // ［技名］・候補・［完了］
+      assert.equal(await page.locator('#r1-scroll').getAttribute('role'), 'group');
+      assert.equal(await page.locator('#r1-scroll').getAttribute('aria-label'), '技名の候補 7件');
+    });
+    await check(`${tag} 24d 方向なしの候補はリュウの全必殺技（辞書の順。空中の技も）。候補は64以上×44以上。名前（13px・700・fg）・コマンド・P/K（12px・muted）。空中は先頭にJ。強度の●はない`, async () => {
+      assert.deepEqual(await candNames(page), ['波動拳', '昇龍拳', '竜巻旋風脚', '空中竜巻旋風脚', '上段足刀蹴り', '波掌撃', '電刃錬気']);
+      const r = await page.$$eval('#r1-scroll .key.cand', (ks) => ks.map((k) => { const b = k.getBoundingClientRect(); const n = getComputedStyle(k.querySelector('.cand-name')); const bt = getComputedStyle(k.querySelector('.cand-btn')); return [b.width >= 64, b.height === 44, n.fontSize, n.fontWeight, n.color, bt.fontSize, bt.fontWeight, bt.color, k.querySelectorAll('.dot').length, k.querySelector('.cand-cmd .ltr')?.textContent ?? null, k.getAttribute('aria-pressed'), k.tagName]; }));
+      for (const x of r) assert.deepEqual(x.slice(0, 9), [true, true, '13px', '700', FG, '12px', '700', MUTED, 0]);
+      assert.deepEqual(r.map((x) => x[9]), [null, null, null, 'J', null, null, null]);
+      assert.deepEqual([...new Set(r.map((x) => x[10] + x[11]))], ['falseBUTTON']);
+      const first = page.locator('#r1-scroll .key.cand').first();
+      assert.equal(await first.getAttribute('aria-label'), '波動拳、波動 ↓↘→ P');
+      assert.equal(await first.locator('.cand-cmd .arrow').count(), 3);
+      assert.equal(await first.locator('.cand-cmd .cand-btn').innerText(), 'P');
+      assert.equal(await cand(page, '空中竜巻旋風脚').getAttribute('aria-label'), '空中竜巻旋風脚、ジャンプ 竜巻 ↓↙← K');
+    });
+    await shot(page, '24-edit-cands', width);
+    let taps = 0;
+    const tap = async (loc) => { taps++; await loc.click(); };
+    await tap(aria(page, '波動 236'));
+    await check(`${tag} 24d 方向を入れると候補が絞られる（入力と一致する技）。スクロール位置は先頭`, async () => {
+      assert.deepEqual(await candNames(page), ['波動拳', '上段足刀蹴り']);
+      assert.equal(await page.locator('#r1-scroll').getAttribute('aria-label'), '技名の候補 2件');
+      assert.equal(await page.locator('#r1-scroll').evaluate((e) => e.scrollLeft), 0);
+    });
+    await tap(aria(page, '中P'));
+    await check(`${tag} 24d 打つ回数: ［技名］オンで 236（プリセット）→中P の2タップで {special,236,P,M}。読み上げは「追加: 〈チップの読み上げ名〉」`, async () => {
+      assert.equal(taps, 2);
+      assert.deepEqual(await draft(page), [{ type: 'special', motion: '236', key: 'P', str: 'M' }]);
+      await page.waitForFunction(() => document.getElementById('live').textContent === '追加: 中波動拳、波動 ↓↘→ 中P');
+      assert.equal(await page.locator('.cmd .pending').count(), 0);
+      assert.equal((await candNames(page)).length, 7); // 確定後は［技名］の状態に応じた中身へ戻る
+    });
+    taps = 0;
+    await tap(cand(page, '昇龍拳'));
+    await check(`${tag} 24d 候補を押すと選択中（aria-pressed）になり、方向がその技のコマンドに入って仮チップに出る。読み上げ「昇龍拳を選びました。Pの強さを押してください」`, async () => {
+      assert.deepEqual(await pressed(page), ['昇龍拳']);
+      assert.equal(await page.locator('.cmd .pending .arrow').count(), 3);
+      assert.equal(await page.locator('.cmd .pending .ghost').count(), 1);
+      assert.equal(await aria(page, '昇龍 623').getAttribute('aria-pressed'), 'true');
+      assert.equal(await cand(page, '昇龍拳').getAttribute('aria-label'), '昇龍拳、昇龍 →↓↘ P');
+      await page.waitForFunction(() => document.getElementById('live').textContent === '昇龍拳を選びました。Pの強さを押してください');
+      assert.equal((await draft(page)).length, 1); // まだ確定していない
+    });
+    await shot(page, '24-edit-selected', width);
+    await tap(aria(page, '弱P'));
+    await check(`${tag} 24d 「昇龍拳」→弱P の2タップで {special,623,P,L}。確定すると選択は外れる`, async () => {
+      assert.equal(taps, 2);
+      assert.deepEqual((await draft(page)).at(-1), { type: 'special', motion: '623', key: 'P', str: 'L' });
+      assert.deepEqual(await pressed(page), []);
+      await page.waitForFunction(() => document.getElementById('live').textContent === '追加: 弱昇龍拳、昇龍 →↓↘ 弱P');
+      assert.equal((await draft(page)).length, 2);
+    });
+    await check(`${tag} 24d リュウに派生はないので、親の直後でも▶付きの候補は出ない`, async () => assert.equal(await page.locator('#r1-scroll .cand-cmd .conn').count(), 0));
+    await cand(page, '波動拳').click();
+    await cand(page, '波動拳').click();
+    await check(`${tag} 24d 選択中をもう一度押すと選択と方向が外れる`, async () => {
+      assert.deepEqual(await pressed(page), []);
+      assert.equal(await page.locator('.cmd .pending').count(), 0);
+      assert.equal((await draft(page)).length, 2);
+    });
+    await cand(page, '昇龍拳').click();
+    await aria(page, '直前の入力を取り消す').click();
+    await check(`${tag} 24d 候補を選んだあとの［消す］1回で、候補で入れたコマンドがまとめて消える（記録した技は消えない）`, async () => {
+      assert.equal(await page.locator('.cmd .pending').count(), 0);
+      assert.deepEqual(await pressed(page), []);
+      assert.equal((await draft(page)).length, 2);
+      assert.equal((await candNames(page)).length, 7);
+    });
+    await cand(page, '昇龍拳').click();
+    await aria(page, '弱K').click();
+    await check(`${tag} 24d 選んだ技と違うボタン（弱K）を押してもそのまま入る（{special,623,K,L}）`, async () => {
+      assert.deepEqual((await draft(page)).at(-1), { type: 'special', motion: '623', key: 'K', str: 'L' });
+      assert.deepEqual(await pressed(page), []);
+    });
+    await cand(page, '波動拳').click();
+    await aria(page, '右').click();
+    await check(`${tag} 24d 選択中に他の方向キーを押すと選択が外れる`, async () => assert.deepEqual(await pressed(page), []));
+    await aria(page, '直前の入力を取り消す').click();
+    await aria(page, '直前の入力を取り消す').click();
+    await check(`${tag} 24d ［技名］オフ: R1は直近の技のまま（何も変えない）。もう一度押すと候補`, async () => {
+      await nk.click();
+      assert.equal(await nk.getAttribute('aria-pressed'), 'false');
+      assert.equal(await page.locator('#r1-scroll').getAttribute('aria-label'), '直近の技');
+      assert.equal(await page.locator('#r1-scroll .key.cand').count(), 0);
+      assert.ok(await page.locator('#r1-scroll .key').count() > 0);
+      await nk.click();
+      assert.equal(await nk.getAttribute('aria-pressed'), 'true');
+      assert.equal((await candNames(page)).length, 7);
+    });
+    await check(`${tag} 24d 当てはまる技名がない（方向9）: 「当てはまる技名がありません」（12px・muted・高さ44）`, async () => {
+      await aria(page, '右上').click();
+      const e = page.locator('#r1-scroll');
+      assert.equal(await e.innerText(), '当てはまる技名がありません');
+      assert.deepEqual(await e.evaluate((x) => [x.className, getComputedStyle(x).fontSize, getComputedStyle(x).color, x.getBoundingClientRect().height]), ['recent-empty', '12px', MUTED, 44]);
+      await aria(page, '直前の入力を取り消す').click();
+      assert.equal((await candNames(page)).length, 7);
+    });
+    await check(`${tag} 24d ジャンプ選択中は空中の技だけ。候補を押すとジャンプ姿勢になり、{special,214,K,L,jump}`, async () => {
+      await page.getByRole('radio', { name: 'ジャンプ', exact: true }).click();
+      assert.deepEqual(await candNames(page), ['空中竜巻旋風脚']);
+      await cand(page, '空中竜巻旋風脚').click();
+      assert.equal(await page.getByRole('radio', { name: 'ジャンプ', exact: true }).getAttribute('aria-checked'), 'true');
+      assert.equal(await page.locator('.cmd .pending .ltr').first().innerText(), 'J');
+      await aria(page, '弱K').click();
+      assert.deepEqual((await draft(page)).at(-1), { type: 'special', motion: '214', key: 'K', str: 'L', stance: 'jump' });
+      assert.equal(await page.locator('.cmd .chip').last().evaluate((c) => c.querySelector('.sname').textContent), '弱空中竜巻旋風脚'); // 空中の技は名前だけ（Jを付けない）
+      assert.equal(await page.locator('.cmd .chip').last().locator('.ltr:not(.sname)').count(), 0);
+    });
+    await check(`${tag} 24d 候補の領域の中身が変わるとスクロール位置が先頭に戻る`, async () => {
+      assert.equal((await candNames(page)).length, 7);
+      const before = await page.locator('#r1-scroll').evaluate((e) => { e.scrollLeft = 80; return e.scrollLeft; });
+      assert.ok(before > 0, `scrollLeft ${before}`);
+      await aria(page, '昇龍 623').click();
+      assert.equal(await page.locator('#r1-scroll').evaluate((e) => e.scrollLeft), 0);
+      await aria(page, '直前の入力を取り消す').click();
+    });
+    await check(`${tag} 24d キーボード: Tab で［技名］→ 候補 → ［完了］の順。Enter で候補を選べて aria-pressed="true"`, async () => {
+      const names = await candNames(page);
+      await nk.focus();
+      const seen = [];
+      for (let i = 0; i < names.length + 1; i++) {
+        await page.keyboard.press('Tab');
+        seen.push(await page.evaluate(() => document.activeElement.getAttribute('aria-label')));
+      }
+      assert.deepEqual(seen.slice(0, -1).map((l) => l.split('、')[0]), names);
+      assert.equal(seen.at(-1), 'パッドを閉じて項目の入力へ');
+      await nk.focus();
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Enter');
+      assert.deepEqual(await pressed(page), ['波動拳']);
+      assert.equal(await page.locator('#r1-scroll .key.cand[aria-pressed="true"]').evaluate((k) => k === document.activeElement), true);
+      await aria(page, '直前の入力を取り消す').click();
+    });
+    await check(`${tag} 24d ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+
+    // 設定がコマンドなら［技名］は初期オフ。直近の技のまま
+    const q = await newPage(width, seed24());
+    await gotoHash(q, '#/c/ryu/new?s=s1');
+    await check(`${tag} 24d 設定がコマンドなら［技名］は初期オフで R1 は直近の技。押すと候補、記録を離れて戻ると設定の初期値に戻る`, async () => {
+      assert.equal(await q.locator('.name-key').getAttribute('aria-pressed'), 'false');
+      assert.equal(await q.locator('#r1-scroll').getAttribute('aria-label'), '直近の技');
+      await q.locator('.name-key').click();
+      assert.equal(await q.locator('#r1-scroll .key.cand').count(), 7);
+      await gotoHash(q, '#/c/ryu');
+      await gotoHash(q, '#/c/ryu/new?s=s1');
+      assert.equal(await q.locator('.name-key').getAttribute('aria-pressed'), 'false'); // ［技名］の状態は保存しない
+      assert.ok(!(await storedRaw(q, 'sf6memo.settings') ?? '').includes('nameOn'));
+    });
+    await q.context().close();
+  }
+
+  // 24e 派生: 表示・読み上げ名・親が当たらないとき・引き直し・入力（受け入れ基準11・12・13・16）
+  {
+    const page = await named();
+    await gotoHash(page, '#/c/arjun/r/a1');
+    await check(`${tag} 24e アルジュンの236P▶6P（技名表示）: 「弱大義の巨腕」▶「追撃」。2つ目は派生名＋灰色の●。読み上げ名は「〈派生名〉、〈親の技名〉の派生、→P」の形（通常技の形は「前P」）`, async () => {
+      const c = await chipsInfo(page, '.d-cmd');
+      assert.deepEqual(c.map((x) => x.name), ['弱大義の巨腕', '追撃']);
+      assert.deepEqual(c.map((x) => x.dots), [['str-l'], ['str-n']]);
+      assert.deepEqual(c.map((x) => x.cmd), [false, false]);
+      assert.deepEqual(c.map((x) => x.label), ['弱大義の巨腕、波動 ↓↘→ 弱P', '追撃、大義の巨腕の派生、前P']);
+      assert.equal(await page.locator('.d-cmd .conn').count(), 1); // 親との間は既存の▶のまま
+    });
+    await shot(page, '24-detail-derived', width);
+    await page.locator('.d-cmd .chip').nth(1).click();
+    await shot(page, '24-popover-derived', width);
+    await page.keyboard.press('Escape');
+    await check(`${tag} 24e 親が辞書で技名の決まる必殺技でも、リュウの236P▶6P（派生なし）は6Pに技名が付かない`, async () => {
+      await gotoHash(page, '#/c/ryu/r/c2');
+      assert.deepEqual(await namesOf(page, '.d-cmd'), ['弱波動拳', null]);
+    });
+    await gotoHash(page, '#/c/arjun/r/a2');
+    await check(`${tag} 24e 親が当たらないとき（行頭の6P・直前が辞書にない技・直前が別の技・移動・システム技・SAをはさむ）は技名なし。CHをはさめば技名が付く`, async () => {
+      assert.deepEqual(await namesOf(page, '.d-cmd'), [null, null, null, '強神気の巨巌', '中大義の巨腕', null, null, '中大義の巨腕', null, null, '中大義の巨腕', null, null, '中大義の巨腕', '追撃']);
+    });
+    await gotoHash(page, '#/settings');
+    await page.getByRole('radio', { name: 'コマンド' }).check();
+    await gotoHash(page, '#/c/arjun/r/a1');
+    await check(`${tag} 24e コマンド表示は今と同じ「↓↘→● ▶ →●」。読み上げ名は「→P、〈派生名〉、〈親の技名〉の派生」`, async () => {
+      const c = await chipsInfo(page, '.d-cmd');
+      assert.deepEqual(c.map((x) => x.name), [null, null]);
+      assert.deepEqual(c.map((x) => x.cmd), [true, true]);
+      assert.deepEqual(c.map((x) => x.label), ['波動 ↓↘→ 弱P、弱大義の巨腕', '前P、追撃、大義の巨腕の派生']);
+      assert.equal(await page.locator('.d-cmd .chip').nth(1).locator('.arrow').count(), 1);
+      assert.equal(await page.locator('.d-cmd .chip').nth(1).locator('.dot.str-n').count(), 1);
+    });
+    await gotoHash(page, '#/settings');
+    await page.getByRole('radio', { name: '技名' }).check();
+
+    // 引き直し（13）: 親の削除と取り消し、間への挿入、親の強度条件、複製
+    await gotoHash(page, '#/c/arjun/r/a1/edit');
+    const pop = page.locator('.popover');
+    const opt = (n) => pop.getByRole('button', { name: n, exact: true });
+    await check(`${tag} 24e 引き直し: 親を削除すると派生の技名が外れ、［元に戻す］で戻る`, async () => {
+      assert.deepEqual(await namesOf(page, '.cmd'), ['弱大義の巨腕', '追撃']);
+      await page.locator('.cmd .chip').first().click();
+      await opt('削除').click();
+      await pop.waitFor({ state: 'detached' });
+      assert.deepEqual(await namesOf(page, '.cmd'), [null]);
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await namesOf(page, '.cmd'), ['弱大義の巨腕', '追撃']);
+    });
+    await check(`${tag} 24e 引き直し: 親と派生の間に別の技を挿入すると外れる（取り消すと戻る）`, async () => {
+      await page.locator('.cmd .chip').nth(1).click();
+      await opt('この前に挿入').click();
+      await pop.waitFor({ state: 'detached' });
+      await aria(page, '中K').click();
+      assert.deepEqual(await namesOf(page, '.cmd'), ['弱大義の巨腕', null, null]);
+      await aria(page, '直前の入力を取り消す').click();
+      assert.deepEqual(await namesOf(page, '.cmd'), ['弱大義の巨腕', '追撃']);
+    });
+    await check(`${tag} 24e 引き直し: 親の強度を条件の外へ変えると外れ、戻すと付く（不撓の警衛 強K▶P。親は強だけ）`, async () => {
+      await gotoHash(page, '#/c/arjun/r/a3/edit');
+      assert.deepEqual(await namesOf(page, '.cmd'), ['不撓の警衛', '倫理の崩壊']);
+      await page.locator('.cmd .chip').first().click();
+      await opt('弱').click();
+      await pop.waitFor({ state: 'detached' });
+      assert.deepEqual(await namesOf(page, '.cmd'), [null, null]);
+      await page.locator('.cmd .chip').first().click();
+      assert.deepEqual(await pop.locator('.pop-note').allInnerTexts(), ['技名なし（技の一覧にない入力）', '＝ 22（下下）']);
+      await opt('強').click();
+      await pop.waitFor({ state: 'detached' });
+      assert.deepEqual(await namesOf(page, '.cmd'), ['不撓の警衛', '倫理の崩壊']);
+    });
+    await check(`${tag} 24e 編集で強度を変えると技名が引き直される（ポップオーバーで強度なし→「波動拳」、OD→「OD波動拳」）`, async () => {
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      await page.locator('.cmd .chip').nth(1).click();
+      assert.equal(await pop.locator('.pop-name').innerText(), '中波動拳');
+      await opt('強度なし').click();
+      await pop.waitFor({ state: 'detached' });
+      assert.equal((await namesOf(page, '.cmd'))[1], '波動拳');
+      await page.locator('.cmd .chip').nth(1).click();
+      assert.equal(await pop.locator('.pop-name').innerText(), '波動拳');
+      await opt('OD').click();
+      await pop.waitFor({ state: 'detached' });
+      assert.equal((await namesOf(page, '.cmd'))[1], 'OD波動拳');
+      assert.equal(await page.locator('.cmd .chip').nth(1).getAttribute('aria-label'), 'OD波動拳、OD 波動 ↓↘→ P');
+    });
+    await check(`${tag} 24e 複製した記録でも同じ技名`, async () => {
+      await gotoHash(page, '#/c/arjun/r/a1');
+      await page.getByRole('button', { name: '複製', exact: true }).click();
+      await page.waitForFunction(() => /\/r\/(?!a1$)[\w-]+$/.test(location.hash));
+      assert.deepEqual(await namesOf(page, '.d-cmd'), ['弱大義の巨腕', '追撃']);
+    });
+    await check(`${tag} 24e ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+  }
+
+  // 24f 派生の入力（R1。受け入れ基準16）
+  {
+    const cand = (page, n) => page.locator('#r1-scroll .key.cand').filter({ has: page.locator('.cand-name', { hasText: new RegExp(`^${n}$`) }) });
+    const draft = async (page, key) => JSON.parse(await storedRaw(page, 'sf6memo.drafts'))[key].tokens;
+    const pressed = (page) => page.$$eval('#r1-scroll .key.cand', (ks) => ks.filter((k) => k.getAttribute('aria-pressed') === 'true').map((k) => k.querySelector('.cand-name').textContent));
+    const page = await named();
+    await gotoHash(page, '#/c/arjun/new?s=sa');
+    await aria(page, '波動 236').click();
+    await aria(page, '弱P').click();
+    await check(`${tag} 24f 236Pの直後（カーソルがその後ろ）、［技名］オン: R1の先頭に▶付きの派生の候補「追撃」。読み上げ名は「追撃、大義の巨腕の派生、→ P」`, async () => {
+      const first = page.locator('#r1-scroll .key.cand').first();
+      assert.equal(await first.locator('.cand-name').innerText(), '追撃');
+      assert.equal(await first.getAttribute('aria-label'), '追撃、大義の巨腕の派生、→ P');
+      assert.equal(await first.locator('.cand-cmd .conn').count(), 1);
+      assert.equal(await page.locator('#r1-scroll .cand-cmd .conn').count(), 1); // 派生は1つだけ。残りは通常の必殺技
+      const names = await page.$$eval('#r1-scroll .cand-name', (e) => e.map((x) => x.textContent));
+      assert.deepEqual(names.slice(0, 3), ['追撃', '大義の巨腕', '厳酷な岩肩']);
+      const conn = await first.locator('.conn').evaluate((c) => [getComputedStyle(c).color, c.getBoundingClientRect().width, c.getBoundingClientRect().height]);
+      assert.deepEqual(conn, [CONN, 6, 8]);
+    });
+    await shot(page, '24-edit-derived-cands', width);
+    await check(`${tag} 24f 強さの区別がない派生は1タップで入る（{normal, stand, dir:6, P, N}）。カーソルは派生の後ろへ移り、読み上げは「追加: …」`, async () => {
+      await cand(page, '追撃').click();
+      assert.deepEqual((await draft(page, 'new:sa')).at(-1), { type: 'normal', stance: 'stand', dir: 6, key: 'P', str: 'N' });
+      assert.equal((await draft(page, 'new:sa')).length, 2);
+      await page.waitForFunction(() => document.getElementById('live').textContent === '追加: 追撃、大義の巨腕の派生、前P');
+      assert.equal(await page.locator('#r1-scroll .cand-cmd .conn').count(), 0); // 追撃の派生はない
+      assert.deepEqual(await namesOf(page, '.cmd'), ['弱大義の巨腕', '追撃']);
+    });
+    await check(`${tag} 24f カーソルを親の後ろ以外へ動かすと派生の候補は消える。親の後ろへ戻すと現れる`, async () => {
+      await page.locator('.cmd .chip').nth(1).click(); // 追撃
+      await page.locator('.popover').getByRole('button', { name: '削除', exact: true }).click();
+      await page.locator('.popover').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('#r1-scroll .cand-cmd .conn').count(), 1); // カーソルは親の後ろ
+      await page.locator('.cmd .chip').first().click();
+      await page.locator('.popover').getByRole('button', { name: 'この前に挿入', exact: true }).click();
+      await page.locator('.popover').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('#r1-scroll .cand-cmd .conn').count(), 0); // カーソルは親の前
+      await page.getByRole('button', { name: '末尾へ', exact: true }).click();
+      assert.equal(await page.locator('#r1-scroll .cand-cmd .conn').count(), 1);
+    });
+    await check(`${tag} 24f ［技名］オフのときは何も変えない（直近の技のまま）。オンに戻すと派生の候補が先頭`, async () => {
+      await page.locator('.name-key').click();
+      assert.equal(await page.locator('#r1-scroll').getAttribute('aria-label'), '直近の技');
+      assert.equal(await page.locator('#r1-scroll .cand-cmd .conn').count(), 0);
+      await page.locator('.name-key').click();
+      assert.equal(await page.locator('#r1-scroll .key.cand').first().locator('.cand-name').innerText(), '追撃');
+    });
+    await page.context().close();
+
+    const kp = await named();
+    await gotoHash(kp, '#/c/ken/new?s=sk');
+    await check(`${tag} 24f 強さの区別がある派生（ケンの迅雷脚▶6K）は選択→強度キー。仮チップは矢印＋空の円、確定は {normal, stand, dir:6, K, H} で「閃火脚」`, async () => {
+      await cand(kp, '迅雷脚').click();
+      await kp.getByRole('button', { name: '中K', exact: true }).click();
+      const first = kp.locator('#r1-scroll .key.cand').first();
+      assert.equal(await first.locator('.cand-name').innerText(), '風鎌蹴り／轟雷落とし／閃火脚');
+      assert.equal(await first.getAttribute('aria-label'), '風鎌蹴り／轟雷落とし／閃火脚、迅雷脚の派生、→ K');
+      await first.click();
+      assert.deepEqual(await pressed(kp), ['風鎌蹴り／轟雷落とし／閃火脚']);
+      assert.equal((await draft(kp, 'new:sk')).length, 1); // 押しただけでは入らない
+      assert.equal(await kp.locator('.cmd .pending .arrow').count(), 1);
+      assert.equal(await kp.locator('.cmd .pending .ghost').count(), 1);
+      await kp.getByRole('button', { name: '強K', exact: true }).click();
+      assert.deepEqual((await draft(kp, 'new:sk')).at(-1), { type: 'normal', stance: 'stand', dir: 6, key: 'K', str: 'H' });
+      assert.deepEqual(await namesOf(kp, '.cmd'), ['中迅雷脚', '閃火脚']);
+      assert.equal(await kp.locator('.cmd .chip').last().getAttribute('aria-label'), '閃火脚、迅雷脚の派生、前強K');
+    });
+    await kp.context().close();
+
+    const jp = await named();
+    await gotoHash(jp, '#/c/kimberly/new?s=sx');
+    await check(`${tag} 24f 方向のない区別ありの派生（キンバリーの疾駆け▶K）: 選択すると方向は空のまま、仮チップは空の円だけ。確定は {normal, stand, K, M}`, async () => {
+      await cand(jp, '疾駆け').click();
+      await jp.getByRole('button', { name: '弱K', exact: true }).click();
+      const first = cand(jp, '胴刎ね／影すくい／首狩り'); // 同じ親の派生は「急停止」（強さの区別なし・押すと入る）も並ぶ
+      assert.equal(await jp.locator('#r1-scroll .key.cand').first().locator('.cand-name').innerText(), '急停止');
+      assert.equal(await first.locator('.cand-cmd .arrow').count(), 0);
+      await first.click();
+      assert.equal(await jp.locator('.cmd .pending .arrow').count(), 0);
+      assert.equal(await jp.locator('.cmd .pending .ghost').count(), 1);
+      await jp.getByRole('button', { name: '中K', exact: true }).click();
+      assert.deepEqual((await draft(jp, 'new:sx')).at(-1), { type: 'normal', stance: 'stand', key: 'K', str: 'M' });
+      assert.equal((await namesOf(jp, '.cmd')).at(-1), '影すくい');
+    });
+    await jp.context().close();
+  }
+
+  // 24g 寸法・色・幅（受け入れ基準4・6・8）
+  {
+    const page = await named();
+    await gotoHash(page, '#/c/arjun/new?s=sa');
+    const want = width - 12 - 52 - 64 - 8; // 見える幅: 360で224、390で254、430で294（design-spec-v2.2 1章）
+    const snap = (state) => page.evaluate((st) => {
+      const r = (s) => document.querySelector(s).getBoundingClientRect();
+      const pad = r('.pad'), r1 = r('.r1'), sc = r('#r1-scroll'), nk = r('.name-key'), dn = r('.done');
+      return { st, padH: pad.height, padTop: pad.top, r1H: r1.height, scW: sc.width, nk: [nk.width, nk.height], dn: [dn.width, dn.height], h: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        cands: [...document.querySelectorAll('#r1-scroll .key')].map((k) => { const b = k.getBoundingClientRect(); return [Math.round(b.width), b.height]; }) };
+    }, state);
+    const states = [];
+    states.push(await snap('オン・方向なし'));
+    await page.locator('.name-key').click();
+    states.push(await snap('オフ（直近の技）'));
+    await page.locator('.name-key').click();
+    await aria(page, '波動 236').click();
+    states.push(await snap('オン・方向あり'));
+    await page.locator('#r1-scroll .key.cand').first().click();
+    states.push(await snap('候補を選択中'));
+    await aria(page, '直前の入力を取り消す').click();
+    await aria(page, '右上').click();
+    states.push(await snap('当てはまるものがない'));
+    await aria(page, '直前の入力を取り消す').click();
+    await aria(page, '波動 236').click();
+    await aria(page, '弱P').click();
+    states.push(await snap('派生の候補が先頭'));
+    await page.getByRole('radio', { name: 'ジャンプ', exact: true }).click();
+    states.push(await snap('ジャンプ（空中の技がない=当てはまるものがない）'));
+    await check(`${tag} 24g R1のどの状態でも、パッド414・R1 44・パッド上端 y≥326、［技名］52×44、［完了］64×44、候補は44×44以上、見える幅は${want}`, async () => {
+      for (const s of states) {
+        assert.equal(s.padH, 414, s.st);
+        assert.equal(s.r1H, 44, s.st);
+        assert.ok(s.padTop >= 326, `${s.st} ${s.padTop}`);
+        assert.equal(s.scW, want, s.st);
+        assert.deepEqual([s.nk, s.dn], [[52, 44], [64, 44]], s.st);
+        assert.equal(s.h, true, `${s.st} 横スクロール`);
+        for (const [w, h] of s.cands) assert.ok(w >= 44 && h >= 44, `${s.st} ${w}x${h}`);
+      }
+      for (const s of states.filter((x) => /オン|候補|派生/.test(x.st))) for (const [w] of s.cands) assert.ok(w >= 64, `${s.st} 候補の幅 ${w}`);
+      assert.equal(states.length, 7);
+    });
+    await page.getByRole('radio', { name: 'ジャンプ', exact: true }).click(); // 立ちへ戻す
+    await check(`${tag} 24g 新しい要素の色は既存のトークンの値（技名のチップ fg、候補の名前 fg、P/K muted、▶ conn、候補の地 key）。▶と地の比は3:1以上。filter・backdrop-filter・gradient なし`, async () => {
+      const r = await page.evaluate(() => {
+        const cs = (s) => getComputedStyle(document.querySelector(s));
+        return { name: cs('.cand-name').color, btn: cs('.cand-btn').color, conn: cs('.cand-cmd .conn').color, key: cs('.key.cand').backgroundColor, border: cs('.key.cand').borderTopColor, sname: cs('.cmd .sname').color, nk: cs('.name-key').color };
+      });
+      assert.deepEqual([r.name, r.btn, r.conn, r.key, r.border, r.sname, r.nk], [FG, MUTED, CONN, 'rgb(34, 37, 42)', 'rgb(74, 80, 89)', FG, FG]);
+      const lum = (c) => { const [a, b, d] = c.match(/\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * a + 0.7152 * b + 0.0722 * d; };
+      const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+      assert.ok(ratio(r.conn, r.key) >= 3, `▶/key ${ratio(r.conn, r.key)}`);
+      assert.ok(ratio(r.name, r.key) >= 13, `名前/key ${ratio(r.name, r.key)}`);
+      assert.ok(ratio(r.btn, r.key) >= 6, `P/K/key ${ratio(r.btn, r.key)}`);
+      assert.deepEqual(await forbidden(page), []);
+    });
+    await check(`${tag} 24g 編集画面（候補が並ぶ状態）は横スクロールなし。ページエラーなし`, async () => {
+      assert.ok(await noHScroll(page));
+      assert.deepEqual(page.errors, []);
+    });
+    await page.context().close();
+  }
+
+  // 24h 幅: 最長の技名＋ODのLチップが行の幅以下。技名表記の各画面に横スクロールがない
+  {
+    const page = await named();
+    await gotoHash(page, '#/c/cammy/r/m1');
+    await check(`${tag} 24h キャミィ「ODフーリガンコンビネーション」（最長の技名＋OD）のLチップが行の clientWidth 以下。折り返さない`, async () => {
+      assert.deepEqual(await namesOf(page, '.d-cmd'), ['ODフーリガンコンビネーション', '強フーリガンコンビネーション']);
+      const r = await page.$eval('.d-cmd .row', (row) => ({ w: row.clientWidth, chips: [...row.querySelectorAll('.chip')].map((c) => { const b = c.getBoundingClientRect(); return [b.width, b.height]; }) }));
+      for (const [w, h] of r.chips) assert.ok(w <= r.w && h <= 36, JSON.stringify(r));
+    });
+    await shot(page, '24-detail-long', width);
+    await check(`${tag} 24h 技名表記で、一覧・詳細・編集・設定・凡例のいずれにも横スクロールがない`, async () => {
+      for (const h of ['#/', '#/c/ryu', '#/c/cammy', '#/c/arjun/r/a2', '#/c/cammy/r/m1', '#/c/arjun/r/a2/edit', '#/c/cammy/new?s=sc', '#/settings']) {
+        await gotoHash(page, h);
+        assert.ok(await noHScroll(page), h);
+      }
+      await gotoHash(page, '#/c/arjun/r/a2');
+      await page.locator('button[aria-label="凡例を開く"]').click();
+      await page.waitForSelector('.sheet.tall');
+      assert.ok(await noHScroll(page), '凡例');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.sheet', { state: 'detached' });
+    });
+    await check(`${tag} 24h ページエラーなし`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+  }
+
+  // 24i 辞書がないとき（辞書を空にした場合。D-018の取り下げ手順）: ［技名］は無効、表示はコマンドのまま
+  {
+    const page = await named();
+    await page.route('**/specials.js', (route) => route.fulfill({ contentType: 'text/javascript', body: 'export const SPECIALS = {};' }));
+    await page.reload();
+    await gotoHash(page, '#/c/ryu/new?s=s1');
+    const nk = page.locator('.name-key');
+    await check(`${tag} 24i 辞書がない: ［技名］は aria-disabled="true"（フォーカスは受ける・文字は muted）、押すとトースト、R1は直近の技のまま`, async () => {
+      assert.equal(await nk.getAttribute('aria-disabled'), 'true');
+      assert.equal(await nk.getAttribute('aria-pressed'), 'false'); // 設定が技名でも辞書がなければオフ
+      assert.equal(await nk.evaluate((k) => getComputedStyle(k).color), MUTED);
+      await nk.focus();
+      assert.equal(await nk.evaluate((k) => k === document.activeElement), true);
+      await nk.click({ force: true }); // aria-disabled は Playwright の actionability では無効扱いなので強制する
+      assert.equal(await page.locator('#toast').innerText(), 'このキャラの技名はまだ入っていません');
+      assert.equal(await nk.getAttribute('aria-pressed'), 'false');
+      assert.equal(await page.locator('#r1-scroll .key.cand').count(), 0);
+      assert.equal(await page.locator('#r1-scroll').getAttribute('aria-label'), '直近の技');
+    });
+    await check(`${tag} 24i 辞書がなければ設定が「技名」でも一覧・詳細はコマンド表示、ポップオーバーに技名の行がない`, async () => {
+      await gotoHash(page, '#/c/ryu/r/c1');
+      assert.deepEqual(await namesOf(page, '.d-cmd'), Array(7).fill(null));
+      assert.equal((await chipsInfo(page, '.d-cmd'))[1].label, '波動 ↓↘→ 中P');
+      await page.locator('.d-cmd .chip').nth(1).click();
+      assert.deepEqual(await page.locator('.popover .pop-note').allInnerTexts(), ['＝ 236（波動）']);
+    });
     await page.context().close();
   }
 }

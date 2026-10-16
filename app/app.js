@@ -998,6 +998,8 @@ function editScreen(route) {
     nameKey.setAttribute('aria-pressed', String(ed.nameOn));
     const key = cands ? cands.map(candId).join('\n') : 'recent';
     if (key !== r1Key) {
+      // 作り直しでフォーカスを失わないよう、候補にフォーカスがあれば同じ候補（なければ先頭の技、それもなければ［技名］）へ戻す
+      const focused = scrollEl.contains(document.activeElement) ? candKeys.find(([, b]) => b === document.activeElement)?.[0] ?? '' : null;
       r1Key = key;
       candKeys = [];
       if (!cands) {
@@ -1009,6 +1011,7 @@ function editScreen(route) {
         candKeys = cands.map((c) => [candId(c), candKey(c)]);
         setScroll(h('div', 'recent-keys', ...candKeys.map(([, b]) => b)), `技名の候補 ${cands.length}件`);
       } else setScroll(h('div', 'recent-empty', '当てはまる技名がありません'));
+      if (focused !== null) (candKeys.find(([id]) => id === focused)?.[1] ?? scrollEl.querySelector('button') ?? nameKey).focus({ preventScroll: true });
     }
     for (const [id, b] of candKeys) b.setAttribute('aria-pressed', String(ed.sel !== null && candId(ed.sel) === id));
   };
