@@ -53,6 +53,13 @@ const STRESS = [S('23634123641236412364', 'H', 'P'), N('stand', 'L', 'P'), S('[4
 
 const DIRS = [S('123456789', 'H', 'P'), S('2565', 'H', 'P')];
 
+// 必殺技の技名（design-spec-v2.2 2章）。同じ列を技名表記とコマンド表記で並べ、発光する要素の数と形を比べる
+const NAME_RYU = [S('236', 'M', 'P'), S('623', 'H', 'P'), S('214', 'OD', 'K'), S('236', 'N', 'P'), S('214', 'L', 'K', 'jump'), S('22', 'M', 'P'), S('360', 'H', 'P')]; // 最後の360は辞書にない（コマンドのまま）
+const NAME_MIX = [S('236', 'M', 'P'), sys('CDR'), sys('RAW_DR'), sys('DI'), sys('PARRY'), sys('REVERSAL'), sa(1), mv('FWD_STEP'), note('CH'), S('623', 'H', 'P'), S('214', 'OD', 'K'), N('stand', 'N', 'P'), note('PC'), N('crouch', 'M', 'K')];
+const NAME_ARJUN = [S('236', 'L', 'P'), N('stand', 'N', 'P', 6), note('CH'), S('236', 'OD', 'P'), N('stand', 'N', 'P', 6), N('stand', 'N', 'P', 6)]; // 派生の連鎖と、親が当たらない6P
+const NAME_LONG_CAMMY = [S('236', 'OD', 'P'), S('236', 'H', 'P')]; // 最長の技名 フーリガンコンビネーション ＋ OD
+const NAME_LONG_VEGA = [S('[4]6', 'OD', 'P'), S('[4]6', 'H', 'P')];
+
 const CASES = [
   ['L・矢印', ALL, { size: 'L' }],
   ['S・矢印', ALL, { size: 'S' }],
@@ -68,21 +75,34 @@ const CASES = [
   ['全方向（1〜9）と5入り S', DIRS, { size: 'S' }],
   ['異常に長い方向列 L（技の内側で折り返す）', STRESS, { size: 'L' }],
   ['異常に長い方向列 S・数字', STRESS, { size: 'S', notation: 'numpad' }],
+  ...['L', 'S'].flatMap((sz) => [
+    [`技名 ${sz}（リュウ。中波動拳・強昇龍拳・OD竜巻旋風脚・波動拳・弱空中竜巻旋風脚・中電刃錬気、最後の360は辞書にないのでコマンド）`, NAME_RYU, { size: sz, characterId: 'ryu', specialNotation: 'name' }, `name:ryu:${sz}`],
+    [`コマンド ${sz}（同じ列。発光する要素の数の比較用）`, NAME_RYU, { size: sz, characterId: 'ryu' }, `cmd:ryu:${sz}`],
+    [`技名と他の種別の比較 ${sz}（技名・DR・DI・DP・SA・移動・注記・灰色の●）`, NAME_MIX, { size: sz, characterId: 'ryu', specialNotation: 'name' }, `name:mix:${sz}`],
+    [`コマンド ${sz}（比較列と同じ。発光する要素の数の比較用）`, NAME_MIX, { size: sz, characterId: 'ryu' }, `cmd:mix:${sz}`],
+    [`技名 ${sz}（アルジュンの派生。弱大義の巨腕 ▶ 追撃 ▶ OD大義の巨腕 ▶ 追撃、最後の6Pは追撃の次なので派生にならずコマンド）`, NAME_ARJUN, { size: sz, characterId: 'arjun', specialNotation: 'name' }, `name:arjun:${sz}`],
+    [`コマンド ${sz}（アルジュン）`, NAME_ARJUN, { size: sz, characterId: 'arjun' }, `cmd:arjun:${sz}`],
+  ]),
+  ['最長の技名＋OD L（キャミィ フーリガンコンビネーション）', NAME_LONG_CAMMY, { size: 'L', characterId: 'cammy', specialNotation: 'name' }, 'long:cammy:L'],
+  ['最長の技名＋OD L（ベガ サイコクラッシャーアタック）', NAME_LONG_VEGA, { size: 'L', characterId: 'vega_mbison', specialNotation: 'name' }, 'long:vega:L'],
+  ['最長の技名＋OD S（キャミィ）', NAME_LONG_CAMMY, { size: 'S', characterId: 'cammy', specialNotation: 'name' }, 'long:cammy:S'],
 ];
 
 const main = document.getElementById('main');
 const dirRows = [];
+const rowOf = {};
 // 記号スプライトは index.html に1つだけ置く。ここへ複製せず取り込む
 const html = await (await fetch('../app/index.html')).text();
 document.body.prepend(new DOMParser().parseFromString(html, 'text/html').getElementById('sprite'));
 
-for (const [title, tokens, opts] of CASES) {
+for (const [title, tokens, opts, id] of CASES) {
   const h = document.createElement('h2');
   h.textContent = title;
   const box = document.createElement('div');
   box.className = 'case';
   const row = renderRow(tokens, opts);
   if (tokens === DIRS) dirRows.push(row);
+  rowOf[id ?? title] = row;
   box.append(row);
   main.append(h, box);
 }
@@ -192,6 +212,43 @@ const glows = (e) => {
   return parts.some((x) => !x.includes('inset') || n(x)[2] > 0) || cs.textShadow !== 'none';
 };
 for (const e of document.querySelectorAll('.row.S, .row.S *')) if (glows(e)) problems.push(`S寸法に発光 ${e.className}`);
+// 必殺技の技名（design-spec-v2.2 6章の6・7・8）。技名の文字、色、形、発光の数、幅
+{
+  const fgBody = getComputedStyle(document.body).color;
+  const nameRows = Object.entries(rowOf).filter(([id]) => id.startsWith('name:'));
+  if (nameRows.length !== 6) problems.push('技名の列が足りない');
+  for (const [id, row] of nameRows) {
+    const size = row.classList.contains('S') ? 'S' : 'L';
+    const names = [...row.querySelectorAll('.sname')];
+    if (!names.length) problems.push(`${id}: .sname がない`);
+    for (const n of names) {
+      const cs = getComputedStyle(n);
+      if (cs.fontSize !== (size === 'S' ? '12px' : '15px') || cs.fontWeight !== '700' || cs.color !== fgBody || cs.backgroundColor !== 'rgba(0, 0, 0, 0)' || cs.borderTopWidth !== '0px' || cs.whiteSpace !== 'nowrap') problems.push(`${id}: 技名の文字の体裁が違う ${cs.fontSize} ${cs.fontWeight} ${cs.color}`);
+      const chip = n.closest('.chip');
+      if (chip.querySelector('.arrow, .cw, .num, .charge, .neutral')) problems.push(`${id}: 技名のチップに矢印・数字が残っている`);
+      if (!chip.querySelector('.dot')) problems.push(`${id}: 技名のチップに●がない`);
+      const lbl = chip.getAttribute('aria-label');
+      if (!lbl.startsWith(n.textContent)) problems.push(`${id}: aria-label が技名で始まらない ${lbl}`);
+    }
+    const c = rowOf[id.replace('name:', 'cmd:')];
+    const count = (r) => [r, ...r.querySelectorAll('*')].filter(glows).length;
+    if (count(c) !== count(row)) problems.push(`${id}: 技名表記とコマンド表記で発光する要素の数が違う ${count(row)} != ${count(c)}`);
+    if (c.querySelectorAll('.chip').length !== row.querySelectorAll('.chip').length) problems.push(`${id}: チップの数が違う`);
+  }
+  const got = [...rowOf['name:ryu:L'].querySelectorAll('.sname')].map((n) => n.textContent).join(',');
+  if (got !== '中波動拳,強昇龍拳,OD竜巻旋風脚,波動拳,弱空中竜巻旋風脚,中電刃錬気') problems.push(`リュウの技名が違う ${got}`);
+  if (!rowOf['name:ryu:L'].querySelectorAll('.chip')[6].querySelector('.cw')) problems.push('辞書にない360がコマンドで出ていない');
+  const ag = [...rowOf['name:arjun:L'].querySelectorAll('.chip')].map((c) => c.querySelector('.sname')?.textContent ?? '-').join(',');
+  if (ag !== '弱大義の巨腕,追撃,OD大義の巨腕,追撃,-') problems.push(`アルジュンの派生の技名が違う ${ag}`);
+  // 最長の技名＋ODのLチップが行の幅に収まる（折り返さず、はみ出さない）
+  for (const [t, row] of Object.entries(rowOf).filter(([id]) => id.startsWith('long:'))) {
+    for (const chip of row.querySelectorAll('.chip')) {
+      const r = chip.getBoundingClientRect();
+      if (r.width > row.clientWidth + 0.5) problems.push(`${t}: チップが行より広い ${r.width} > ${row.clientWidth}`);
+      if (r.height > (row.classList.contains('S') ? 26 : 36)) problems.push(`${t}: チップの内側で折り返している ${r.height}`); // 1技の1行の高さは L34・S24
+    }
+  }
+}
 const glowL = [...document.querySelectorAll('.row:not(.S) .sys-dr, .row:not(.S) .dot.od, .row:not(.S) .ltr.od')];
 if (!glowL.length || !glowL.every(glows)) problems.push('L寸法のDR・ODに発光がない');
 for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .sys-di, .row:not(.S) .sys-dp, .row:not(.S) .sys-mv, .row:not(.S) .dot:not(.od)')) if (glows(e)) problems.push(`L寸法で発光してはいけない要素 ${e.className}`);
