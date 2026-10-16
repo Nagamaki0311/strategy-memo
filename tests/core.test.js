@@ -1622,6 +1622,7 @@ test('連携・分岐: 親の存在・同キャラ・同セクション・自己
     ['親が存在しない', st(rec('c', 'ghost-parent-id'))],
     ['別キャラの親', st(rec('p'), rec('c', 'p', kenSec))],
     ['別セクションの親（同キャラ）', st(rec('p'), rec('c', 'p', { sectionId: 's1b' }))],
+    ['親の親が存在しない（子が先に並ぶ）', st(rec('c', 'p'), rec('p', 'ghost-parent-id'))],
     ['自分自身が親', st(rec('c', 'c'))],
     ['2件の循環', st(rec('a', 'b'), rec('b', 'a'))],
     ['3件の循環', st(rec('a', 'c'), rec('b', 'a'), rec('c', 'b'))],

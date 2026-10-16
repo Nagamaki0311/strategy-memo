@@ -501,7 +501,7 @@ function docProblem(doc) {
     const p = byId.get(c.parentId);
     if (!p) return bad('親がありません');
     if (p === c) return bad('自分自身は親にできません');
-    if (p.characterId !== c.characterId || p.sectionId !== c.sectionId || p.controlType !== c.controlType) return bad('親とキャラまたはセクションが違います');
+    if (p.sectionId !== c.sectionId) return bad('親とセクションが違います'); // セクションは1キャラのもので、controlType は classic だけなので、同キャラ・同controlType もこれで保証される
     let depth = 0;
     for (let cur = c; cur.parentId !== undefined; cur = byId.get(cur.parentId)) {
       if (++depth > LIMITS.depth || !byId.has(cur.parentId)) return bad(`深さは${LIMITS.depth}までで、循環もできません`);
