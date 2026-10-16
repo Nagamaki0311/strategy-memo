@@ -124,10 +124,11 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
     for (const n of d.notes) grp.append(onChip && canTap({ type: 'note', id: n.id }) ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
     if (d.token) {
       const kind = d.token.type === 'sa' ? 'sa' : d.token.type === 'move' ? 'mv' : SYS_KIND[d.token.id]; // system・sa・move 以外は undefined
-      const cls = kind ? `chip sys sys-${kind}` : 'chip';
       const info = infos[d.index] ?? null;
       const label = specialLabel(d.token, info, specialNotation, notation);
-      const nodes = chipNodes(d.token, label, notation, specialNotation === 'name' && info?.name ? info : null);
+      const named = specialNotation === 'name' && info?.name ? info : null;
+      const cls = kind ? `chip sys sys-${kind}` : named ? 'chip named' : 'chip';
+      const nodes = chipNodes(d.token, label, notation, named);
       if (onChip && canTap(d.token, info)) grp.append(tapPart(cls, label, d.index, d.token, nodes, onChip));
       else {
         const chip = el('span', cls);

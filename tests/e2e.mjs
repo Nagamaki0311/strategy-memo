@@ -4641,6 +4641,22 @@ for (const width of [360, 390, 430]) {
       // 1行目の板が切れないことは、25d のスクリーンショット（補助文字オン）の目視で確かめた（docs/design-spec-v2.3.md）
       assert.ok(await noHScroll(page));
     });
+    await check(`${tag} 25d 一覧（${sz}）: 技名だけの行が折り返しても、2行目は見えない（補助文字オン・オフ）`, async () => {
+      const NAMES = [SP('236', 'M', 'P'), SP('623', 'H', 'P'), SP('214', 'OD', 'K'), SP('236', 'L', 'P'), SP('623', 'M', 'P'), SP('214', 'L', 'K')];
+      const p2 = await sized(sz, { specialNotation: 'name' }, { sections: [sec('s1', 'ryu', '通常', 0)], combos: [combo('n1', 's1', '技名だけ', [...NAMES, ...NAMES, ...NAMES, ...NAMES])] });
+      await gotoHash(p2, '#/c/ryu');
+      for (const sl of [false, true]) {
+        await setSettings(p2, { memoSize: sz, specialNotation: 'name', strengthLabels: sl });
+        const r = await p2.$eval('.preview', (pv) => {
+          const chips = [...pv.querySelectorAll('.chip')], t0 = chips[0].getBoundingClientRect().top, pb = pv.getBoundingClientRect().bottom;
+          const wrapped = chips.filter((c) => c.getBoundingClientRect().top > t0 + 1);
+          return { wrapped: wrapped.length, visible: wrapped.filter((c) => c.getBoundingClientRect().top < pb).length };
+        });
+        assert.ok(r.wrapped >= 1, `折り返しがない ${JSON.stringify(r)}`);
+        assert.equal(r.visible, 0, `strengthLabels=${sl} ${JSON.stringify(r)}`);
+      }
+      await p2.context().close();
+    });
     await shot(page, `25-list-${sz}`, width);
     await page.context().close();
   }
@@ -4697,6 +4713,28 @@ for (const width of [360, 390, 430]) {
       assert.equal(c.h, DETAIL[sz].dot[0]);
     });
     await page.context().close();
+
+    // ::after 込みの当たり領域の高さ。技名表記のチップ（文字だけ）とシステム技・SA（枠つき）も44px以上で、同じ行の隣の当たり領域と重ならない
+    for (const sn of ['name', 'cmd']) {
+      const p2 = await sized(sz, { specialNotation: sn });
+      for (const [screen, root] of [['#/c/ryu/r/c1/edit', '.cmd'], ['#/c/ryu/r/c1', '.d-cmd']]) {
+        await gotoHash(p2, screen);
+        await check(`${tag} 25f ${root === '.cmd' ? '編集' : '詳細'}（${sz}・${sn}表記）: 技チップ（技名・システム技・SA）の ::after 込みの高さが44以上、同じ行の当たり領域は重ならない`, async () => {
+          const r = await p2.$$eval(`${root} button.chip, ${root} button.tag`, (els) => {
+            const rects = els.map((e) => { const b = e.getBoundingClientRect(), cs = getComputedStyle(e, '::after'); return { kind: e.classList.contains('tag') ? 'tag' : e.classList.contains('named') ? 'name' : e.classList.contains('sys') ? 'sys' : 'cmd', h: parseFloat(cs.height), x: b.left + parseFloat(cs.left), w: parseFloat(cs.width), y: b.top + parseFloat(cs.top), cy: b.top + b.height / 2, chipH: b.height }; });
+            const ov = [];
+            for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) { const a = rects[i], c = rects[j]; if (Math.abs(a.cy - c.cy) < 5 && Math.min(a.x + a.w, c.x + c.w) - Math.max(a.x, c.x) > 0.5) ov.push([i, j]); }
+            return { rects, ov };
+          });
+          assert.ok(r.rects.every((x) => x.h >= 44 - 0.01), JSON.stringify(r.rects.filter((x) => x.h < 44)));
+          assert.deepEqual(r.ov, []);
+          assert.ok(r.rects.some((x) => x.kind === 'sys'));
+          if (sn === 'name') { const nm = r.rects.filter((x) => x.kind === 'name'); assert.ok(nm.length >= 2 && nm.every((x) => x.chipH === DETAIL[sz].chipH), JSON.stringify(nm)); }
+          assert.ok(await noHScroll(p2));
+        });
+      }
+      await p2.context().close();
+    }
   }
 
   // 25g 据え置き: メモの内容以外は、段階に依らず寸法が同じ（l と比べる）
@@ -4756,6 +4794,19 @@ for (const width of [360, 390, 430]) {
         for (const k of Object.keys(base)) assert.deepEqual(got[k], base[k], `${sz} ${k}`);
       });
     }
+  }
+
+  // 25g 補助文字オン: 編集パッドの強度キー（.row の外）の補助文字の板は丸の右下（-7px/-7px）、丸の右余白7px。段階に依らず導入前と同じ
+  for (const sz of SIZES) {
+    const page = await sized(sz, { strengthLabels: true });
+    await gotoHash(page, '#/c/ryu/r/c1/edit');
+    await check(`${tag} 25g 補助文字オン（${sz}）: パッドの強度キーの板は right -7px・bottom -7px、丸の margin-right 7px（板のない丸は0）`, async () => {
+      const r = await page.$$eval('.pad .bkey .dot, .pad .okey .dot, .pad .nkey .dot', (dots) => dots.map((d) => { const bd = d.querySelector('.badge'), cs = bd && getComputedStyle(bd); return { badge: bd ? [cs.right, cs.bottom] : null, mr: getComputedStyle(d).marginRight, key: d.closest('.key').className }; }));
+      assert.ok(r.filter((x) => x.badge).length >= 6, JSON.stringify(r));
+      for (const x of r) assert.deepEqual([x.badge, x.mr], x.badge ? [['-7px', '-7px'], '7px'] : [null, '0px'], JSON.stringify(x));
+      assert.ok(await noHScroll(page));
+    });
+    await page.context().close();
   }
 
   // 25h 本文の最小フォントは12px以上（メモの内容の文字。補助文字の小さな板 .badge は設定オンのときだけの補助で別）。全段階

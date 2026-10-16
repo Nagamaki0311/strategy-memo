@@ -139,6 +139,7 @@ h1, h2 { word-break: auto-phrase; }
   --rush: 7px; --dp-b: 1px; --dp-px: 6px; --c: 3px; --bo: 9px;
 }
 .row.str-labels { row-gap: 10px; }
+.preview > .row, .preview > .row.str-labels { row-gap: 28px; } /* 一覧は1行だけ見せる。2行目は .preview の高さ（最大28px）より下から始め、技名だけの行（高さ約12px）でも見えないようにする */
 
 /* 1つの技（注記＋技＋末尾の▶）は折り返さない。▶は行頭に来ない */
 .grp {
@@ -163,7 +164,8 @@ h1, h2 { word-break: auto-phrase; }
 :where(button).chip, :where(button).tag {
   position: relative; margin: 0; padding: 0; border: 0; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer;
 }
-button.chip::after { content: ''; position: absolute; inset: calc((var(--chip-h) - 44px) / 2) -5px; } /* 高さは段階の chip-h に合わせて44pxにする（l は34px→44px） */
+button.chip::after { content: ''; position: absolute; inset: calc((var(--chip-h) - 44px) / 2 - var(--bw, 0px)) -5px; } /* 高さは段階の chip-h に合わせて44pxにする（l は34px→44px）。inset は枠の内側（padding box）から測るので枠の太さ --bw の分だけ広げる */
+button.chip.named { min-height: var(--chip-h); } /* 技名のチップは文字だけ（高さ＝文字の高さ）なので、当たり領域が44pxになるよう丸と同じ高さを取る（D-019の回帰修正） */
 button.tag { margin-right: calc(8px - var(--in) * 2); } /* 次の技との間を8pxにして、技の透明な当たり領域（左に5px）と重ならないようにする（1pxは丸めの余裕） */
 button.tag::after { content: ''; position: absolute; inset: calc((var(--tag-h) - 44px) / 2) -2px calc((var(--tag-h) - 44px) / 2) -9px; } /* l は20px×33px → 44px×44px。高さは tag-h に合わせて44pxにする */
 button.chip:active, button.tag:active { background: var(--line-strong); }
@@ -204,7 +206,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
   box-sizing: border-box;
   height: var(--chip-h);
   padding: 0 var(--chip-px);
-  border: 2px solid transparent;
+  --bw: 2px; border: var(--bw) solid transparent;
   border-radius: var(--r-chip);
   background: none;
   color: var(--fg);
@@ -215,10 +217,10 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .sys-dr { border-color: var(--dr); color: var(--dr); }
 .sys-dr .rush { width: var(--rush); height: var(--rush); }
 .sys-dp {
-  border-width: var(--dp-b); border-color: var(--dp-line); background: var(--dp); padding-inline: var(--dp-px);
+  --bw: var(--dp-b); border-width: var(--bw); border-color: var(--dp-line); background: var(--dp); padding-inline: var(--dp-px);
   box-shadow: inset 0 0 0 var(--dp-b) var(--dp), inset 0 0 0 calc(var(--dp-b) + 1px) var(--dp-line);
 }
-.sys-di { border: 0; color: var(--ink); }
+.sys-di { --bw: 0px; border: 0; color: var(--ink); }
 /* clip-path は ::before だけ（本体に当てると選択枠とフォーカスリングが切れる）。::after はボタンのタップ領域用 */
 .sys-di::before {
   content: ''; position: absolute; inset: 0; z-index: -1; background: var(--di);
@@ -249,8 +251,8 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .badge {
   display: none;
   position: absolute;
-  right: calc(var(--bo) * -1);
-  bottom: calc(var(--bo) * -1);
+  right: calc(var(--bo, 7px) * -1); /* 編集パッドの強度キーは .row の外なので --bo が未定義。既定の7px */
+  bottom: calc(var(--bo, 7px) * -1);
   width: 15px;
   height: 15px;
   border-radius: 2px;
@@ -260,7 +262,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
   text-align: center;
 }
 .str-labels .badge { display: block; }
-.str-labels .dot.has-str { margin-right: var(--bo); }
+.str-labels .dot.has-str { margin-right: var(--bo, 7px); }
 
 /* ===== 画面と共通コンポーネント（design-spec 5〜7章）===== */
 html { -webkit-text-size-adjust: 100%; }
