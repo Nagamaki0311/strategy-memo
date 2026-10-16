@@ -40,7 +40,7 @@
 - `python3 -m http.server 8000` を立て、`FAST=1 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/e2e.mjs`: 989/989合格（既存968件＋24j の21件）。
 - tests/check.html（360・390・430幅、通常と `?gray=1`）: 6通りすべて `CHECK-PASS`。
 - レビューの `brute.mjs` を修正後の辞書で再実行: `checks 1149 fails 0`。
-- 変異テスト（リポジトリのコピーでなく、app を直接壊して実行し `git checkout app` で戻した。すべて検出）:
+- 変異テスト（app を直接壊して実行し `git checkout app` で戻した。すべて検出）:
   - core（`node --test tests/core.test.js`）: ガイルの付け替え派生を戻す → 3件失敗、点辰 K→P → 2件、JPのHの技名の取り違え → 2件、派生へのOD接頭辞 → 1件、A-L1を戻す → 1件、A-L2を戻す → 1件。
   - e2e 24j（`ONLY_24=1`）: `scrollIntoView` を外す → B-M1の3件失敗、300msの待ちを外す → 6件、キーリピートの抑止を外す → 3件、選択を常に外す → 3件、`writeDraft` に `nameOn` を書く → 3件、フォーカスの復元先を `document.body` にする → 3件、「同じ候補」の分岐を外す → 6件。件数は3幅の合計。
   - 最初の e2e では、キーリピートの抑止を外しても落ちなかった（300msの待ちが先に効いていた）。待ちを過ぎてからのリピートを検査する形に直して検出できた。
