@@ -1,3 +1,5 @@
+import { SPECIALS } from './specials.js';
+
 // ===== SECTION: キャラクターマスタ =====
 // キャラクターマスタ（D-010）。id＝公式URLのスラッグ、配列順＝公式の並び順。en＝看板の英字表記（design-spec-v2 2.4。日本版に合わせGOUKI・VEGA）。追加はここへ1行足すだけ。
 export const CHARACTERS = [
@@ -273,6 +275,149 @@ export function describeRow(tokens, notation = 'arrow') {
   if (notes.length) out.push({ kind: 'group', index: null, token: null, label: '', notes });
   return out;
 }
+
+// ===== SECTION: 必殺技の技名 =====
+// 技名は保存せず、表示のたびに辞書（specials.js）から引く（D-017、docs/design-spec-v2.2.md 5章）。トークンの形は変えない。
+// 辞書の項目: 必殺技 = follows なし、派生 = follows あり。親は同じキャラの項目を技名（強度別の v は値のどれか）で引く。
+const LMH = ['L', 'M', 'H'];
+const STR_PREFIX = { L: '弱', M: '中', H: '強', OD: 'OD' };
+const norm = (m) => m.replace(/[[\]]/g, ''); // 溜めの［ ］を外して比べる
+const entriesOf = (dict, characterId) => (Object.hasOwn(dict, characterId) ? dict[characterId] : []);
+const namesOf = (e) => (e.v ? Object.values(e.v) : [e.name]);
+// 入力できる強度。s の省略は、必殺技なら弱中強OD、派生なら強さの区別なし（空）
+const strengthsOf = (e) => (e.v ? Object.keys(e.v) : e.s ?? (e.follows ? [] : [...LMH, 'OD']));
+const normalDir = (t) => t.dir ?? (t.stance === 'crouch' ? 2 : 5);
+
+/** そのキャラの技名の辞書があるか（なければ技名は常に「なし」） */
+export const hasSpecials = (characterId) => entriesOf(SPECIALS, characterId).length > 0;
+
+// 形の一致: 必殺技形（motion がモーション）は必殺技トークン、単一方向・null は通常技トークン（ジャンプは当たらない）
+function shapeMatches(e, t) {
+  if (t.key !== e.button) return false;
+  if (isMotion(e.motion)) return t.type === 'special' && norm(t.motion) === norm(e.motion) && (t.stance === 'jump') === Boolean(e.air);
+  return t.type === 'normal' && t.stance !== 'jump' && !e.air && normalDir(t) === (e.motion === null ? 5 : Number(e.motion));
+}
+
+// 強度 str のときの技名。null = 当たらない、'strength' = 強度なしでは名前が決まらない（強度別の名前がある技）
+function nameFor(e, str) {
+  if (e.v) return str === 'N' ? 'strength' : e.v[str] ?? null;
+  return str === 'N' || (e.follows && !e.s) || strengthsOf(e).includes(str) ? e.name : null;
+}
+
+// 接頭辞: 弱中強の区別がある技（2つ以上）だけ弱/中/強、OD版がある技だけOD。強度別の名前の技・強度なしは付けない
+function prefixOf(e, str) {
+  if (e.v || str === 'N') return '';
+  if (str === 'OD') return strengthsOf(e).includes('OD') ? 'OD' : '';
+  return strengthsOf(e).filter((s) => s !== 'OD').length > 1 ? STR_PREFIX[str] : '';
+}
+
+// 親の強度条件（cond 省略 = 何でもよい）。強度なしの親は、条件が弱中強をすべて含むときだけ
+const parentStrOk = (cond, str) => !cond || (str === 'N' ? LMH.every((s) => cond.includes(s)) : cond.includes(str));
+// 派生 e の親が、直前の行動 prev（{ entry, token }）か
+const followsPrev = (entries, e, prev) =>
+  entries.find((p) => namesOf(p).includes(e.follows[0])) === prev.entry && parentStrOk(e.follows[1], prev.token.str);
+
+// 1つの行動トークンを判定する。結果: null（通常技などで技名を付けない）または { entry, name, base, derived, parent, why, choices }
+// name = 接頭辞つきの技名、base = 接頭辞なし、why = 名前がない理由（'unlisted' 一覧にない | 'multi' 複数 | 'strength' 強さで変わる）
+function judge(entries, token, prev) {
+  const hits = [];
+  let blocked = false;
+  const consider = (e) => {
+    if (!shapeMatches(e, token)) return;
+    const n = nameFor(e, token.str);
+    if (n === 'strength') blocked = true;
+    else if (n) hits.push(e);
+  };
+  if (prev) entries.filter((e) => e.follows && followsPrev(entries, e, prev)).forEach(consider);
+  if (!hits.length && token.type === 'special') entries.filter((e) => !e.follows).forEach(consider);
+  if (hits.length > 1) return { entry: null, name: null, base: null, derived: false, parent: null, why: 'multi', choices: hits.map((e) => nameFor(e, token.str)) };
+  if (hits.length === 0) {
+    if (blocked) return { entry: null, name: null, base: null, derived: false, parent: null, why: 'strength', choices: null };
+    return token.type === 'special' ? { entry: null, name: null, base: null, derived: false, parent: null, why: 'unlisted', choices: null } : null;
+  }
+  const [e] = hits;
+  const base = nameFor(e, token.str);
+  return { entry: e, name: prefixOf(e, token.str) + base, base, derived: Boolean(e.follows), parent: e.follows ? prev.base : null, why: null, choices: null };
+}
+
+/**
+ * 記録1件のトークン列を先頭から判定する（5章）。tokens と同じ長さの配列で、各要素は
+ * null（注記・移動・システム技・SA・技名を付けない通常技）または
+ * { name, base, derived, parent, why, choices, entry }。name は接頭辞つきの技名（弱/中/強/OD + 技名）、
+ * なければ null（why: 'unlisted' 一覧にない | 'multi' 複数の技（choices に技名）| 'strength' 強さで変わる）。
+ * derived のとき parent は親の技名。entry は辞書の項目（内部用）。辞書のないキャラは全部 null。dict はテスト用。
+ */
+export function specialNames(tokens, characterId, dict = SPECIALS) {
+  const entries = entriesOf(dict, characterId);
+  let prev = null; // 直前の行動の判定結果。注記は飛ばし、移動・システム技・SA・技名のない行動のあとは null（派生は成り立たない）
+  return tokens.map((token) => {
+    if (token.type === 'note') return null;
+    const r = entries.length && (token.type === 'special' || token.type === 'normal') ? judge(entries, token, prev) : null;
+    prev = r?.entry ? { entry: r.entry, token, base: r.base } : null;
+    return r;
+  });
+}
+
+/**
+ * 編集パッドR1の候補（1章）。tokens と cursor はカーソルの直前の行動を決めるため、motion は入力中の方向（pendingMotion）、
+ * jump はジャンプ選択中か。派生（先頭）、次に入力と一致する技、次に入力で始まる技の順。方向なしなら派生と全必殺技（辞書の順）。
+ * ジャンプ中は空中の技だけ。要素: { name, motion, button, air, derived, parent, instant }
+ * name は強度別の名前の技なら「／」でつないだ全名。instant は、強さの区別がない派生を押した時点で入れるトークン（それ以外は null）。
+ */
+export function specialCandidates({ characterId, tokens = [], cursor = tokens.length, motion = '', jump = false }, dict = SPECIALS) {
+  const entries = entriesOf(dict, characterId);
+  const names = specialNames(tokens.slice(0, cursor), characterId, dict);
+  const at = tokens.slice(0, cursor).findLastIndex((t) => t.type !== 'note');
+  const prev = at >= 0 && names[at]?.entry ? { entry: names[at].entry, token: tokens[at], base: names[at].base } : null;
+  const input = norm(motion);
+  const starts = (e) => (isMotion(e.motion) ? (e.motion === '360' ? norm(e.motion) === input : norm(e.motion).startsWith(input)) : e.motion === input);
+  const usable = entries.filter((e) => !jump || e.air);
+  const derived = prev ? usable.filter((e) => e.follows && followsPrev(entries, e, prev) && (!input || starts(e))) : [];
+  const own = usable.filter((e) => !e.follows);
+  const list = input
+    ? [...derived, ...own.filter((e) => norm(e.motion) === input), ...own.filter((e) => norm(e.motion) !== input && e.motion !== '360' && norm(e.motion).startsWith(input))]
+    : [...derived, ...own];
+  return list.map((e) => ({
+    name: [...new Set(namesOf(e))].join('／'),
+    motion: e.motion,
+    button: e.button,
+    air: Boolean(e.air),
+    derived: Boolean(e.follows),
+    parent: e.follows ? prev.base : null,
+    instant: e.follows && !e.v && strengthsOf(e).length <= 1 ? instantToken(e) : null,
+  }));
+}
+
+// 強さの区別がない派生（s なしは強度なし、1つだけならその値）の、押した時点で入れるトークン
+function instantToken(e) {
+  const str = strengthsOf(e)[0] ?? 'N';
+  if (isMotion(e.motion)) return { type: 'special', motion: e.motion, key: e.button, str, ...(e.air && { stance: 'jump' }) };
+  const dir = e.motion === null ? null : Number(e.motion);
+  return { type: 'normal', stance: dir === 2 ? 'crouch' : 'stand', ...(DIRS.includes(dir) && { dir }), key: e.button, str };
+}
+
+/**
+ * 読み上げ名（4章）。mode は 'name'（技名を先に）か 'cmd'（コマンドを先に）。info は specialNames の要素。
+ * 技名がなければ tokenLabel と同じ。例: 技名表示「中波動拳、波動 ↓↘→ 中P」、派生「追撃、大義の巨腕の派生、前P」
+ */
+export function specialLabel(token, info, mode, notation = 'arrow') {
+  const cmd = tokenLabel(token, notation);
+  if (!info?.name) return cmd;
+  const parts = [info.name, info.derived ? `${info.parent}の派生` : null];
+  return (mode === 'name' ? [...parts, cmd] : [cmd, ...parts]).filter(Boolean).join('、');
+}
+
+/** 候補の読み上げ名。例: 「昇龍拳、昇龍 →↓↘ P」、派生は「追撃、大義の巨腕の派生、→ P」 */
+export function candidateLabel(c, notation = 'arrow') {
+  const dir = c.motion === null ? '' : isMotion(c.motion) ? `${MOTION_NAMES[c.motion] ?? ''} ${motionText(c.motion, notation)}` : notation === 'numpad' ? c.motion : ARROWS[c.motion];
+  const cmd = [c.air ? 'ジャンプ' : null, dir.trim() || null, c.button].filter(Boolean).join(' ');
+  return [c.name, c.derived ? `${c.parent}の派生` : null, cmd].filter(Boolean).join('、');
+}
+
+// 「必殺技の表記」の設定（sf6memo.settings の specialNotation）。cmd = コマンド、name = 技名。表記は保存せず、記録のトークンは変えない。
+export const SPECIAL_NOTATIONS = ['cmd', 'name'];
+export const DEFAULT_SPECIAL_NOTATION = 'cmd';
+export const sanitizeSpecialNotation = (v) => (SPECIAL_NOTATIONS.includes(v) ? v : DEFAULT_SPECIAL_NOTATION);
 
 // ===== SECTION: 文書の検証 =====
 // ponytail: 上限値は個人利用の目安。実データで足りなくなったら調整する。
