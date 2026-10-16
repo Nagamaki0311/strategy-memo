@@ -135,6 +135,35 @@ for (const [title, tokens, opts] of STEP_CASES) for (const kind of ['detail', 'p
   main.append(h, wrap);
   stepRows.push({ kind, sz, row, title });
 }
+// 連携の木（design-spec-v2.4、T-027）。詳細画面の木と同じクラス構造（app.js の treeSection）を、メモの文字サイズ l・s で並べる。
+// 3段目に CH＋ODフーリガンコンビネーション＋▶（最長の技）、1段目に100字の見出し。?gray=1 で、線・字下げ・見出しの文字だけで階層が読めるかを目視する
+const HOOL = [note('CH'), S('236', 'OD', 'P'), S('236', 'H', 'P')];
+const treeSecs = [];
+for (const sz of ['l', 's']) {
+  const h = document.createElement('h2');
+  h.textContent = `連携の木（段階 ${sz}）: 1段目（100字の見出し）・2段目・3段目（CH＋ODフーリガンコンビネーション）`;
+  const wrap = document.createElement('div');
+  wrap.dataset.memoSize = sz;
+  const el = (tag, cls, ...kids) => { const e = document.createElement(tag); if (cls) e.className = cls; e.append(...kids); return e; };
+  const node = (depth, i, title, tokens, kids = []) => {
+    const more = el('button', 'icon-btn'); more.type = 'button'; more.setAttribute('aria-label', '操作');
+    const li = el('li', 't-node', el('div', 't-row', ...(depth === 1 ? [el('span', 't-no', 'ABC'[i])] : []), el('h' + (depth + 2), 't-title', title || el('span', 'none', depth === 1 ? '見出しなし' : `分岐${i + 1}`)), more),
+      el('div', 't-cmd', renderRow(tokens, { size: 'L', characterId: 'cammy', specialNotation: 'name' })),
+      el('div', 't-meta', el('span', 't-tags', 'タグ'), el('span', 'dmg', 'ダメージ ', el('b', '', '1,200'))), el('p', 't-memo', 'メモの本文'));
+    if (kids.length) {
+      const fold = el('button', 't-fold', el('span', '', `分岐 ${kids.length}件`)); fold.type = 'button';
+      li.append(fold, el('ul', 't-list', ...kids));
+    }
+    return li;
+  };
+  const third = [node(3, 0, '3段目', HOOL), node(3, 1, '', [N('stand', 'H', 'P')])];
+  const second = [node(2, 0, 'ガード時', [S('236', 'M', 'P')], third), node(2, 1, '', [S('623', 'OD', 'P')])];
+  const list = el('ul', 't-list d1', node(1, 0, 'あ'.repeat(100), [N('crouch', 'M', 'K'), S('236', 'H', 'P')], second), node(1, 1, '', [N('stand', 'H', 'P')]), node(1, 2, '打撃重ね', []));
+  const sec = el('section', 't-sec', el('div', 't-sec-head', el('h2', 't-sec-h', '連携'), el('span', 't-sec-n', '3件'), el('button', 'btn', '追加')), list);
+  wrap.append(sec);
+  main.append(h, wrap);
+  treeSecs.push({ sz, sec });
+}
 // ネオンの段階（design-spec-v2.1 1.6）。charTile（homeScreenと同じタイル）を2つの .grid に並べる。期待値は neonLevel を使わず、表を直接書く
 const NEON_LOW = [[0, 0], [1, 1], [2, 2], [3, 3], [5, 4], [8, 5], [12, 6], [18, 7], [28, 8], [45, 9], [70, 10]]; // 各段階の下限
 const NEON_REP = [[0, 0], [1, 1], [3, 3], [6, 4], [10, 5], [20, 7], [40, 8], [80, 10]]; // 代表値
@@ -378,6 +407,31 @@ for (const { kind, sz, row, title } of stepRows) {
     if (parseFloat(cs(e).fontSize) < 12) problems.push(`${at}: 文字が12px未満 ${e.className}`);
   }
   if (kind === 'preview') for (const e of [row, ...row.querySelectorAll('*')]) if (glows(e)) problems.push(`${at}: S寸法に発光`);
+}
+// 連携の木: 寸法・線・字下げ・色・禁止事項
+for (const { sz, sec } of treeSecs) {
+  const cs = (e) => getComputedStyle(e);
+  const at = `連携の木・段階${sz}`;
+  const dot = { l: '34px', s: '24px' }[sz];
+  for (const r of sec.querySelectorAll('.t-cmd > .row')) {
+    if (r.scrollWidth > r.clientWidth) problems.push(`${at}: コマンド列が幅に収まらない ${r.clientWidth}`);
+    if (cs(r).getPropertyValue('--dot').trim() !== dot) problems.push(`${at}: 丸が ${dot} でない`);
+  }
+  for (const b of sec.querySelectorAll('.t-row .icon-btn, .t-fold, .t-sec-head .btn')) if (b.offsetHeight < 44 || b.offsetWidth < 44) problems.push(`${at}: タップ領域が44未満 ${b.className} ${b.offsetWidth}x${b.offsetHeight}`);
+  for (const t of sec.querySelectorAll('.t-title')) if (cs(t).fontSize !== '15px' || cs(t).fontWeight !== '700') problems.push(`${at}: 見出しが15px・700でない`);
+  const lefts = ['.t-list.d1 > li', '.t-list.d1 > li .t-list > li', '.t-list.d1 > li .t-list .t-list > li'].map((q) => sec.querySelector(q).getBoundingClientRect().left);
+  if (lefts[1] - lefts[0] !== 12 || lefts[2] - lefts[1] !== 12) problems.push(`${at}: 字下げが1段12pxでない ${lefts}`);
+  const w3 = sec.querySelector('.t-list .t-list .t-list .t-cmd').clientWidth;
+  if (w3 !== document.documentElement.clientWidth - 32 - 36) problems.push(`${at}: 3段目の内容幅 ${w3}`);
+  for (const li of sec.querySelectorAll('.t-list > li')) {
+    const a = getComputedStyle(li, '::before'), z = getComputedStyle(li, '::after');
+    if (a.borderLeftWidth !== '1px' || a.borderLeftColor !== 'rgb(74, 80, 89)' || z.borderTopWidth !== '1px' || z.borderTopColor !== 'rgb(74, 80, 89)') problems.push(`${at}: 木の線が --line-strong の1pxでない`);
+  }
+  for (const e of sec.querySelectorAll('.t-sec, .t-sec-head, .t-sec-head *, .t-list, .t-node, .t-row, .t-row *, .t-title, .t-meta, .t-meta *, .t-memo, .t-fold')) {
+    const c = cs(e);
+    if (c.filter !== 'none' || c.boxShadow !== 'none' || c.textShadow !== 'none') problems.push(`${at}: filter・影がある ${e.className}`);
+  }
+  if (sec.querySelectorAll('.t-cmd .row').length < 6) problems.push(`${at}: 行が足りない`);
 }
 // 禁止事項（design-spec-v2 2.6）: グラデーションと、常時の明滅（無限ループのアニメーション）がない。computed（疑似要素を含む）と styles.css の本文の両方で見る
 for (const e of document.querySelectorAll('*')) for (const ps of [null, '::before', '::after']) {

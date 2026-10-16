@@ -7,6 +7,8 @@ import {
   LIMITS, strengthChoices, changeStrength, recentTokens, tagCandidates, duplicateCombo, sanitizeDraft, isDamage, DAMAGE_MAX,
   exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport, NEON_STEPS, neonLevel,
   specialNames, specialCandidates, specialLabel, candidateLabel, hasSpecials,
+  rootsOf, childrenOf, descendantTree, countDescendants, addChildBlock, deleteCombo, duplicateTree, moveCombo,
+  rootCount, comboCount, nextChildCreatedAt, newChildCombo,
   SPECIAL_NOTATIONS, DEFAULT_SPECIAL_NOTATION, sanitizeSpecialNotation,
 } from '../app/core.js';
 import { SPECIALS } from '../app/specials.js';
@@ -268,7 +270,7 @@ test('validateDocは不正な文書を例外なしで拒否し、意図した理
     ['schemaVersion欠落', mut((d) => { delete d.schemaVersion; }), 'schemaVersionがありません'],
     ['schemaVersion非整数', mut((d) => { d.schemaVersion = 1.5; }), 'schemaVersionが不正'],
     ['schemaVersion数値文字列', mut((d) => { d.schemaVersion = '1'; }), 'schemaVersionが不正'],
-    ['schemaVersionが新しすぎる(版3)', mut((d) => { d.schemaVersion = 3; }), '新しい版'],
+    ['schemaVersionが新しすぎる(版4)', mut((d) => { d.schemaVersion = 4; }), '新しい版'],
     ['schemaVersionが0', mut((d) => { d.schemaVersion = 0; }), 'schemaVersionが不正'],
     ['moveのidが未知', badTokens({ type: 'move', id: 'DASH' }), 'tokensが不正'],
     ['moveにキー余り', badTokens({ type: 'move', id: 'FWD_STEP', str: 'N' }), 'tokensが不正'],
@@ -435,7 +437,7 @@ test('mergeImport: マージ結果が参照整合を崩す場合は ok:false で
   assert.deepEqual(validateDoc(inc1), { ok: true });
   const r1 = mergeImport(local, inc1);
   assert.equal(r1.ok, false);
-  assert.match(r1.reason, /sectionIdが不正/);
+  assert.equal(r1.reason, '他の端末での変更と、セクションや連携の親子関係が食い違うため取り込めません'); // マージ後の配列の番号（N件目）は出さない固定文
   // 再現2: 取り込み側の新しいコンボが、端末側では別キャラのセクションを指す
   const inc2 = sampleDoc();
   inc2.sections[0].characterId = 'luke'; // 同時刻なので端末側(ryu)が残る
@@ -444,7 +446,7 @@ test('mergeImport: マージ結果が参照整合を崩す場合は ok:false で
   assert.deepEqual(validateDoc(inc2), { ok: true });
   const r2 = mergeImport(local, inc2);
   assert.equal(r2.ok, false);
-  assert.match(r2.reason, /sectionIdが不正/);
+  assert.equal(r2.reason, '他の端末での変更と、セクションや連携の親子関係が食い違うため取り込めません');
   // 入力は変更されない
   assert.deepEqual(local, sampleState());
 });
@@ -765,16 +767,16 @@ test('強度なし(N): 検証・ラベル・strengthChoices・changeStrength・a
   assert.equal(applyPadInput(run([btn('OD', 'P')]), btn('N', 'P')).tokens.length, 1); // Nは必殺技でなくても確定できる（ODと違いモーション不要）
 });
 
-test('データ版: 版1と2を受け付け、版3以上を拒否。書き出しは版2', () => {
-  assert.equal(exportDoc({ sections: [], combos: [] }).schemaVersion, 2);
-  for (const v of [1, 2]) {
+test('データ版: 版1〜3を受け付け、版4以上を拒否。書き出しは版3', () => {
+  assert.equal(exportDoc({ sections: [], combos: [] }).schemaVersion, 3);
+  for (const v of [1, 2, 3]) {
     const d = sampleDoc();
     d.schemaVersion = v;
     assert.deepEqual(validateDoc(d), { ok: true }, `版${v}`);
     assert.equal(parseDocText(JSON.stringify(d)).ok, true, `版${v}`);
     assert.equal(mergeImport({ sections: [], combos: [] }, d).ok, true, `版${v}`);
   }
-  for (const v of [3, 4, 99]) {
+  for (const v of [4, 5, 99]) {
     const d = sampleDoc();
     d.schemaVersion = v;
     const r = validateDoc(d);
@@ -787,10 +789,10 @@ test('データ版: 版1と2を受け付け、版3以上を拒否。書き出し
   v1.schemaVersion = 1;
   v1.combos[0].tokens.push(MV('FWD_STEP'), N('stand', 'N', 'P'));
   assert.deepEqual(validateDoc(v1), { ok: true });
-  // 版1の文書を取り込んでも内容は変換されず、書き出すと版2になる
+  // 版1の文書を取り込んでも内容は変換されず、書き出すと版3になる
   const m = mergeImport({ sections: [], combos: [] }, v1);
   assert.deepEqual(m.doc.combos, v1.combos);
-  assert.equal(exportDoc(m.doc).schemaVersion, 2);
+  assert.equal(exportDoc(m.doc).schemaVersion, 3);
 });
 
 test('move・Nを含む文書: 書き出し→JSON→取り込みの往復で一致し、複製・下書きの整形でも保たれる', () => {
@@ -798,7 +800,7 @@ test('move・Nを含む文書: 書き出し→JSON→取り込みの往復で一
   state.combos[0].tokens.push(MV('BACK_STEP'), { type: 'note', id: 'CH' }, MV('FWD_STEP'), N('crouch', 'N', 'P'), SPc('236', 'N', 'K'));
   const r = parseDocText(JSON.stringify(exportDoc(state)));
   assert.ok(r.ok);
-  assert.equal(r.doc.schemaVersion, 2);
+  assert.equal(r.doc.schemaVersion, 3);
   assert.deepEqual(mergeImport({ sections: [], combos: [] }, r.doc).doc, state);
   assert.deepEqual(duplicateCombo(state.combos[0], 5).tokens, state.combos[0].tokens);
   // 主項目 tokens が配列でない壊れた下書きは捨てる（空の記録として復元しない）
@@ -1178,12 +1180,12 @@ test('必殺技の表記の設定: 既定はコマンド、不正な値は既定
   for (const v of [undefined, null, '', 'arrow', 'NAME', 1, {}, ['name']]) assert.equal(sanitizeSpecialNotation(v), 'cmd', String(v));
 });
 
-test('保存形式は変わらない（基準2）: 技名を保存せず、書き出し→取り込みで元と一致。schemaVersionは2', () => {
+test('保存形式は変わらない（基準2）: 技名を保存せず、書き出し→取り込みで元と一致。schemaVersionは3', () => {
   const tokens = [sp('236', 'P', 'M'), nm('P', 'N', 6), NOTE('CH'), sp('623', 'P', 'OD'), sp('46', 'P', 'H')];
   const state = { sections: [{ id: 's1', characterId: 'arjun', name: '通常', order: 0, updatedAt: T0 }],
     combos: [{ id: 'c1', characterId: 'arjun', controlType: 'classic', sectionId: 's1', title: '', position: 'any', tokens, memo: '', tags: [], favorite: false, createdAt: T0, updatedAt: T0 }] };
   const doc = exportDoc(state);
-  assert.equal(doc.schemaVersion, 2);
+  assert.equal(doc.schemaVersion, 3);
   const text = JSON.stringify(doc);
   for (const e of SPECIALS.arjun) assert.ok(!text.includes(e.name), '技名の文字列を保存しない');
   for (const w of ['追撃', '波動拳', 'derived', 'parent', '派生']) assert.ok(!text.includes(w), w);
@@ -1579,4 +1581,378 @@ test('候補: 方向キー5（motion "5"）で、方向なし（null）の派生
   assert.deepEqual(c.map((x) => x.name), ['ノーチェイサー', 'インパラー']);
   // 方向キー5以外では、方向なしの派生は出ない（6で始まる単独の技だけ）
   assert.deepEqual(specialCandidates({ characterId: 'luke', tokens: [sp('236', 'K', 'M')], motion: '6' }).map((x) => x.name), ['ライジングアッパー']);
+});
+
+// ===== 連携・分岐（D-021、T-026） =====
+const SECS = () => [
+  { id: 's1', characterId: 'ryu', name: '通常', order: 0, updatedAt: T0 },
+  { id: 's1b', characterId: 'ryu', name: '画面端', order: 1, updatedAt: T0 },
+  { id: 's2', characterId: 'ken', name: '通常', order: 0, updatedAt: T0 },
+];
+// 記録の見本。parent を渡すと連携・分岐。t は createdAt（兄弟の並び順）
+const rec = (id, parent, over = {}) => ({
+  id, characterId: 'ryu', controlType: 'classic', sectionId: 's1', title: id, position: 'any', tokens: [N('stand', 'L', 'P')],
+  memo: '', tags: [], favorite: false, createdAt: T0, updatedAt: T0, ...(parent && { parentId: parent }), ...over,
+});
+const st = (...combos) => ({ sections: SECS(), combos });
+const chain = (n) => Array.from({ length: n + 1 }, (_, i) => rec(`n${i}`, i ? `n${i - 1}` : undefined)); // n0 が根、深さ n
+
+test('連携・分岐: 根→連携→分岐→分岐の深さ3まで通り、深さ4は拒否する（親が配列の後ろでもよい）', () => {
+  assert.deepEqual(validateDoc(exportDoc(st(...chain(3)))), { ok: true });
+  assert.deepEqual(validateDoc(exportDoc(st(...chain(3).reverse()))), { ok: true });
+  const r = validateDoc(exportDoc(st(...chain(4))));
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /5件目のcombosのparentIdが不正です/);
+  assert.equal(LIMITS.depth, 3);
+});
+
+test('連携・分岐: 子の個数は検証しない（2端末のマージで9個以上になりうる）。上限8個は追加時の addChildBlock だけが守る', () => {
+  const kids = (n) => Array.from({ length: n }, (_, i) => rec(`k${i}`, 'root'));
+  for (const n of [8, 9, 16]) assert.deepEqual(validateDoc(exportDoc(st(rec('root'), ...kids(n)))), { ok: true }, `${n}個`);
+  assert.equal(LIMITS.children, 8);
+  assert.equal(addChildBlock([rec('root'), ...kids(7)], 'root'), null);
+  for (const n of [8, 9, 16]) assert.equal(addChildBlock([rec('root'), ...kids(n)], 'root'), 'siblings', `${n}個`);
+  // 9個以上の兄弟も、並び・子孫・削除・複製が揃って動く
+  const nine = [rec('root'), ...Array.from({ length: 9 }, (_, i) => rec(`k${i}`, 'root', { createdAt: T0 + i, updatedAt: T0 + i })), rec('g', 'k8')];
+  assert.deepEqual(childrenOf(nine, 'root').map((c) => c.id), ['k0', 'k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'k8']);
+  assert.equal(countDescendants(nine, 'root'), 10);
+  assert.equal(deleteCombo(st(...nine), 'root').combos.length, 0);
+  const copies = duplicateTree(nine, 'root', T0 + 99);
+  assert.equal(copies.length, 11);
+  assert.deepEqual(validateDoc(exportDoc({ sections: SECS(), combos: [...nine, ...copies] })), { ok: true });
+  assert.throws(() => duplicateTree(nine, 'k0', T0 + 99), /上限/); // 親の子が8個以上なら、連携の複製は兄弟を増やすので例外
+});
+
+test('連携・分岐: 親の存在・同キャラ・同セクション・自己参照・循環・不正な型を拒否し、理由に入力値を埋め込まない', () => {
+  const kenSec = { sectionId: 's2', characterId: 'ken' };
+  const cases = [
+    ['親が存在しない', st(rec('c', 'ghost-parent-id'))],
+    ['別キャラの親', st(rec('p'), rec('c', 'p', kenSec))],
+    ['別セクションの親（同キャラ）', st(rec('p'), rec('c', 'p', { sectionId: 's1b' }))],
+    ['親の親が存在しない（子が先に並ぶ）', st(rec('c', 'p'), rec('p', 'ghost-parent-id'))],
+    ['自分自身が親', st(rec('c', 'c'))],
+    ['2件の循環', st(rec('a', 'b'), rec('b', 'a'))],
+    ['3件の循環', st(rec('a', 'c'), rec('b', 'a'), rec('c', 'b'))],
+    ['根に付いた循環の枝', st(rec('r'), rec('a', 'b'), rec('b', 'a'), rec('t', 'a'))],
+  ];
+  for (const [name, state] of cases) {
+    const r = validateDoc(exportDoc(state));
+    assert.equal(r.ok, false, name);
+    assert.match(r.reason, /件目のcombosのparentIdが不正です/, name);
+    assert.ok(!r.reason.includes('ghost-parent-id'), `${name}: 入力値を埋め込まない`);
+  }
+  for (const v of [1, null, '', 'a b', 'x<img>', 'a'.repeat(65), ['p'], { id: 'p' }, true, NaN]) {
+    const d = exportDoc(st(rec('p'), rec('c', 'p')));
+    d.combos[1].parentId = v;
+    const r = validateDoc(d);
+    assert.equal(r.ok, false, JSON.stringify(v));
+    assert.match(r.reason, /2件目のcombosのparentIdが不正です/);
+    assert.ok(!r.reason.includes('x<img>'));
+  }
+  const withUndef = exportDoc(st(rec('p'), rec('c', 'p')));
+  withUndef.combos[1].parentId = undefined; // JSON では現れないが、own キーとして拒否する
+  assert.equal(validateDoc(withUndef).ok, false);
+  assert.equal(validateDoc(exportDoc(st(rec('p'), { ...rec('c', 'p'), extra: 1 }))).ok, false);
+});
+
+test('データ版: 版2は parentId なしの文書として有効、版3は parentId を持てる、版2に parentId があれば拒否、版4は拒否', () => {
+  const tree = st(rec('r'), rec('c', 'r'));
+  const plain = st(rec('r'), rec('s'));
+  const v2 = { ...exportDoc(plain), schemaVersion: 2 };
+  assert.deepEqual(validateDoc(v2), { ok: true });
+  assert.equal(parseDocText(JSON.stringify(v2)).ok, true);
+  assert.equal(mergeImport({ sections: [], combos: [] }, v2).ok, true);
+  assert.equal(exportDoc(tree).schemaVersion, 3);
+  assert.deepEqual(validateDoc({ ...exportDoc(tree), schemaVersion: 3 }), { ok: true });
+  const bad2 = validateDoc({ ...exportDoc(tree), schemaVersion: 2 });
+  assert.equal(bad2.ok, false);
+  assert.match(bad2.reason, /2件目のcombosに未対応の項目/);
+  assert.match(validateDoc({ ...exportDoc(tree), schemaVersion: 4 }).reason, /新しい版\(schemaVersion 4\)/);
+});
+
+test('データ版: 保存済みの版2のデータは損失なく読め、そのまま書き出すと版3になる。連携つきの書き出し→JSON→取り込みも一致する', () => {
+  const saved = JSON.stringify({ ...exportDoc(sampleState()), schemaVersion: 2 });
+  const r = parseDocText(saved);
+  assert.ok(r.ok);
+  const resaved = exportDoc({ sections: r.doc.sections, combos: r.doc.combos });
+  assert.equal(resaved.schemaVersion, 3);
+  assert.deepEqual({ ...resaved, schemaVersion: 2 }, JSON.parse(saved));
+  const tree = st(rec('r'), rec('c', 'r', { createdAt: T0 + 1, updatedAt: T0 + 1 }), rec('g', 'c'));
+  const back = parseDocText(JSON.stringify(exportDoc(tree)));
+  assert.ok(back.ok);
+  assert.deepEqual(mergeImport({ sections: [], combos: [] }, back.doc).doc.combos, tree.combos);
+});
+
+test('取り込み: 2端末の変更が混ざっても親子は整合してマージされる（子の sectionId は根に合わせ、子の個数は縛らない）', () => {
+  const merge = (local, incoming) => {
+    const before = structuredClone(local);
+    const m = mergeImport(local, exportDoc(incoming));
+    assert.deepEqual(local, before, '入力は変更しない');
+    return m;
+  };
+  const newer = (c, over) => ({ ...c, ...over, updatedAt: T0 + 100 });
+  const sections = (m) => m.doc.combos.map((c) => `${c.id}:${c.sectionId}`);
+
+  // 端末の根に、取り込み側の子が付く
+  const a = merge(st(rec('r')), st(rec('r'), rec('c', 'r')));
+  assert.equal(a.ok, true);
+  assert.deepEqual(a.doc.combos.map((c) => c.id), ['r', 'c']);
+  assert.deepEqual(a.combos, { added: 1, updated: 0, unchanged: 1 });
+  // 根と子がともに新しい（セクション移動を取り込む）
+  const b = merge(st(rec('r'), rec('c', 'r')), st(newer(rec('r'), { sectionId: 's1b' }), newer(rec('c', 'r'), { sectionId: 's1b' })));
+  assert.deepEqual(sections(b), ['r:s1b', 'c:s1b']);
+
+  // シナリオ1: 端末で根を木ごと別セクションへ移動（新しい）、取り込み側は旧セクションのまま子だけ新しく編集
+  const s1 = merge(st(newer(rec('r'), { sectionId: 's1b' }), rec('c', 'r', { sectionId: 's1b' })), st(rec('r'), newer(rec('c', 'r'), { title: '編集済み' })));
+  assert.equal(s1.ok, true);
+  assert.deepEqual(sections(s1), ['r:s1b', 'c:s1b']); // 子は編集が勝ち、sectionId は根に合う
+  assert.equal(s1.doc.combos[1].title, '編集済み');
+  // シナリオ2: 逆向き。端末で子だけ新しく編集、取り込み側で根を木ごと移動
+  const s2 = merge(st(rec('r'), newer(rec('c', 'r'), { title: '編集済み' })), st(newer(rec('r'), { sectionId: 's1b' }), rec('c', 'r', { sectionId: 's1b', updatedAt: T0 + 50 })));
+  assert.equal(s2.ok, true);
+  assert.deepEqual(sections(s2), ['r:s1b', 'c:s1b']);
+  assert.equal(s2.doc.combos[1].title, '編集済み');
+  // 孫も根に合う。別の根の木には触れない
+  const deepMix = merge(st(newer(rec('r'), { sectionId: 's1b' }), rec('c', 'r', { sectionId: 's1b' }), rec('g', 'c', { sectionId: 's1b' }), rec('other')), st(rec('r'), rec('c', 'r'), newer(rec('g', 'c'), { title: '孫' }), rec('other')));
+  assert.deepEqual(sections(deepMix), ['r:s1b', 'c:s1b', 'g:s1b', 'other:s1']);
+  // シナリオ3: 子5個の親に、各端末が2個ずつ足して9個。拒否されず、全件が残る
+  const base = Array.from({ length: 5 }, (_, i) => rec(`k${i}`, 'r'));
+  const s3 = merge(st(rec('r'), ...base, rec('L0', 'r'), rec('L1', 'r')), st(rec('r'), ...base, rec('I0', 'r'), rec('I1', 'r')));
+  assert.equal(s3.ok, true);
+  assert.equal(childrenOf(s3.doc.combos, 'r').length, 9);
+  assert.equal(addChildBlock(s3.doc.combos, 'r'), 'siblings'); // 9個でも追加は止まる
+  // 端末の根が8個の子を持つところへ、取り込み側から9個目
+  const kids = Array.from({ length: 8 }, (_, i) => rec(`k${i}`, 'r'));
+  assert.equal(merge(st(rec('r'), ...kids), st(rec('r'), rec('extra', 'r'))).doc.combos.length, 10);
+  // 親だけ新しい（子は触れていない）
+  assert.equal(merge(st(rec('r'), rec('c', 'r')), st(newer(rec('r'), { title: '改題' }))).doc.combos.length, 2);
+
+  // 拒否（手書きの JSON だけで起きる）: 取り込み側の新しい記録の位置が深く、端末側の子孫が深さ4になる。取り込みで親子が逆転して循環する
+  // 理由は「N件目」を含まない固定文で、入力値を埋め込まない
+  for (const [name, local, incoming] of [
+    ['深さ4', st(rec('a'), rec('b', 'a'), rec('c', 'b')), st(rec('z'), rec('y', 'z'), newer(rec('a', 'y'), {}))],
+    ['循環', st(rec('a'), rec('b', 'a')), st(rec('x'), rec('b', 'x'), newer(rec('a', 'b'), {}))],
+  ]) {
+    const r = merge(local, incoming);
+    assert.deepEqual(r, { ok: false, reason: '他の端末での変更と、セクションや連携の親子関係が食い違うため取り込めません' }, name);
+  }
+  // 取り込むファイル自身が不正なら、ファイルの番号つきの理由のまま（利用者が自分のファイルを見て直せる）
+  const own = exportDoc(st(rec('r'), rec('c', 'ghost')));
+  assert.match(mergeImport(st(), own).reason, /^2件目のcombosのparentIdが不正です/);
+});
+
+test('削除: 子孫もまとめて消え、元の state は変わらない（削除前の state を書き戻せば全部戻る）。子孫の件数を返せる', () => {
+  const state = st(rec('r'), rec('c1', 'r'), rec('g', 'c1'), rec('c2', 'r'), rec('other'), rec('og', 'other'));
+  const before = structuredClone(state);
+  assert.equal(countDescendants(state.combos, 'r'), 3);
+  assert.equal(countDescendants(state.combos, 'c1'), 1);
+  assert.equal(countDescendants(state.combos, 'g'), 0);
+  assert.equal(countDescendants(state.combos, 'nope'), 0);
+  const next = deleteCombo(state, 'r');
+  assert.deepEqual(next.combos.map((c) => c.id), ['other', 'og']);
+  assert.deepEqual(validateDoc(exportDoc(next)), { ok: true });
+  assert.deepEqual(state, before);
+  assert.deepEqual(deleteCombo(state, 'c1').combos.map((c) => c.id), ['r', 'c2', 'other', 'og']); // 連携だけ消す
+  assert.deepEqual(deleteCombo(state, 'g').combos.length, 5);
+  assert.throws(() => deleteCombo(state, 'nope'), /見つかりません/);
+});
+
+test('複製: 子孫も新しい id で複製し parentId を付け替える。複製元は変わらず、往復して validateDoc を通る', () => {
+  const state = st(
+    rec('r', undefined, { title: '根' }),
+    rec('c1', 'r', { title: 'ガード時', createdAt: T0 + 2, updatedAt: T0 + 2 }),
+    rec('c2', 'r', { title: 'ヒット時', createdAt: T0 + 1, updatedAt: T0 + 1 }),
+    rec('g', 'c1', { title: '分岐' }),
+  );
+  const before = structuredClone(state);
+  const copies = duplicateTree(state.combos, 'r', T0 + 500);
+  assert.deepEqual(state, before);
+  assert.equal(copies.length, 4);
+  const old = new Set(state.combos.map((c) => c.id));
+  assert.ok(copies.every((c) => !old.has(c.id) && c.updatedAt === T0 + 500));
+  assert.equal(copies[0].createdAt, T0 + 500); // 複製した記録は新しい。子孫の createdAt は元のまま（兄弟の順序を保つ）
+  assert.deepEqual(copies.slice(1).map((c) => c.createdAt).sort(), [T0, T0 + 1, T0 + 2]);
+  assert.deepEqual(copies.slice(1).map((c) => c.position), ['any', 'any', 'any']);
+  assert.equal(new Set(copies.map((c) => c.id)).size, 4);
+  const [root, ...rest] = copies;
+  assert.equal(root.title, '根のコピー');
+  assert.equal(root.parentId, undefined);
+  assert.deepEqual(childrenOf(copies, root.id).map((c) => c.title), ['ヒット時', 'ガード時']); // 並びは元と同じ（createdAt の順）
+  const guard = rest.find((c) => c.title === 'ガード時');
+  assert.equal(guard.parentId, root.id);
+  assert.equal(rest.find((c) => c.title === '分岐').parentId, guard.id);
+  const next = { sections: state.sections, combos: [...state.combos, ...copies] };
+  assert.deepEqual(validateDoc(exportDoc(next)), { ok: true });
+  assert.equal(descendantTree(next.combos, root.id).length, 3);
+  assert.equal(countDescendants(next.combos, 'r'), 3);
+  // 連携・分岐の複製は同じ親の下の兄弟
+  const sib = duplicateTree(state.combos, 'c1', T0 + 600);
+  assert.equal(sib.length, 2);
+  assert.equal(sib[0].parentId, 'r');
+  assert.equal(sib[1].parentId, sib[0].id);
+  assert.deepEqual(validateDoc(exportDoc({ sections: state.sections, combos: [...state.combos, ...sib] })), { ok: true });
+  // 親の子が上限（8個）の連携は複製できない
+  const full = st(rec('r'), ...Array.from({ length: 8 }, (_, i) => rec(`k${i}`, 'r')));
+  assert.throws(() => duplicateTree(full.combos, 'k0', T0), /上限/);
+  // 元より古い now でも updatedAt が createdAt を下回らない
+  const old2 = duplicateTree([rec('r'), rec('c', 'r', { createdAt: T0 + 50, updatedAt: T0 + 50 })], 'r', T0 + 10);
+  assert.deepEqual(validateDoc(exportDoc(st(...old2))), { ok: true });
+  assert.equal(duplicateTree(full.combos, 'r', T0).length, 9);
+  assert.throws(() => duplicateTree(state.combos, 'nope', T0), /見つかりません/);
+  // 1件だけの複製（duplicateCombo）は従来どおり
+  assert.equal(duplicateCombo(state.combos[1], 5).parentId, 'r');
+});
+
+test('セクション移動: 根は子孫ごと移り、連携・分岐だけの移動は拒否。セクションの削除も根と子孫を一緒に移す', () => {
+  const state = st(rec('r'), rec('c', 'r'), rec('g', 'c'), rec('x'), rec('xk', 'x'));
+  const before = structuredClone(state);
+  const m = moveCombo(state, 'r', 's1b', T0 + 9);
+  assert.deepEqual(state, before);
+  assert.deepEqual(m.combos.map((c) => c.sectionId), ['s1b', 's1b', 's1b', 's1', 's1']);
+  assert.deepEqual(m.combos.slice(0, 3).map((c) => c.updatedAt), [T0 + 9, T0 + 9, T0 + 9]);
+  assert.equal(m.combos[3].updatedAt, T0);
+  assert.deepEqual(validateDoc(exportDoc(m)), { ok: true });
+  assert.throws(() => moveCombo(state, 'c', 's1b', T0), /連携・分岐だけ/);
+  assert.throws(() => moveCombo(state, 'g', 's1b', T0), /連携・分岐だけ/);
+  assert.throws(() => moveCombo(state, 'r', 's2', T0), /別のキャラ/);
+  assert.throws(() => moveCombo(state, 'r', 'nope', T0), /見つかりません/);
+  assert.throws(() => moveCombo(state, 'nope', 's1b', T0), /見つかりません/);
+  assert.equal(moveCombo(state, 'r', 's1', T0), state);
+  // 子孫だけセクションを変えた state は検証で拒否される（移動は moveCombo を通す）
+  const stray = { sections: state.sections, combos: state.combos.map((c) => (c.id === 'c' ? { ...c, sectionId: 's1b' } : c)) };
+  assert.equal(validateDoc(exportDoc(stray)).ok, false);
+  // セクション削除
+  const del = deleteSection(state, 's1', 's1b', T0 + 9);
+  assert.equal(del.ok, true);
+  assert.ok(del.state.combos.every((c) => c.sectionId === 's1b'));
+  assert.deepEqual(validateDoc(exportDoc(del.state)), { ok: true });
+});
+
+test('件数: 連携・分岐も数える。キャラ別・セクション別の件数と neonLevel の入力は combos 全体の数で、一覧に出す根の数とは別', () => {
+  const combos = [rec('r1'), rec('c1', 'r1'), rec('g1', 'c1'), rec('r2'), rec('k', undefined, { sectionId: 's2', characterId: 'ken' })];
+  const countOf = (cid) => combos.filter((c) => c.characterId === cid).length; // app.js のタイルと同じ数え方
+  assert.equal(countOf('ryu'), 4);
+  assert.equal(combos.filter((c) => c.sectionId === 's1').length, 4);
+  assert.equal(rootsOf(combos, 's1').length, 2);
+  assert.equal(neonLevel(countOf('ryu')), 3); // 4件 = 段階3（閾値 1/2/3/5…）
+  assert.notEqual(neonLevel(countOf('ryu')), neonLevel(rootsOf(combos, 's1').length));
+  assert.equal(neonLevel(countOf('ken')), 1);
+});
+
+test('一覧用: rootsOf は根だけ、childrenOf は createdAt 昇順（同じなら id 順）、descendantTree は先行順で深さつき、addChildBlock は追加できない理由', () => {
+  const combos = [
+    rec('r'), rec('late', 'r', { createdAt: T0 + 5, updatedAt: T0 + 5 }), rec('early', 'r', { createdAt: T0 + 1, updatedAt: T0 + 1 }),
+    rec('tie2', 'r', { createdAt: T0 + 3, updatedAt: T0 + 3 }), rec('tie1', 'r', { createdAt: T0 + 3, updatedAt: T0 + 3 }), // 配列の順と id の順が逆
+    rec('g', 'early'), rec('gg', 'g'), rec('other', undefined, { sectionId: 's1b' }), rec('ok', 'other', { sectionId: 's1b' }),
+  ];
+  assert.deepEqual(rootsOf(combos, 's1').map((c) => c.id), ['r']);
+  assert.deepEqual(rootsOf(combos, 's1b').map((c) => c.id), ['other']);
+  assert.deepEqual(rootsOf(combos, 'none'), []);
+  assert.deepEqual(childrenOf(combos, 'r').map((c) => c.id), ['early', 'tie1', 'tie2', 'late']);
+  assert.deepEqual(childrenOf(combos, 'gg'), []);
+  assert.deepEqual(childrenOf(combos, 'nope'), []);
+  assert.deepEqual(descendantTree(combos, 'r').map((n) => [n.combo.id, n.depth]), [['early', 1], ['g', 2], ['gg', 3], ['tie1', 1], ['tie2', 1], ['late', 1]]);
+  assert.deepEqual(descendantTree(combos, 'early').map((n) => [n.combo.id, n.depth]), [['g', 1], ['gg', 2]]);
+  assert.deepEqual(descendantTree(combos, 'nope'), []);
+  // 追加可否: 深さ3の記録の下には足せない。根・深さ1・2は足せる。8個の子を持つ親には足せない。存在しない id は false
+  assert.deepEqual(['r', 'early', 'g', 'gg', 'nope'].map((id) => addChildBlock(combos, id)), [null, null, null, 'depth', 'missing']);
+  const full = Array.from({ length: 8 }, (_, i) => rec(`k${i}`, 'r'));
+  assert.equal(addChildBlock([rec('r'), ...full.slice(0, 7)], 'r'), null);
+  assert.equal(addChildBlock([rec('r'), ...full], 'r'), 'siblings');
+  assert.equal(addChildBlock([rec('r'), ...full], 'k0'), null);
+  assert.equal(addChildBlock([rec('r'), ...full, rec('gg1', 'k0'), rec('gg2', 'gg1'), rec('gg3', 'gg2')], 'gg3'), 'depth'); // 深さと個数が両方なら深さ
+  // 追加した子は新しい createdAt なら兄弟の末尾に並ぶ
+  const added = [...combos, rec('new', 'r', { createdAt: T0 + 9, updatedAt: T0 + 9 })];
+  assert.equal(childrenOf(added, 'r').at(-1).id, 'new');
+});
+
+test('下書き: 新しい連携・分岐の下書きは parentId（id の形のもの）を持てる。不正な値は捨てる', () => {
+  const base = { tokens: [], title: 't' };
+  assert.equal(sanitizeDraft({ ...base, parentId: 'root1' }).parentId, 'root1');
+  for (const v of [1, null, '', 'a b', 'x<y>', 'a'.repeat(65), ['p'], {}]) assert.equal(Object.hasOwn(sanitizeDraft({ ...base, parentId: v }), 'parentId'), false, JSON.stringify(v));
+  assert.equal(Object.hasOwn(sanitizeDraft(base), 'parentId'), false);
+});
+
+test('連携・分岐の関数は不正な入力で例外を出さない（検証・一覧用）。循環した入力でも止まる', () => {
+  const cyc = [rec('a', 'b'), rec('b', 'a')];
+  assert.equal(validateDoc(exportDoc(st(...cyc))).ok, false);
+  assert.deepEqual(descendantTree(cyc, 'a').map((n) => n.combo.id), ['b']); // a の子 b まで。b の子 a は始点なので入らず、止まる
+  assert.equal(addChildBlock(cyc, 'a'), 'depth');
+  assert.deepEqual(childrenOf([], 'x'), []);
+  assert.deepEqual(rootsOf([], 's1'), []);
+  assert.equal(countDescendants([], 'x'), 0);
+  for (const junk of [null, 1, 'x', {}]) {
+    assert.equal(validateDoc({ ...exportDoc(st()), combos: junk }).ok, false, JSON.stringify(junk));
+    assert.equal(validateDoc({ ...exportDoc(st()), combos: [junk] }).ok, false, JSON.stringify(junk));
+  }
+});
+
+test('計算量: 記録1万件（深さ3の木）でも検証・子孫の取得・親子一覧が実用の時間で終わる（絶対値の上限）', () => {
+  // 根 : 連携 : 分岐 : 分岐 = 1 : 2 : 4 : 8 の木を、n 件になるまで作る
+  const build = (n) => {
+    const combos = [];
+    while (combos.length < n) {
+      const r = rec(`t${combos.length}`);
+      combos.push(r);
+      let level = [r];
+      for (let d = 1; d <= 3; d++) {
+        const next = [];
+        for (const p of level) for (let k = 0; k < 2 && combos.length < n; k++) { const c = rec(`t${combos.length}`, p.id); combos.push(c); next.push(c); }
+        level = next;
+      }
+    }
+    return combos;
+  };
+  const time = (f) => { const t = process.hrtime.bigint(); f(); return Number(process.hrtime.bigint() - t) / 1e6; };
+  const run = (combos) => {
+    const doc = exportDoc({ sections: SECS(), combos });
+    let ok;
+    const v = time(() => { ok = validateDoc(doc).ok; });
+    assert.equal(ok, true);
+    const d = time(() => { for (let i = 0; i < 50; i++) descendantTree(combos, combos[(i * 15) % combos.length].id); });
+    const roots = time(() => rootsOf(combos, 's1'));
+    return { v, d, roots };
+  };
+  run(build(500)); // ウォームアップ
+  const small = run(build(2500));
+  const big = run(build(LIMITS.combos));
+  console.log(`# 計算量 2500件: validateDoc ${small.v.toFixed(1)}ms, descendantTree×50 ${small.d.toFixed(1)}ms / 10000件: validateDoc ${big.v.toFixed(1)}ms, descendantTree×50 ${big.d.toFixed(1)}ms, rootsOf ${big.roots.toFixed(2)}ms`);
+  // 負荷で落ちないよう、時間の比ではなく絶対値の上限で判定する（実測は validateDoc 約150ms、descendantTree 50回 約500ms。二乗の実装なら桁が上がる）
+  assert.ok(big.v < 2000, `validateDoc 1万件が${big.v}ms`);
+  assert.ok(big.d < 4000, `descendantTree 50回が${big.d}ms`);
+});
+
+test('件数: rootCount はセクションの一覧に出す行（根）、comboCount はセクションの全件。キャラ全体の件数は combos 全体', () => {
+  const combos = [rec('r1'), rec('c1', 'r1'), rec('g1', 'c1'), rec('r2'), rec('b', undefined, { sectionId: 's1b' }), rec('k', undefined, { sectionId: 's2', characterId: 'ken' })];
+  assert.equal(rootCount(combos, 's1'), 2); // r1・r2
+  assert.deepEqual(rootsOf(combos, 's1').map((c) => c.id), ['r1', 'r2']);
+  assert.equal(comboCount(combos, 's1'), 4);
+  assert.equal(rootCount(combos, 's1b'), 1);
+  assert.equal(rootCount(combos, 'none'), 0);
+  assert.equal(comboCount(combos, 'none'), 0);
+  assert.equal(combos.filter((c) => c.characterId === 'ryu').length, 5); // タイル・neonLevel・読み上げ名の件数
+});
+
+test('新しい連携: 親の sectionId・characterId を写し、favorite は false、position は any、createdAt は兄弟の最後。上限では例外', () => {
+  const combos = [rec('r', undefined, { sectionId: 's1b' }), rec('a', 'r', { sectionId: 's1b', createdAt: T0 + 100, updatedAt: T0 + 100 })];
+  assert.equal(nextChildCreatedAt(combos, 'r', T0 + 500), T0 + 500);
+  assert.equal(nextChildCreatedAt(combos, 'r', T0), T0 + 101); // now が古くても兄弟の後ろ
+  assert.equal(nextChildCreatedAt(combos, 'a', T0), T0); // 子のいない親は now
+  const c = newChildCombo(combos, 'r', { title: 'ガード時', tokens: [N('stand', 'L', 'P')], memo: 'm', tags: ['t'], damage: 300 }, T0);
+  assert.equal(c.parentId, 'r');
+  assert.equal(c.sectionId, 's1b');
+  assert.equal(c.characterId, 'ryu');
+  assert.equal(c.favorite, false);
+  assert.equal(c.position, 'any');
+  assert.equal(c.createdAt, T0 + 101);
+  assert.equal(c.updatedAt, c.createdAt);
+  assert.equal(c.damage, 300);
+  const next = [...combos, c];
+  assert.deepEqual(validateDoc(exportDoc(st(...next.map((x) => ({ ...x }))))), { ok: true });
+  assert.deepEqual(childrenOf(next, 'r').map((x) => x.id), ['a', c.id]);
+  assert.equal(Object.hasOwn(newChildCombo(combos, 'r', {}, T0), 'damage'), false);
+  assert.deepEqual(newChildCombo(combos, 'r', undefined, T0).tokens, []);
+  assert.throws(() => newChildCombo(combos, 'nope', {}, T0), /見つかりません/);
+  assert.throws(() => newChildCombo(chain(3), 'n3', {}, T0), /3段目/);
+  assert.throws(() => newChildCombo([rec('r'), ...Array.from({ length: 8 }, (_, i) => rec(`k${i}`, 'r'))], 'r', {}, T0), /8個/);
 });

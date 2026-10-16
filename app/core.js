@@ -45,8 +45,9 @@ export const neonLevel = (n) => NEON_STEPS.filter((t) => n >= t).length;
 // ===== SECTION: トークン定義 =====
 // トークンの種別は `type` で持つ（D-004）。dir は数値（1,3,4,6,7,8,9）、motion は文字列。
 export const APP_ID = 'sf6-strategy-memo';
-// D-013: 版2 = move・str:'N' を足した版。読み込みは版1と2（版1は変換なしでそのまま有効）、書き出しは常に最新版。
-export const SCHEMA_VERSION = 2;
+// D-013: 版2 = move・str:'N' を足した版。D-021: 版3 = 記録に任意の parentId（連携・分岐）を足した版。
+// 読み込みは版1〜3（古い版は変換なしでそのまま有効。parentId は版3だけ）、書き出しは常に最新版。
+export const SCHEMA_VERSION = 3;
 export const PRESETS = ['236', '214', '623', '22', '63214', '[4]6', '[2]8', '360'];
 export const SYSTEM_IDS = ['RAW_DR', 'CDR', 'DI', 'PARRY', 'REVERSAL'];
 export const NOTE_IDS = ['CH', 'PC'];
@@ -422,8 +423,9 @@ export const sanitizeSpecialNotation = (v) => (SPECIAL_NOTATIONS.includes(v) ? v
 
 // ===== SECTION: 文書の検証 =====
 // ponytail: 上限値は個人利用の目安。実データで足りなくなったら調整する。
-export const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, name: 50, title: 100, tag: 30, memo: 2000 };
-const COMBO_KEYS = ['id', 'characterId', 'controlType', 'sectionId', 'title', 'position', 'tokens', 'memo', 'tags', 'favorite', 'createdAt', 'updatedAt', 'damage'];
+// depth = 連携・分岐の深さの上限（根を0とする。D-021）、children = 1つの親の直下の子を追加できる上限（追加時の addChildBlock だけが守る。検証は見ない）。
+export const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, name: 50, title: 100, tag: 30, memo: 2000, depth: 3, children: 8 };
+const COMBO_KEYS = ['id', 'characterId', 'controlType', 'sectionId', 'title', 'position', 'tokens', 'memo', 'tags', 'favorite', 'createdAt', 'updatedAt', 'damage', 'parentId'];
 const POSITIONS = ['any', 'corner', 'midscreen'];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const isId = (v) => typeof v === 'string' && ID_RE.test(v);
@@ -443,7 +445,7 @@ function docProblem(doc) {
   const v = doc.schemaVersion;
   if (v === undefined) return 'schemaVersionがありません';
   if (!Number.isInteger(v) || v < 1) return 'schemaVersionが不正です';
-  if (v > SCHEMA_VERSION) return `新しい版(schemaVersion ${v})のデータです。アプリを更新してください`; // 版1・2は受け付ける（版1は変換なしで有効）
+  if (v > SCHEMA_VERSION) return `新しい版(schemaVersion ${v})のデータです。アプリを更新してください`; // 版1〜3は受け付ける（変換なしで有効）
   for (const list of ['sections', 'combos']) {
     if (!Array.isArray(doc[list])) return `${list}が配列ではありません`;
     if (doc[list].length > LIMITS[list]) return `${list}が多すぎます(上限${LIMITS[list]}件)`;
@@ -465,9 +467,10 @@ function docProblem(doc) {
     sectionChar.set(s.id, s.characterId);
   }
 
-  const comboIds = new Set();
+  const byId = new Map();
+  const comboKeys = v >= 3 ? COMBO_KEYS : COMBO_KEYS.filter((k) => k !== 'parentId'); // parentId は版3から
   for (const [i, c] of doc.combos.entries()) {
-    if (isObj(c) && !onlyKeys(c, COMBO_KEYS)) return `${i + 1}件目のcombosに未対応の項目があります`;
+    if (isObj(c) && !onlyKeys(c, comboKeys)) return `${i + 1}件目のcombosに未対応の項目があります`;
     const bad = isObj(c) && [
       ['id', isId(c.id)],
       ['characterId', isCharacter(c.characterId)],
@@ -482,10 +485,25 @@ function docProblem(doc) {
       ['createdAt', isTime(c.createdAt)],
       ['updatedAt', isTime(c.updatedAt) && c.updatedAt >= c.createdAt],
       ['damage', !Object.hasOwn(c, 'damage') || isDamage(c.damage)],
+      ['parentId', !Object.hasOwn(c, 'parentId') || isId(c.parentId)],
     ].find(([, ok]) => !ok);
     if (!isObj(c) || bad) return `${i + 1}件目のcombosの${bad ? bad[0] : '形式'}が不正です`;
-    if (comboIds.has(c.id)) return `combosのidが重複しています`;
-    comboIds.add(c.id);
+    if (byId.has(c.id)) return `combosのidが重複しています`;
+    byId.set(c.id, c);
+  }
+
+  // 連携・分岐（D-021）: 親は同じキャラ・セクション・controlType、深さは根を0として LIMITS.depth 以下。子の個数は見ない（2端末のマージで9個以上になりうる。上限は追加時だけ）。
+  // 親は配列の後ろにあってよいので、全件の登録後に調べる。深さの上限があるので、親を最大 LIMITS.depth+1 回たどれば足り、循環もここで拒否される（全体で線形）。
+  for (const [i, c] of doc.combos.entries()) {
+    if (c.parentId === undefined) continue;
+    const bad = (why) => `${i + 1}件目のcombosのparentIdが不正です(${why})`;
+    const p = byId.get(c.parentId);
+    if (!p) return bad('親がありません');
+    if (p.sectionId !== c.sectionId) return bad('親とセクションが違います'); // セクションは1キャラのもので、controlType は classic だけなので、同キャラ・同controlType もこれで保証される
+    let depth = 0;
+    for (let cur = c; cur.parentId !== undefined; cur = byId.get(cur.parentId)) {
+      if (++depth > LIMITS.depth || !byId.has(cur.parentId)) return bad(`深さは${LIMITS.depth}までで、循環もできません`);
+    }
   }
   return null;
 }
@@ -581,6 +599,115 @@ export function deleteSection(state, sectionId, moveToId, now) {
   };
 }
 
+// ===== SECTION: 連携・分岐（D-021） =====
+// 記録の parentId で木を作る。parentId のない記録が根（従来のコンボ）、あるものが連携・分岐。木の整合は validateDoc が保証する。
+// 兄弟の並びは createdAt の昇順、同じなら id の順（position は画面位置 any/corner/midscreen の列挙で順序を持たないため使わない）。新しい子は nextChildCreatedAt で末尾に並ぶ。
+// 以下の関数は combos（state.combos）を受け取り、入力を変更しない。件数のうち、キャラ選択・neonLevel・読み上げ名は連携・分岐も含む combos 全体の数、
+// セクションの帯と削除シートの件数は rootCount（一覧に出す行の数）、セクションの全件は comboCount。
+const compareSiblings = (a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+const childMap = (combos) => {
+  const m = new Map();
+  for (const c of combos) if (c.parentId !== undefined) m.set(c.parentId, [...(m.get(c.parentId) ?? []), c]);
+  for (const list of m.values()) list.sort(compareSiblings);
+  return m;
+};
+
+/** セクションの一覧に出す記録（根）。並びは配列の順 */
+export const rootsOf = (combos, sectionId) => combos.filter((c) => c.sectionId === sectionId && c.parentId === undefined);
+
+/** セクションの帯の「N件」・削除シートの件数: 一覧に出す行（根）の数 */
+export const rootCount = (combos, sectionId) => rootsOf(combos, sectionId).length;
+
+/** セクションの全件数（連携・分岐を含む） */
+export const comboCount = (combos, sectionId) => combos.filter((c) => c.sectionId === sectionId).length;
+
+/** 直下の子（createdAt の昇順、同じなら id の順） */
+export const childrenOf = (combos, id) => childMap(combos).get(id) ?? [];
+
+/** 子孫を先行順（親→子、兄弟は childrenOf の順）に並べた [{ combo, depth }]。depth は id の記録から数え、直下の子が1。id 自身は含まない */
+export function descendantTree(combos, id) {
+  const kids = childMap(combos);
+  const out = [];
+  const seen = new Set([id]); // 不正な入力（循環）でも止まる
+  const stack = (kids.get(id) ?? []).map((combo) => ({ combo, depth: 1 })).reverse();
+  while (stack.length) {
+    const n = stack.pop();
+    if (seen.has(n.combo.id)) continue;
+    seen.add(n.combo.id);
+    out.push(n);
+    for (const combo of [...(kids.get(n.combo.id) ?? [])].reverse()) stack.push({ combo, depth: n.depth + 1 });
+  }
+  return out;
+}
+
+/** 子孫の件数（削除の確認文に使う） */
+export const countDescendants = (combos, id) => descendantTree(combos, id).length;
+
+/** id の記録の下に新しい連携・分岐を足せない理由。足せるなら null、深さの上限（その記録の深さが LIMITS.depth 以上）なら 'depth'、
+ *  直下の子が LIMITS.children 個以上なら 'siblings'、記録がなければ 'missing'。連携・分岐の複製の可否は、その親の id で調べる */
+export function addChildBlock(combos, id) {
+  const byId = new Map(combos.map((c) => [c.id, c]));
+  const c = byId.get(id);
+  if (!c) return 'missing';
+  let depth = 0;
+  for (let cur = c; cur.parentId !== undefined; cur = byId.get(cur.parentId)) if (++depth >= LIMITS.depth) return 'depth';
+  return combos.filter((x) => x.parentId === id).length >= LIMITS.children ? 'siblings' : null;
+}
+
+/** 新しい連携・分岐の createdAt（updatedAt にも使う）: 兄弟の最後に並ぶよう、now と、兄弟の最大の createdAt+1 の大きい方 */
+export const nextChildCreatedAt = (combos, parentId, now) =>
+  combos.reduce((t, c) => (c.parentId === parentId ? Math.max(t, c.createdAt + 1) : t), now);
+
+/** 新しい連携・分岐の記録を作る。sectionId・characterId・controlType は親の値、favorite は false、position は 'any'、createdAt は nextChildCreatedAt。
+ *  fields は { title, tokens, memo, tags, damage? }（省略は空）。足せない親（addChildBlock が null でない）なら例外。state.combos の末尾に足す */
+export function newChildCombo(combos, parentId, fields, now) {
+  const block = addChildBlock(combos, parentId);
+  if (block) throw new Error({ missing: 'つなぐ元の記録が見つかりません', depth: '分岐は3段目までです', siblings: `分岐は${LIMITS.children}個までです` }[block]);
+  const p = combos.find((c) => c.id === parentId);
+  const { title = '', tokens = [], memo = '', tags = [], damage } = fields ?? {};
+  const t = nextChildCreatedAt(combos, parentId, now);
+  return {
+    id: newId(), characterId: p.characterId, controlType: p.controlType, sectionId: p.sectionId, title, position: 'any',
+    tokens, memo, tags, favorite: false, createdAt: t, updatedAt: t, ...(damage !== undefined && { damage }), parentId,
+  };
+}
+
+/** 記録を子孫ごと削除した新しい state。元の state は変えない（取り消しは呼び出し側が持つ削除前の state を書き戻す）。記録がなければ例外 */
+export function deleteCombo(state, id) {
+  if (!state.combos.some((c) => c.id === id)) throw new Error('記録が見つかりません');
+  const gone = new Set([id, ...descendantTree(state.combos, id).map((n) => n.combo.id)]);
+  return { sections: state.sections, combos: state.combos.filter((c) => !gone.has(c.id)) };
+}
+
+/** 記録を子孫ごと新しい id で複製した配列（先頭が複製した記録。createdAt・updatedAt は now）。子孫は parentId を新しい id に付け替え、
+ *  タイトルと createdAt・position は元のまま（兄弟の順序が保たれる）、updatedAt だけ now（createdAt より前にならないよう max）。
+ *  連携・分岐の複製は同じ親の下の兄弟になるので、親の子が上限なら例外。呼び出し側は state.combos の末尾に足す */
+export function duplicateTree(combos, id, now) {
+  const src = combos.find((c) => c.id === id);
+  if (!src) throw new Error('記録が見つかりません');
+  if (src.parentId !== undefined && addChildBlock(combos, src.parentId) !== null) throw new Error('連携・分岐の数が上限のため複製できません');
+  const copy = duplicateCombo(src, now);
+  const ids = new Map([[id, copy.id]]);
+  const out = [copy];
+  for (const { combo } of descendantTree(combos, id)) { // 先行順なので親の新しい id は決まっている
+    const d = { ...duplicateCombo(combo, now), title: combo.title, createdAt: combo.createdAt, updatedAt: Math.max(now, combo.createdAt), parentId: ids.get(combo.parentId) };
+    ids.set(combo.id, d.id);
+    out.push(d);
+  }
+  return out;
+}
+
+/** 根を同じキャラの別セクションへ、子孫ごと移した新しい state。連携・分岐だけの移動は例外（根と別のセクションになるため） */
+export function moveCombo(state, id, sectionId, now) {
+  const c = state.combos.find((x) => x.id === id);
+  if (!c) throw new Error('記録が見つかりません');
+  if (c.parentId !== undefined) throw new Error('連携・分岐だけを別のセクションへ移すことはできません');
+  if (findSection(state, sectionId).characterId !== c.characterId) throw new Error('別のキャラクターのセクションには移せません');
+  if (c.sectionId === sectionId) return state;
+  const moved = new Set([id, ...descendantTree(state.combos, id).map((n) => n.combo.id)]);
+  return { sections: state.sections, combos: state.combos.map((x) => (moved.has(x.id) ? { ...x, sectionId, updatedAt: Math.max(now, x.createdAt) } : x)) };
+}
+
 // ===== SECTION: 編集画面の補助 =====
 // 直近の技（パッドの上段）: そのキャラの保存済み記録から、新しい記録の後ろの技から順に、重複と注記を除いて最大 limit 件。
 export function recentTokens(combos, characterId, limit = 8) {
@@ -611,7 +738,7 @@ export function tagCandidates(combos, characterId) {
   return [...mine, ...rank(combos.filter((c) => c.characterId !== characterId)).filter((t) => !mine.includes(t))];
 }
 
-// 複製: 同じセクションに、新しいid・日時で。タイトルは「（元）のコピー」（上限を超えるときは元の側を削る）。
+// 複製: 同じセクションに、新しいid・日時で。タイトルは「（元）のコピー」（上限を超えるときは元の側を削る）。1件だけの複製で、子孫は複製しない（子孫ごとは duplicateTree）。
 export function duplicateCombo(combo, now) {
   const suffix = 'のコピー';
   return {
@@ -635,6 +762,7 @@ export function sanitizeDraft(raw, fresh = { sectionId: null, title: '', positio
     tokens: raw.tokens.filter(isValidToken).slice(0, LIMITS.tokens),
     memo: str(raw.memo, LIMITS.memo, fresh.memo),
     ...(isDamage(raw.damage) && { damage: raw.damage }),
+    ...(isId(raw.parentId) && { parentId: raw.parentId }), // 新しい連携・分岐の下書き。親の存在は呼び出し側が確かめる
     tags: Array.isArray(raw.tags)
       ? raw.tags.filter((t) => typeof t === 'string' && t.trim() !== '').map((t) => t.slice(0, LIMITS.tag)).slice(0, LIMITS.tags)
       : fresh.tags,
@@ -649,8 +777,12 @@ export function exportDoc(state) {
 }
 
 // D-006: id一致は updatedAt の新しい方、同時刻は端末側。端末のみの記録は残す。入力は変更しない。
-// マージ結果も validateDoc に通し、参照整合が崩れる場合は { ok: false, reason } を返す。
+// マージは記録単位なので、親子の整合（D-021）のうち同セクションだけは混ざりうる（片方の端末が根を木ごと別セクションへ移し、もう片方が子だけを編集した）。
+// 根の移動は常に木ごとで、子の sectionId は表示に使わないので、根を正として子の sectionId を合わせる。子の個数は検証しない（9個以上になりうる）。
+// parentId は編集できないので、深さや循環はマージで新しく生まれない（手書きの JSON だけ）。
+// マージ結果も validateDoc に通し、崩れる場合は取り込み全体を { ok: false, reason } で拒否する。「N件目」はマージ後の配列の番号で読めないので、固定文にする。
 // 成功時は { ok: true, doc, sections: { added, updated, unchanged }, combos: { added, updated, unchanged } }（docは {sections, combos}）。
+const MERGE_CONFLICT = '他の端末での変更と、セクションや連携の親子関係が食い違うため取り込めません';
 export function mergeImport(local, incoming) {
   const checked = validateDoc(incoming);
   if (!checked.ok) return checked;
@@ -678,8 +810,14 @@ export function mergeImport(local, incoming) {
     sections: mergeList(local.sections, incoming.sections, sections),
     combos: mergeList(local.combos, incoming.combos, combos),
   };
+  const byId = new Map(doc.combos.map((c) => [c.id, c]));
+  for (const c of doc.combos) {
+    let r = c;
+    for (let i = 0; r.parentId !== undefined && byId.has(r.parentId) && i <= LIMITS.depth; i++) r = byId.get(r.parentId);
+    if (r.parentId === undefined) c.sectionId = r.sectionId;
+  }
   const result = validateDoc(exportDoc(doc));
-  return result.ok ? { ok: true, doc, sections, combos } : result;
+  return result.ok ? { ok: true, doc, sections, combos } : { ok: false, reason: /^\d+件目/.test(result.reason) ? MERGE_CONFLICT : result.reason };
 }
 
 // ===== SECTION: 書き出しの案内 =====
