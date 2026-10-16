@@ -44,7 +44,6 @@ export const SPECIALS = {
     { name: 'サマーソルトキック', motion: '[2]8', button: 'K' },
     { name: 'ソニックブレイド', motion: '214', button: 'P' },
     { name: 'ソニッククロス', motion: '6', button: 'P', follows: ['ソニックブレイド'] },
-    { name: 'ソニックブレイク（派生）', motion: null, button: 'P', follows: ['ソニックブーム'] },
   ],
   kimberly: [
     { name: '武神旋風脚', motion: '214', button: 'K' },

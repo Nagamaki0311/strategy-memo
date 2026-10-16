@@ -329,7 +329,8 @@ function judge(entries, token, prev) {
     else if (n) hits.push(e);
   };
   if (prev) entries.filter((e) => e.follows && followsPrev(entries, e, prev)).forEach(consider);
-  if (!hits.length && token.type === 'special') entries.filter((e) => !e.follows).forEach(consider);
+  // 強度別の名前の派生が強度なしで決まらないときは、同じ形の単独の技へ落とさない（5章5）
+  if (!hits.length && !blocked && token.type === 'special') entries.filter((e) => !e.follows).forEach(consider);
   if (hits.length > 1) return { entry: null, name: null, base: null, derived: false, parent: null, why: 'multi', choices: hits.map((e) => nameFor(e, token.str)) };
   if (hits.length === 0) {
     if (blocked) return { entry: null, name: null, base: null, derived: false, parent: null, why: 'strength', choices: null };
@@ -370,7 +371,7 @@ export function specialCandidates({ characterId, tokens = [], cursor = tokens.le
   const at = tokens.slice(0, cursor).findLastIndex((t) => t.type !== 'note');
   const prev = at >= 0 && names[at]?.entry ? { entry: names[at].entry, token: tokens[at], base: names[at].base } : null;
   const input = norm(motion);
-  const starts = (e) => (isMotion(e.motion) ? (e.motion === '360' ? norm(e.motion) === input : norm(e.motion).startsWith(input)) : e.motion === input);
+  const starts = (e) => (isMotion(e.motion) ? (e.motion === '360' ? norm(e.motion) === input : norm(e.motion).startsWith(input)) : (e.motion ?? '5') === input); // 方向なし（null）は5
   const usable = entries.filter((e) => !jump || e.air);
   const derived = prev ? usable.filter((e) => e.follows && followsPrev(entries, e, prev) && (!input || starts(e))) : [];
   const own = usable.filter((e) => !e.follows);
