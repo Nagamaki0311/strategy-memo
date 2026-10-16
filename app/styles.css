@@ -61,6 +61,8 @@
   --dur-screen: 160ms;
   --dur-sheet: 200ms;
   --ease-out: cubic-bezier(.2, .8, .2, 1);
+  /* メモの文字サイズ（l）。m・s は下の [data-memo-size] で上書きする */
+  --ms-meta: 13px/1.4; --ms-dmg: 20px/1.2; --ms-memo: 15px; --ms-ldmg: 13px/1.4;
   --pad-h: 414px; /* パッドの高さ（design-spec-v2.1 3章）。トーストの位置もこれに合わせる */
 }
 
@@ -83,10 +85,13 @@ h1, h2 { word-break: auto-phrase; }
 }
 
 /* ===== コマンド列（design-spec 3章）===== */
-.row {
+.row, .pending {
   --dot: 34px; --arrow: 22px; --chip-h: 34px; --tag-h: 20px;
   --conn-m: 10px; --conn-w: 8px; --conn-h: 10px;
   --in: 2px; --br-sw: 2.7; --ov: 8px; --fs: 15px; --num: 18px; --chip-px: 10px;
+  --rush: 12px; --dp-b: 2px; --dp-px: 12px; --c: var(--chamfer-l); --bo: 7px;
+}
+.row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -98,8 +103,43 @@ h1, h2 { word-break: auto-phrase; }
   --conn-m: 6px; --conn-w: 6px; --conn-h: 8px;
   /* --ov・--num・--br-sw（S）はspecにない実装判断（Lからの比例縮小。括弧の線幅は約2.5pxを保つ） */
   --in: 1px; --br-sw: 4; --ov: 6px; --fs: 12px; --num: 14px; --chip-px: 7px;
+  --rush: 9px; --dp-b: 1px; --dp-px: 8px; --c: var(--chamfer-s); --bo: 7px;
+}
+/* ===== メモの文字サイズ（design-spec-v2.3、D-020）=====
+   設定の data-memo-size（l／m／s。app.js render が html に付ける）で、メモの内容だけを縮める。対象はコマンド列（詳細 .d-cmd・編集 .cmd・一覧 .preview）と、メモ本文・ダメージの文字。
+   l は上の L・S の組そのまま。編集パッド・仮チップ（.pending）・設定の見本・凡例・ポップオーバーは .row の既定のまま動かない。値の根拠は design-spec-v2.3 */
+[data-memo-size="m"] :is(.d-cmd, .cmd) > .row {
+  --dot: 29px; --arrow: 19px; --chip-h: 29px; --tag-h: 18px;
+  --conn-m: 8px; --conn-w: 7px; --conn-h: 9px;
+  --in: 1.5px; --br-sw: 3.2; --ov: 7px; --fs: 13px; --num: 16px; --chip-px: 9px;
+  --rush: 10px; --dp-b: 2px; --dp-px: 10px; --c: 5px; --bo: 7px;
+}
+[data-memo-size="s"] :is(.d-cmd, .cmd) > .row {
+  --dot: 24px; --arrow: 15px; --chip-h: 24px; --tag-h: 16px;
+  --conn-m: 6px; --conn-w: 6px; --conn-h: 8px;
+  --in: 1px; --br-sw: 4; --ov: 6px; --fs: 12px; --num: 14px; --chip-px: 7px;
+  --rush: 9px; --dp-b: 1px; --dp-px: 8px; --c: var(--chamfer-s); --bo: 7px;
+}
+[data-memo-size="m"] { --ms-meta: 12px/1.4; --ms-dmg: 18px/1.2; --ms-memo: 14px; --ms-ldmg: 12px/1.4; }
+[data-memo-size="s"] { --ms-meta: 12px/1.4; --ms-dmg: 16px/1.2; --ms-memo: 13px; --ms-ldmg: 12px/1.4; }
+[data-memo-size="m"] .preview { height: 25px; }
+[data-memo-size="s"] .preview { height: 22px; }
+[data-memo-size="m"] .preview:has(> .str-labels) { height: 26px; } /* 補助文字の小さな板が下へはみ出す分（--bo）を切らない */
+[data-memo-size="s"] .preview:has(> .str-labels) { height: 24px; }
+[data-memo-size="m"] .preview > .row {
+  --dot: 21px; --arrow: 14px; --chip-h: 21px; --tag-h: 16px;
+  --conn-m: 5px; --conn-w: 5px; --conn-h: 7px;
+  --in: 1px; --br-sw: 4.3; --ov: 5px; --fs: 12px; --num: 13px; --chip-px: 6px;
+  --rush: 8px; --dp-b: 1px; --dp-px: 7px; --c: 3.5px; --bo: 8px;
+}
+[data-memo-size="s"] .preview > .row {
+  --dot: 18px; --arrow: 12px; --chip-h: 18px; --tag-h: 16px;
+  --conn-m: 4px; --conn-w: 5px; --conn-h: 7px;
+  --in: 1px; --br-sw: 5; --ov: 4px; --fs: 12px; --num: 12px; --chip-px: 5px;
+  --rush: 7px; --dp-b: 1px; --dp-px: 6px; --c: 3px; --bo: 9px;
 }
 .row.str-labels { row-gap: 10px; }
+.preview > .row, .preview > .row.str-labels { row-gap: 28px; } /* 一覧は1行だけ見せる。2行目は .preview の高さ（最大28px）より下から始め、技名だけの行（高さ約12px）でも見えないようにする */
 
 /* 1つの技（注記＋技＋末尾の▶）は折り返さない。▶は行頭に来ない */
 .grp {
@@ -124,9 +164,10 @@ h1, h2 { word-break: auto-phrase; }
 :where(button).chip, :where(button).tag {
   position: relative; margin: 0; padding: 0; border: 0; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer;
 }
-button.chip::after { content: ''; position: absolute; inset: -5px; }
-button.tag { margin-right: 4px; } /* 次の技との間を8pxにして、技の透明な当たり領域（左に5px）と重ならないようにする（1pxは丸めの余裕） */
-button.tag::after { content: ''; position: absolute; inset: -12px -2px -12px -9px; } /* 20px×33px → 44px×44px */
+button.chip::after { content: ''; position: absolute; inset: calc((var(--chip-h) - 44px) / 2 - var(--bw, 0px)) -5px; } /* 高さは段階の chip-h に合わせて44pxにする（l は34px→44px）。inset は枠の内側（padding box）から測るので枠の太さ --bw の分だけ広げる */
+button.chip.named { min-height: var(--chip-h); } /* 技名のチップは文字だけ（高さ＝文字の高さ）なので、当たり領域が44pxになるよう丸と同じ高さを取る（D-019の回帰修正） */
+button.tag { margin-right: calc(8px - var(--in) * 2); } /* 次の技との間を8pxにして、技の透明な当たり領域（左に5px）と重ならないようにする（1pxは丸めの余裕） */
+button.tag::after { content: ''; position: absolute; inset: calc((var(--tag-h) - 44px) / 2) -2px calc((var(--tag-h) - 44px) / 2) -9px; } /* l は20px×33px → 44px×44px。高さは tag-h に合わせて44pxにする */
 button.chip:active, button.tag:active { background: var(--line-strong); }
 .chip.sel, .tag.sel { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: var(--r-chip); }
 
@@ -165,7 +206,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
   box-sizing: border-box;
   height: var(--chip-h);
   padding: 0 var(--chip-px);
-  border: 2px solid transparent;
+  --bw: 2px; border: var(--bw) solid transparent;
   border-radius: var(--r-chip);
   background: none;
   color: var(--fg);
@@ -174,15 +215,12 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .sys-sa { border-color: var(--fg); background: var(--key); }
 .sys-mv { border-style: dashed; border-color: var(--fg-muted); } /* 前ステ・バクステ: 破線の枠で塗りなし＝待ち・移動 */
 .sys-dr { border-color: var(--dr); color: var(--dr); }
-.sys-dr .rush { width: 12px; height: 12px; }
-.row.S .sys-dr .rush { width: 9px; height: 9px; }
+.sys-dr .rush { width: var(--rush); height: var(--rush); }
 .sys-dp {
-  border-color: var(--dp-line); background: var(--dp); padding-inline: 12px;
-  box-shadow: inset 0 0 0 2px var(--dp), inset 0 0 0 3px var(--dp-line);
+  --bw: var(--dp-b); border-width: var(--bw); border-color: var(--dp-line); background: var(--dp); padding-inline: var(--dp-px);
+  box-shadow: inset 0 0 0 var(--dp-b) var(--dp), inset 0 0 0 calc(var(--dp-b) + 1px) var(--dp-line);
 }
-.row.S .sys-dp { border-width: 1px; padding-inline: 8px; box-shadow: inset 0 0 0 1px var(--dp), inset 0 0 0 2px var(--dp-line); }
-.sys-di { border: 0; color: var(--ink); --c: var(--chamfer-l); }
-.row.S .sys-di { --c: var(--chamfer-s); }
+.sys-di { --bw: 0px; border: 0; color: var(--ink); }
 /* clip-path は ::before だけ（本体に当てると選択枠とフォーカスリングが切れる）。::after はボタンのタップ領域用 */
 .sys-di::before {
   content: ''; position: absolute; inset: 0; z-index: -1; background: var(--di);
@@ -213,8 +251,8 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .badge {
   display: none;
   position: absolute;
-  right: -7px;
-  bottom: -7px;
+  right: calc(var(--bo, 7px) * -1); /* 編集パッドの強度キーは .row の外なので --bo が未定義。既定の7px */
+  bottom: calc(var(--bo, 7px) * -1);
   width: 15px;
   height: 15px;
   border-radius: 2px;
@@ -224,7 +262,7 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
   text-align: center;
 }
 .str-labels .badge { display: block; }
-.str-labels .dot.has-str { margin-right: 7px; }
+.str-labels .dot.has-str { margin-right: var(--bo, 7px); }
 
 /* ===== 画面と共通コンポーネント（design-spec 5〜7章）===== */
 html { -webkit-text-size-adjust: 100%; }
@@ -361,7 +399,7 @@ a { color: inherit; }
 .item-meta { display: flex; gap: var(--s2); margin-top: var(--s1); font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .meta-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dmg { flex: none; white-space: nowrap; }
-.dmg b { font: 700 var(--t-sm) var(--font); font-variant-numeric: tabular-nums; color: var(--fg); } /* font ショートハンドは tabular-nums を戻すので数字は個別に指定する */
+.dmg b { font: 700 var(--ms-ldmg) var(--font); font-variant-numeric: tabular-nums; color: var(--fg); } /* font ショートハンドは tabular-nums を戻すので数字は個別に指定する */
 .empty, .placeholder { padding: var(--s5) var(--s4); }
 .empty p, .placeholder p { margin: 0 0 var(--s4); }
 .empty > .btn { margin-top: var(--s4); }
@@ -423,14 +461,14 @@ a { color: inherit; }
 
 /* ===== 詳細画面 ===== */
 .detail { padding: var(--s4); }
-.d-meta { margin: 0; font: var(--t-sm) var(--font); color: var(--fg-muted); overflow-wrap: anywhere; }
+.d-meta { margin: 0; font: var(--ms-meta) var(--font); color: var(--fg-muted); overflow-wrap: anywhere; }
 .d-title { margin: var(--s2) 0 0; font: 700 var(--t-lg) var(--font); overflow-wrap: anywhere; }
 .d-stat { display: flex; align-items: baseline; gap: 6px; margin: var(--s2) 0 0; }
 .d-stat-l { font: 400 var(--t-xs) var(--font); color: var(--fg-muted); }
-.d-stat-n { font: 700 20px/1.2 var(--font); font-variant-numeric: tabular-nums; color: var(--fg); }
+.d-stat-n { font: 700 var(--ms-dmg) var(--font); font-variant-numeric: tabular-nums; color: var(--fg); }
 .d-cmd { margin: var(--s5) 0; }
 .d-memo-h { margin: 0 0 var(--s1); font: var(--t-sm) var(--font); color: var(--fg-muted); }
-.d-memo p { margin: 0; font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.d-memo p { margin: 0; font-size: var(--ms-memo); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ===== 編集画面 ===== */
 .screen.edit { height: 100dvh; min-height: 0; overflow: hidden; }
@@ -595,6 +633,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .set-err:not(:empty) { margin-top: calc(var(--s2) * -1); }
 .set-note, .set-legal { margin: var(--s2) 0 0; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .set-sample { margin-top: var(--s2); padding: var(--s3); background: var(--surface); border-radius: var(--r-key); }
+.set-sample .d-cmd { margin: 0 0 var(--s3); } /* メモの文字サイズの見本（詳細画面と同じ .d-cmd・.d-memo） */
 .set-foot { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s5) var(--s4) var(--s6); border-top: 1px solid var(--line); color: var(--fg-muted); font: var(--t-sm) var(--font); }
 .set-foot p { margin: 0; }
 .set-font { font: var(--t-xs) var(--font); }

@@ -124,10 +124,11 @@ export function renderRow(tokens, { size = 'L', notation = 'arrow', strengthLabe
     for (const n of d.notes) grp.append(onChip && canTap({ type: 'note', id: n.id }) ? tapPart('tag', n.id, n.index, { type: 'note', id: n.id }, [n.id], onChip) : el('span', 'tag', n.id));
     if (d.token) {
       const kind = d.token.type === 'sa' ? 'sa' : d.token.type === 'move' ? 'mv' : SYS_KIND[d.token.id]; // system・sa・move 以外は undefined
-      const cls = kind ? `chip sys sys-${kind}` : 'chip';
       const info = infos[d.index] ?? null;
       const label = specialLabel(d.token, info, specialNotation, notation);
-      const nodes = chipNodes(d.token, label, notation, specialNotation === 'name' && info?.name ? info : null);
+      const named = specialNotation === 'name' && info?.name ? info : null;
+      const cls = kind ? `chip sys sys-${kind}` : named ? 'chip named' : 'chip';
+      const nodes = chipNodes(d.token, label, notation, named);
       if (onChip && canTap(d.token, info)) grp.append(tapPart(cls, label, d.index, d.token, nodes, onChip));
       else {
         const chip = el('span', cls);
@@ -186,7 +187,8 @@ let saveError = null; // 直近のデータ保存の失敗（Error、{ invalid }
 let lastSeen = null; // sf6memo.data を最後に読んだ・書いた文字列。他タブの書き込みの検出に使う
 let persisted = false;
 
-const DEFAULT_SETTINGS = () => ({ notation: 'arrow', specialNotation: DEFAULT_SPECIAL_NOTATION, strengthLabels: false, recentCharacters: [], lastExportAt: null, lastChangeAt: null, firstChangeAt: null, remindSnoozeUntil: null, collapsed: {} });
+const MEMO_SIZES = ['l', 'm', 's']; // メモの文字サイズ（大・中・小。design-spec-v2.3）。既定は大（段階の導入前と同じ見た目）
+const DEFAULT_SETTINGS = () => ({ notation: 'arrow', specialNotation: DEFAULT_SPECIAL_NOTATION, strengthLabels: false, memoSize: 'l', recentCharacters: [], lastExportAt: null, lastChangeAt: null, firstChangeAt: null, remindSnoozeUntil: null, collapsed: {} });
 
 // settings は端末ごとの表示設定。壊れていても既定値で起動し、必要なフィールドだけ型を確かめて取り込む。
 function sanitizeSettings(raw) {
@@ -195,6 +197,7 @@ function sanitizeSettings(raw) {
   if (raw.notation === 'numpad') out.notation = 'numpad';
   out.specialNotation = sanitizeSpecialNotation(raw.specialNotation);
   out.strengthLabels = raw.strengthLabels === true;
+  if (MEMO_SIZES.includes(raw.memoSize)) out.memoSize = raw.memoSize;
   if (Array.isArray(raw.recentCharacters)) {
     out.recentCharacters = [...new Set(raw.recentCharacters.filter((id) => charName(id)))].slice(0, 3);
   }
@@ -1305,6 +1308,7 @@ async function readImport(file) {
 
 const SAMPLE_NOTATION = [{ type: 'normal', stance: 'stand', dir: 4, key: 'P', str: 'H' }, { type: 'special', motion: '236', key: 'P', str: 'H' }, { type: 'special', motion: '623', key: 'K', str: 'OD' }];
 const SAMPLE_SPECIAL = [{ type: 'special', motion: '236', key: 'P', str: 'M' }, { type: 'special', motion: '623', key: 'P', str: 'L' }, { type: 'special', motion: '214', key: 'K', str: 'OD' }]; // 見本はリュウの辞書で描く
+const SAMPLE_MEMO = [{ type: 'note', id: 'CH' }, { type: 'normal', stance: 'crouch', key: 'K', str: 'M' }, { type: 'special', motion: '236', key: 'P', str: 'H' }, { type: 'system', id: 'CDR' }, { type: 'special', motion: '623', key: 'P', str: 'OD' }];
 const SAMPLE_STRENGTH = [{ type: 'normal', stance: 'stand', key: 'P', str: 'L' }, { type: 'normal', stance: 'stand', key: 'K', str: 'M' }, { type: 'normal', stance: 'stand', key: 'P', str: 'H' }];
 
 // 2択のラジオ（編集画面の位置と同じ .seg）。選ぶと即時に保存して描画し直す
@@ -1388,6 +1392,10 @@ function settingsScreen() {
         choice('必殺技の表記', 'special', settings.specialNotation, [['cmd', 'コマンド'], ['name', '技名']],
           [renderRow(SAMPLE_SPECIAL, { ...view, characterId: 'ryu', specialNotation: settings.specialNotation }), h('p', 'set-note', '例はリュウ。技名がない入力はコマンドのまま表示します')], pick('specialNotation', 'special')),
         choice('ボタンの補助文字', 'strength', settings.strengthLabels, [[false, 'オフ'], [true, 'オン']], renderRow(SAMPLE_STRENGTH, view), pick('strengthLabels', 'strength')),
+        // 見本は詳細画面と同じ .d-cmd・.d-memo の構造で描く（html の data-memo-size が選択中の段階なので、そのまま追従する）
+        choice('メモの文字サイズ', 'memo', settings.memoSize, [['l', '大'], ['m', '中'], ['s', '小']],
+          [h('div', 'd-cmd', renderRow(SAMPLE_MEMO, { ...view, characterId: 'ryu', specialNotation: settings.specialNotation })), h('div', 'd-memo', h('p', '', '端で中足から波動拳。ゲージが足りれば最後はOD昇龍。')),
+            h('p', 'set-note', 'コマンド列・メモ・ダメージの大きさが変わります。ほかの画面は変わりません')], pick('memoSize', 'memo')),
         h('div', 'set-btns', legendBtn)),
       h('div', 'set-foot',
         h('p', 'set-unofficial', '非公式アプリです。Capcomとは関係ありません。'),
@@ -1466,6 +1474,7 @@ function render({ keepScroll = false, focus, dir = null } = {}) {
     settings.recentCharacters = [route.cid, ...settings.recentCharacters.filter((x) => x !== route.cid)].slice(0, 3);
     saveSettings();
   }
+  document.documentElement.dataset.memoSize = settings.memoSize; // styles.css の [data-memo-size] が、メモの内容（コマンド列・本文・ダメージ）だけを縮める
   const y = window.scrollY;
   const screen = SCREENS[route.name](route);
   if (dir) screen.classList.add(`enter-${dir}`);

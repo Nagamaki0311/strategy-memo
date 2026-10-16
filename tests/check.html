@@ -106,6 +106,35 @@ for (const [title, tokens, opts, id] of CASES) {
   box.append(row);
   main.append(h, box);
 }
+// メモの文字サイズの段階（design-spec-v2.3。T-025）。詳細・編集のコマンド列（.d-cmd、L寸法）と一覧のプレビュー（.preview、S寸法）を、段階 l・m・s ごとに並べる。
+// 段階は祖先の data-memo-size（アプリは html に付ける）で決まる。?gray=1 のグレースケールでも、P/Kの形・強度色・矢印の向き・括弧が読めるかを目視する
+const STEP_DIMS = { // [丸, 矢印, システム技の高さ, 注記の高さ, ▶の幅, ▶の高さ, ODの重なり]
+  detail: { l: [34, 22, 34, 20, 8, 10, 8], m: [29, 19, 29, 18, 7, 9, 7], s: [24, 15, 24, 16, 6, 8, 6] },
+  preview: { l: [24, 15, 24, 16, 6, 8, 6], m: [21, 14, 21, 16, 5, 7, 5], s: [18, 12, 18, 16, 5, 7, 4] },
+};
+const STEP_CASES = [
+  ['矢印・全種', ALL, {}],
+  ['数字・補助文字オン', ALL, { notation: 'numpad', strengthLabels: true }],
+  ['システム技・OD・移動・強度なし・注記の比較', SYSMIX, {}],
+  ['技名（リュウ）', NAME_RYU, { characterId: 'ryu', specialNotation: 'name' }],
+  ['最長の技名＋OD（キャミィ）', NAME_LONG_CAMMY, { characterId: 'cammy', specialNotation: 'name' }],
+  ['溜め・派生・全方向', [...DIRS, S('[4]6', 'OD', 'P'), S('[2]8', 'M', 'K')], {}],
+];
+const stepRows = [];
+for (const [title, tokens, opts] of STEP_CASES) for (const kind of ['detail', 'preview']) for (const sz of ['l', 'm', 's']) {
+  const h = document.createElement('h2');
+  h.textContent = `段階 ${sz}・${kind === 'detail' ? '詳細・編集（L寸法）' : '一覧のプレビュー（S寸法）'}: ${title}`;
+  const wrap = document.createElement('div');
+  wrap.dataset.memoSize = sz;
+  const box = document.createElement('div');
+  box.className = kind === 'detail' ? 'case d-cmd' : 'case preview';
+  if (kind === 'preview') box.style.height = 'auto'; // 全部を見る（アプリは1行に切る）
+  const row = renderRow(tokens, { size: kind === 'detail' ? 'L' : 'S', ...opts });
+  box.append(row);
+  wrap.append(box);
+  main.append(h, wrap);
+  stepRows.push({ kind, sz, row, title });
+}
 // ネオンの段階（design-spec-v2.1 1.6）。charTile（homeScreenと同じタイル）を2つの .grid に並べる。期待値は neonLevel を使わず、表を直接書く
 const NEON_LOW = [[0, 0], [1, 1], [2, 2], [3, 3], [5, 4], [8, 5], [12, 6], [18, 7], [28, 8], [45, 9], [70, 10]]; // 各段階の下限
 const NEON_REP = [[0, 0], [1, 1], [3, 3], [6, 4], [10, 5], [20, 7], [40, 8], [80, 10]]; // 代表値
@@ -325,6 +354,30 @@ for (const e of document.querySelectorAll('.row:not(.S) .sys-sa, .row:not(.S) .s
   }
   if (document.querySelectorAll('.wmrow .wm').length !== 11) problems.push('ワードマークが11段階そろっていない');
   window.neonMin = `plate>=${minRatio.plate.toFixed(2)} press>=${minRatio.press.toFixed(2)} wm>=${minRatio.wm.toFixed(2)}`;
+}
+// メモの文字サイズの段階: 各段階の寸法が表どおり。括弧の線幅は約2.5px、文字は12px以上、行は幅に収まる
+for (const { kind, sz, row, title } of stepRows) {
+  const cs = (e) => getComputedStyle(e);
+  const want = STEP_DIMS[kind][sz];
+  const dot = row.querySelector('.dot'), arrow = row.querySelector('.arrow'), sys = row.querySelector('.sys-dr'), tag = row.querySelector('.tag'), conn = row.querySelector('.conn');
+  const got = [dot?.offsetWidth, arrow && parseFloat(cs(arrow).width), sys?.offsetHeight, tag?.offsetHeight, conn && parseFloat(cs(conn).width), conn && parseFloat(cs(conn).height)];
+  const at = `段階${sz}・${kind}・${title}`;
+  if (title.startsWith('矢印') || title.startsWith('システム') || title.startsWith('技名')) {
+    // 技名の列には丸・矢印がないので、ある要素だけを比べる
+    got.forEach((v, i) => { if (v != null && v !== want[i]) problems.push(`${at}: 寸法${i} が ${v}（期待 ${want[i]}）`); });
+  }
+  if (arrow && title.startsWith('矢印')) {
+    const stroke = parseFloat(cs(row).getPropertyValue('--br-sw')) * parseFloat(cs(arrow).width) / 24;
+    if (stroke < 2.4 || stroke > 2.6) problems.push(`${at}: 括弧の線幅 ${stroke}`);
+  }
+  const od = row.querySelectorAll('.dot.od');
+  if (od.length > 1 && parseFloat(cs(od[1]).marginLeft) !== -want[6]) problems.push(`${at}: ODの重なり ${cs(od[1]).marginLeft}`);
+  if (row.getBoundingClientRect().width > document.documentElement.clientWidth) problems.push(`${at}: 行が画面より広い`);
+  for (const e of [row, ...row.querySelectorAll('*')]) {
+    if (e.closest('.badge') || ![...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    if (parseFloat(cs(e).fontSize) < 12) problems.push(`${at}: 文字が12px未満 ${e.className}`);
+  }
+  if (kind === 'preview') for (const e of [row, ...row.querySelectorAll('*')]) if (glows(e)) problems.push(`${at}: S寸法に発光`);
 }
 // 禁止事項（design-spec-v2 2.6）: グラデーションと、常時の明滅（無限ループのアニメーション）がない。computed（疑似要素を含む）と styles.css の本文の両方で見る
 for (const e of document.querySelectorAll('*')) for (const ps of [null, '::before', '::after']) {
