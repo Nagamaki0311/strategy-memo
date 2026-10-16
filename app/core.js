@@ -423,7 +423,7 @@ export const sanitizeSpecialNotation = (v) => (SPECIAL_NOTATIONS.includes(v) ? v
 
 // ===== SECTION: 文書の検証 =====
 // ponytail: 上限値は個人利用の目安。実データで足りなくなったら調整する。
-// depth = 連携・分岐の深さの上限（根を0とする。D-021）、children = 1つの親の直下の子の上限。
+// depth = 連携・分岐の深さの上限（根を0とする。D-021）、children = 1つの親の直下の子を追加できる上限（追加時の addChildBlock だけが守る。検証は見ない）。
 export const LIMITS = { sections: 1000, combos: 10000, tokens: 200, tags: 20, name: 50, title: 100, tag: 30, memo: 2000, depth: 3, children: 8 };
 const COMBO_KEYS = ['id', 'characterId', 'controlType', 'sectionId', 'title', 'position', 'tokens', 'memo', 'tags', 'favorite', 'createdAt', 'updatedAt', 'damage', 'parentId'];
 const POSITIONS = ['any', 'corner', 'midscreen'];
@@ -492,23 +492,18 @@ function docProblem(doc) {
     byId.set(c.id, c);
   }
 
-  // 連携・分岐（D-021）: 親は同じキャラ・セクション・controlType、深さは根を0として LIMITS.depth 以下、子は1親につき LIMITS.children 個まで。
+  // 連携・分岐（D-021）: 親は同じキャラ・セクション・controlType、深さは根を0として LIMITS.depth 以下。子の個数は見ない（2端末のマージで9個以上になりうる。上限は追加時だけ）。
   // 親は配列の後ろにあってよいので、全件の登録後に調べる。深さの上限があるので、親を最大 LIMITS.depth+1 回たどれば足り、循環もここで拒否される（全体で線形）。
-  const childCount = new Map();
   for (const [i, c] of doc.combos.entries()) {
     if (c.parentId === undefined) continue;
     const bad = (why) => `${i + 1}件目のcombosのparentIdが不正です(${why})`;
     const p = byId.get(c.parentId);
     if (!p) return bad('親がありません');
-    if (p === c) return bad('自分自身は親にできません');
     if (p.sectionId !== c.sectionId) return bad('親とセクションが違います'); // セクションは1キャラのもので、controlType は classic だけなので、同キャラ・同controlType もこれで保証される
     let depth = 0;
     for (let cur = c; cur.parentId !== undefined; cur = byId.get(cur.parentId)) {
       if (++depth > LIMITS.depth || !byId.has(cur.parentId)) return bad(`深さは${LIMITS.depth}までで、循環もできません`);
     }
-    const n = (childCount.get(c.parentId) ?? 0) + 1;
-    if (n > LIMITS.children) return bad(`子は${LIMITS.children}個までです`);
-    childCount.set(c.parentId, n);
   }
   return null;
 }
@@ -617,30 +612,10 @@ const childMap = (combos) => {
   return m;
 };
 
-// 親を LIMITS.depth 回までたどって parentId のない記録に着けば木の中、着かなければ迷子（親がない・循環・深すぎる）。validateDoc が拒否するので通常は起きない
-function lostIn(byId, c) {
-  let cur = c;
-  for (let i = 0; cur.parentId !== undefined; i++) {
-    cur = i < LIMITS.depth ? byId.get(cur.parentId) : undefined;
-    if (!cur) return true;
-  }
-  return false;
-}
+/** セクションの一覧に出す記録（根）。並びは配列の順 */
+export const rootsOf = (combos, sectionId) => combos.filter((c) => c.sectionId === sectionId && c.parentId === undefined);
 
-/** 迷子の判定（UIの防御用）。記録がなければ false */
-export function isOrphan(combos, id) {
-  const byId = new Map(combos.map((c) => [c.id, c]));
-  const c = byId.get(id);
-  return Boolean(c) && lostIn(byId, c);
-}
-
-/** セクションの一覧に出す記録（根と、迷子。データを隠さない）。並びは配列の順 */
-export function rootsOf(combos, sectionId) {
-  const byId = new Map(combos.map((c) => [c.id, c]));
-  return combos.filter((c) => c.sectionId === sectionId && (c.parentId === undefined || lostIn(byId, c)));
-}
-
-/** セクションの帯の「N件」・削除シートの件数: 一覧に出す行（rootsOf）の数 */
+/** セクションの帯の「N件」・削除シートの件数: 一覧に出す行（根）の数 */
 export const rootCount = (combos, sectionId) => rootsOf(combos, sectionId).length;
 
 /** セクションの全件数（連携・分岐を含む） */
@@ -668,16 +643,14 @@ export function descendantTree(combos, id) {
 /** 子孫の件数（削除の確認文に使う） */
 export const countDescendants = (combos, id) => descendantTree(combos, id).length;
 
-/** id の記録の下に新しい連携・分岐を足せない理由。足せるなら null、深さの上限（その記録の深さが LIMITS.depth 以上、迷子を含む）なら 'depth'、
- *  直下の子が LIMITS.children 個なら 'siblings'、記録がなければ 'missing'。連携・分岐の複製の可否は、その親の id で調べる */
+/** id の記録の下に新しい連携・分岐を足せない理由。足せるなら null、深さの上限（その記録の深さが LIMITS.depth 以上）なら 'depth'、
+ *  直下の子が LIMITS.children 個以上なら 'siblings'、記録がなければ 'missing'。連携・分岐の複製の可否は、その親の id で調べる */
 export function addChildBlock(combos, id) {
   const byId = new Map(combos.map((c) => [c.id, c]));
   const c = byId.get(id);
   if (!c) return 'missing';
-  if (lostIn(byId, c)) return 'depth';
   let depth = 0;
-  for (let cur = c; cur.parentId !== undefined; cur = byId.get(cur.parentId)) depth++;
-  if (depth >= LIMITS.depth) return 'depth';
+  for (let cur = c; cur.parentId !== undefined; cur = byId.get(cur.parentId)) if (++depth >= LIMITS.depth) return 'depth';
   return combos.filter((x) => x.parentId === id).length >= LIMITS.children ? 'siblings' : null;
 }
 
@@ -804,8 +777,12 @@ export function exportDoc(state) {
 }
 
 // D-006: id一致は updatedAt の新しい方、同時刻は端末側。端末のみの記録は残す。入力は変更しない。
-// マージ結果も validateDoc に通し、参照整合（連携・分岐の親子の整合を含む。D-021）が崩れる場合は取り込み全体を { ok: false, reason } で拒否する。
+// マージは記録単位なので、親子の整合（D-021）のうち同セクションだけは混ざりうる（片方の端末が根を木ごと別セクションへ移し、もう片方が子だけを編集した）。
+// 根の移動は常に木ごとで、子の sectionId は表示に使わないので、根を正として子の sectionId を合わせる。子の個数は検証しない（9個以上になりうる）。
+// parentId は編集できないので、深さや循環はマージで新しく生まれない（手書きの JSON だけ）。
+// マージ結果も validateDoc に通し、崩れる場合は取り込み全体を { ok: false, reason } で拒否する。「N件目」はマージ後の配列の番号で読めないので、固定文にする。
 // 成功時は { ok: true, doc, sections: { added, updated, unchanged }, combos: { added, updated, unchanged } }（docは {sections, combos}）。
+const MERGE_CONFLICT = '他の端末での変更と、セクションや連携の親子関係が食い違うため取り込めません';
 export function mergeImport(local, incoming) {
   const checked = validateDoc(incoming);
   if (!checked.ok) return checked;
@@ -833,8 +810,14 @@ export function mergeImport(local, incoming) {
     sections: mergeList(local.sections, incoming.sections, sections),
     combos: mergeList(local.combos, incoming.combos, combos),
   };
+  const byId = new Map(doc.combos.map((c) => [c.id, c]));
+  for (const c of doc.combos) {
+    let r = c;
+    for (let i = 0; r.parentId !== undefined && byId.has(r.parentId) && i <= LIMITS.depth; i++) r = byId.get(r.parentId);
+    if (r.parentId === undefined) c.sectionId = r.sectionId;
+  }
   const result = validateDoc(exportDoc(doc));
-  return result.ok ? { ok: true, doc, sections, combos } : result;
+  return result.ok ? { ok: true, doc, sections, combos } : { ok: false, reason: /^\d+件目/.test(result.reason) ? MERGE_CONFLICT : result.reason };
 }
 
 // ===== SECTION: 書き出しの案内 =====

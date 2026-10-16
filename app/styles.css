@@ -270,6 +270,7 @@ button, input { font: inherit; color: inherit; }
 a { color: inherit; }
 :focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
 [tabindex="-1"]:focus { outline: none; }
+.parent-ctx:focus { outline: 2px solid var(--fg); outline-offset: 2px; } /* 編集の［完了］のフォーカス先。ほかの tabindex=-1 と違い、移った先を見せる */
 .muted { color: var(--fg-muted); }
 .ic { display: block; width: 24px; height: 24px; flex: none; }
 
@@ -469,7 +470,6 @@ a { color: inherit; }
 .d-cmd { margin: var(--s5) 0; }
 .d-memo-h { margin: 0 0 var(--s1); font: var(--t-sm) var(--font); color: var(--fg-muted); }
 .d-memo p { margin: 0; font-size: var(--ms-memo); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.d-orphan { margin: var(--s2) 0 0; }
 
 /* ===== 連携の木（詳細画面。design-spec-v2.4、D-022）=====
    線は --line-strong の1pxだけ。▶は使わない（i-conn はコマンド列のつなぎ）。字下げは1段12px（--s3）。動かさない（折りたたみは即時） */
@@ -486,7 +486,7 @@ a { color: inherit; }
 .t-list > li:last-child::before { bottom: auto; height: calc(var(--gap) + 22px); }
 .t-list > li::after { content: ''; position: absolute; left: calc(-1 * var(--s3)); top: calc(var(--gap) + 22px); width: var(--s2); border-top: 1px solid var(--line-strong); }
 .t-row { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: var(--s2); }
-.t-no { flex: none; padding: 11px 0; font: 400 var(--sign-s) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--fg-muted); }
+.t-no { flex: none; padding: 11px 0; font: 400 var(--sign-s) var(--font-sign); line-height: 1.4; font-synthesis: none; letter-spacing: .04em; color: var(--fg-muted); } /* 行の高さを .t-title と揃え、記号を見出しの1行目に合わせる */
 .t-title { flex: 1; min-width: 0; margin: 0; padding: 11px 0; font: 700 15px/1.4 var(--font); overflow-wrap: anywhere; } /* --t-md は「15px/1.5」なので、行の高さを変える /1.4 は変数の後ろに書けない */
 .t-title .none { font-weight: 400; color: var(--fg-muted); }
 .t-cmd { min-width: 0; }
@@ -494,7 +494,7 @@ a { color: inherit; }
 .t-meta { display: flex; gap: var(--s2); margin-top: var(--s1); font: var(--ms-meta) var(--font); color: var(--fg-muted); }
 .t-tags { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .t-memo { margin: var(--s1) 0 0; font-size: var(--ms-memo); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
-.t-fold { display: inline-flex; align-items: center; gap: var(--s1); min-height: 44px; min-width: 44px; padding: 0 var(--s2) 0 0; border: 0; border-radius: var(--r-key); background: none; font: var(--t-sm) var(--font); color: var(--fg-muted); cursor: pointer; }
+.t-fold { margin-top: var(--s2); display: inline-flex; align-items: center; gap: var(--s1); min-height: 44px; min-width: 44px; padding: 0 var(--s2) 0 0; border: 0; border-radius: var(--r-key); background: none; font: var(--t-sm) var(--font); color: var(--fg-muted); cursor: pointer; }
 .t-fold .ic { width: 16px; height: 16px; color: var(--fg); }
 .t-fold:active { background: var(--line-strong); }
 

@@ -1638,8 +1638,9 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ON
     });
 
     // 複製
+    await page.evaluate(() => { window.__screen = document.querySelector('.screen'); });
     await page.getByRole('button', { name: '複製', exact: true }).click();
-    await page.waitForFunction(() => location.hash !== '#/c/ryu/r/c1');
+    await page.waitForFunction(() => { const s = document.querySelector('.screen'); return location.hash !== '#/c/ryu/r/c1' && s && s !== window.__screen && s.getAnimations().length === 0; }); // 画面の入れ替わりまで待つ（hash が変わっただけでは描画前に .d-title を読む）
     const copyId = (await hash(page)).split('/').pop();
     await check(`${tag} 16 複製: 新しいidで同じセクションに複製し、複製の詳細へ移ってトースト「複製しました」`, async () => {
       assert.match(await page.locator('#toast').innerText(), /複製しました/);
@@ -1832,8 +1833,9 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ON
     });
     await check(`${tag} 17a 複製と編集→保存でダメージが保たれる`, async () => {
       await gotoHash(page, '#/c/ryu/r/c1');
+      await page.evaluate(() => { window.__screen = document.querySelector('.screen'); });
       await page.getByRole('button', { name: '複製' }).click();
-      await page.waitForFunction(() => location.hash !== '#/c/ryu/r/c1');
+      await page.waitForFunction(() => { const s = document.querySelector('.screen'); return location.hash !== '#/c/ryu/r/c1' && s && s !== window.__screen && s.getAnimations().length === 0; });
       assert.equal(await page.locator('.d-stat-n').innerText(), '3,240');
       const dup = (await stored(page)).combos.filter((c) => c.damage === 3240);
       assert.equal(dup.length, 2);
@@ -4963,10 +4965,15 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       assert.equal(await page.locator('.t-sec h2').innerText(), '連携');
       assert.equal(await page.locator('.t-sec-n').innerText(), '3件');
     });
-    await check(`${tag} 26b 折りたたみ: 初期は2段目の la1 だけ閉じていて（3段目なし）、押すと aria-expanded が反転して3段目が出る。フォーカスはそのボタンに残る`, async () => {
-      assert.deepEqual(await page.$$eval('.t-fold', (e) => e.map((x) => [x.dataset.fk, x.getAttribute('aria-expanded')])), [['fold:la', 'true'], ['fold:la1', 'false']]);
+    await check(`${tag} 26b 折りたたみ: 初期は2段目の la1 だけ閉じていて（3段目なし）、押すと aria-expanded が反転して3段目が出る。フォーカスはそのボタンに残る。閉じている間の aria-controls は付けない`, async () => {
+      assert.deepEqual(await page.$$eval('.t-fold', (e) => e.map((x) => [x.dataset.fk, x.getAttribute('aria-expanded'), x.getAttribute('aria-controls')])), [['fold:la', 'true', 't-list-la'], ['fold:la1', 'false', null]]);
+      await page.evaluate(() => { window.__keep = [document.querySelector('.screen'), document.querySelector('#t-lb'), document.querySelector('#t-list-la')]; });
       await page.locator('[data-fk="fold:la1"]').click();
       assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-expanded'), 'true');
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-controls'), 't-list-la1');
+      assert.equal(await page.locator('#t-list-la1').count(), 1); // aria-controls が指す ul がある
+      assert.equal(await page.evaluate(() => document.querySelector('.screen') === window.__keep[0] && document.querySelector('#t-lb') === window.__keep[1] && document.querySelector('#t-list-la') === window.__keep[2]), true); // 描き直さず、押した枝の ul だけを挿入する
+      assert.equal(await page.$eval('[data-fk="fold:la1"] .ic', (e) => e.style.transform), 'rotate(90deg)');
       assert.equal(await fk(page), 'fold:la1');
       assert.deepEqual(await page.$$eval('.t-sec h5', (e) => e.map((x) => x.textContent)), ['分岐 ヒット時']);
       assert.equal(await page.locator('.t-memo', { hasText: '3段目のメモ' }).count(), 1);
@@ -4974,10 +4981,16 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       assert.equal(await page.locator('.t-sec h5').count(), 0);
       assert.equal(await fk(page), 'fold:la1');
       assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-expanded'), 'false');
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-controls'), null);
+      assert.equal(await page.locator('#t-list-la1').count(), 0);
       await page.locator('[data-fk="fold:la"]').click(); // 1段目を閉じると2段目の ul は描かれない
       assert.deepEqual(await nodeIds(page), ['la', 'lb', 'lc']);
       assert.equal(await page.locator('#t-list-la').count(), 0);
+      assert.equal(await page.locator('[data-fk="fold:la"]').getAttribute('aria-controls'), null);
+      assert.equal(await fk(page), 'fold:la');
       await page.locator('[data-fk="fold:la"]').click();
+      assert.equal(await page.locator('[data-fk="fold:la"]').getAttribute('aria-controls'), 't-list-la');
+      assert.equal(await fk(page), 'fold:la');
     });
     await check(`${tag} 26b 読み上げ名: リスト・［…］・折りたたみ・［＋ 追加］、見出しの階層（h2 の下に h3）`, async () => {
       assert.equal(await page.locator('ul.t-list.d1').getAttribute('aria-label'), `${'リュウ'}のコンボ『起き攻めループ』の連携 3件`);
@@ -4999,6 +5012,15 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       assert.equal(await page.locator('#t-lc .t-cmd-none').innerText(), 'コマンドなし');
       assert.equal(await page.locator('#t-lc > .t-meta, #t-lc > .t-memo').count(), 0); // タグ・ダメージ・メモがなければ出さない
       assert.equal(await page.locator('.t-node .fav, .t-node [aria-label*="お気に入り"]').count(), 0);
+    });
+    await check(`${tag} 26b 記号 A〜H は見出しの1行目と同じ行の高さ（上端と高さがそろい、3px上にずれない）`, async () => {
+      const m = await page.$$eval('.t-no', (els) => els.map((no) => {
+        const t = no.nextElementSibling;
+        const a = no.getBoundingClientRect(); const b = t.getBoundingClientRect();
+        return [getComputedStyle(no).lineHeight, getComputedStyle(t).lineHeight, a.top === b.top, Math.round(a.height)];
+      }));
+      assert.equal(m.length, 3);
+      for (const [no, title, sameTop, height] of m) { assert.equal(no, title); assert.equal(sameTop, true); assert.equal(height, 43); } // 11 + 21 + 11
     });
     await check(`${tag} 26b 木の開閉はアプリを開いている間だけ保持される（一覧へ行って戻っても、再読み込みで戻る）`, async () => {
       await page.locator('[data-fk="fold:la1"]').click();
@@ -5057,7 +5079,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
     seq = 0;
     const long100 = 'あ'.repeat(100);
     const HOOL = [{ type: 'note', id: 'CH' }, SP('236', 'OD', 'P'), SP('236', 'H', 'P')];
-    const MID = [N('crouch', 'M', 'K'), SP('236', 'H', 'P'), { type: 'system', id: 'CDR' }, N('stand', 'H', 'P'), SP('623', 'OD', 'P')];
+    const MID = [N('crouch', 'M', 'K'), SP('236', 'H', 'P'), { type: 'system', id: 'CDR' }, N('stand', 'H', 'P'), SP('623', 'OD', 'P'), N('crouch', 'L', 'P'), SP('214', 'M', 'K'), N('stand', 'M', 'K'), SP('236', 'L', 'P'), { type: 'sa', level: 1 }]; // 各10手
     const cm = (id, parentId, title, tokens, extra = {}) => mk(id, 'sm', title, tokens, { characterId: 'cammy', parentId, ...extra });
     const maxDoc = { sections: [sec('sm', 'cammy', '通常', 0)], combos: [mk('mr', 'sm', long100, MID, { characterId: 'cammy', tags: ['基本', '画面端', 'あ'.repeat(30)], damage: 99999, memo: 'メモ'.repeat(40) })] };
     for (let i = 0; i < 8; i++) {
@@ -5078,6 +5100,18 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       });
       await shot(page, `26d-max-${sz}`, width);
       if (sz === 's') { await page.context().close(); continue; } // 全部開くのは l だけ（584ノードの描き直しを64回繰り返すので時間がかかる）
+      const first = await page.evaluate(() => { // 初期表示から2段目の枝を1つ開く（ふつうの開閉。8ノードが増える）
+        const b = document.querySelector('[data-fk="fold:m3b2"]');
+        const t = performance.now();
+        b.click();
+        void document.body.offsetHeight;
+        return { ms: performance.now() - t, nodes: document.querySelectorAll('.t-node').length };
+      });
+      await check(`${tag} 26d 最大データ（各10手）の初期表示から2段目の枝を開く: 8ノードが増えるだけ（72→80）で、300ms以下`, async () => {
+        console.log(`e2e: 26d ${tag} 初期表示から2段目の枝を開く（8ノード）: ${first.ms.toFixed(1)}ms`);
+        assert.equal(first.nodes, 80);
+        assert.ok(first.ms < 300, `${first.ms}`);
+      });
       const t0 = Date.now();
       await page.evaluate(() => { let b; while ((b = document.querySelector('.t-fold[aria-expanded="false"]'))) b.click(); });
       await check(`${tag} 26d 最大データ（${sz}）を3段目まで全部開く: 584ノード。横スクロールなし。すべての .t-cmd .row で scrollWidth ≤ clientWidth、ノードの右端は画面内`, async () => {
@@ -5101,6 +5135,21 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
           assert.match(m.name, /ODフーリガンコンビネーション/);
         });
         await shot(page, '26d-max-open', width);
+        await check(`${tag} 26d 最大データ（584ノード・各10手）をすべて開いた状態の折りたたみ1回: 閉じる・開くが300ms以下。描き直さず、フォーカスはボタンに残る`, async () => {
+          const r = await page.evaluate(() => {
+            const b = document.querySelector('[data-fk="fold:m3"]');
+            b.focus();
+            const keep = document.querySelector('.screen');
+            const run = () => { const t = performance.now(); b.click(); void document.body.offsetHeight; return performance.now() - t; }; // click の同期処理 + スタイル・レイアウト
+            const closeMs = run();
+            const closed = document.querySelectorAll('.t-node').length;
+            const openMs = run();
+            return { closeMs, openMs, closed, opened: document.querySelectorAll('.t-node').length, same: document.querySelector('.screen') === keep, focus: document.activeElement === b };
+          });
+          console.log(`e2e: 26d ${tag} 折りたたみ1回（584ノード・各10手）: 閉じる ${r.closeMs.toFixed(1)}ms、開く ${r.openMs.toFixed(1)}ms`);
+          assert.deepEqual([r.closed, r.opened, r.same, r.focus], [584 - 72, 584, true, true]);
+          assert.ok(r.closeMs < 300 && r.openMs < 300, `${r.closeMs} / ${r.openMs}`);
+        });
       }
       await check(`${tag} 26d 100字の見出しは折り返して省略しない（1段目・2段目）`, async () => {
         const t = await page.$$eval('.t-title', (e) => e.map((x) => x.textContent).filter((x) => x.includes('あああ')));
@@ -5130,7 +5179,44 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       }));
       assert.deepEqual(bad, []);
     });
+    await check(`${tag} 26e 折りたたみの上端は、直上のチップの当たり領域に覆われない（上端2pxも折りたたみ自身が受ける。タグ・ダメージ・メモのない子ノード la1 の直下を含む）`, async () => {
+      const bad = await page.$$eval('.t-fold', (els) => els.flatMap((f) => {
+        f.scrollIntoView({ block: 'center' });
+        const r = f.getBoundingClientRect();
+        return [r.left + 4, r.left + r.width / 2, r.right - 4].flatMap((x) => [0.5, 1, 2].map((dy) => [x, r.top + dy]))
+          .filter(([x, y]) => document.elementFromPoint(x, y)?.closest('.t-fold') !== f).map(() => f.dataset.fk);
+      }));
+      assert.deepEqual(bad, []);
+      assert.equal(await page.$eval('#t-la1', (e) => e.querySelector(':scope > .t-meta, :scope > .t-memo')), null); // la1 はタグ・ダメージ・メモがなく、コマンド列の直下に折りたたみがある
+    });
+    await check(`${tag} 26e 最後のノードの縦線は止まる（線の高さは --gap + 22px で、最後のノードの下へ突き出さない）`, async () => {
+      const m = await page.$$eval('.t-list', (uls) => uls.map((ul) => {
+        const li = ul.lastElementChild;
+        const gap = parseFloat(getComputedStyle(li).paddingTop);
+        return [parseFloat(getComputedStyle(li, '::before').height), gap + 22, li.getBoundingClientRect().height];
+      }));
+      assert.ok(m.length >= 3, JSON.stringify(m));
+      for (const [line, want, liH] of m) { assert.equal(line, want); assert.ok(liH > want, `${liH}`); }
+    });
     await page.context().close();
+
+    // チップが［…］の真下にある行（SA1・必殺技・前ステップ・DI。幅360・390・430のどれでも、チップの当たり領域が［…］に重なる）
+    const under = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('u0', 's1', '根', PK), kid('u1', 'u0', '重なる行', [{ type: 'sa', level: 1 }, SP('236', 'H', 'P'), { type: 'move', id: 'FWD_STEP' }, { type: 'system', id: 'DI' }])] };
+    const pageU = await newPage(width, under);
+    await gotoHash(pageU, '#/c/ryu/r/u0');
+    await check(`${tag} 26e チップが［…］の真下に来る行でも、［…］の下端（左右・中央）は［…］自身が受ける（.t-row の z-index）`, async () => {
+      const m = await pageU.$eval('#t-u1', (n) => {
+        const b = n.querySelector('.t-row .icon-btn');
+        b.scrollIntoView({ block: 'center' });
+        const r = b.getBoundingClientRect();
+        const overlap = [...n.querySelectorAll(':scope > .t-cmd button')].filter((c) => { const q = c.getBoundingClientRect(); return q.top - 5 < r.bottom && q.right > r.left && q.left < r.right; }).length;
+        const bad = [14, 22, 30].map((dx) => document.elementFromPoint(r.left + dx, r.bottom - 1)).filter((e) => !b.contains(e)).length;
+        return { overlap, bad };
+      });
+      assert.ok(m.overlap >= 1, 'チップの当たり領域が［…］に重なる行になっている'); // 重ならない行では z-index を外しても気づけない
+      assert.equal(m.bad, 0);
+    });
+    await pageU.context().close();
   }
 
   // 26f 追加の流れ（基準6）: ［＋ 追加］→ 編集画面（つなぐ元）→ 保存 → 根の詳細・そのノードの［…］にフォーカス。履歴が2重にならない
@@ -5251,6 +5337,8 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
     await check(`${tag} 26f2 ［完了］のフォーカス先: 連携・分岐は .parent-ctx（根は #f-sec）`, async () => {
       await page.getByRole('button', { name: 'パッドを閉じて項目の入力へ' }).click();
       assert.equal(await page.evaluate(() => document.activeElement.className), 'parent-ctx');
+      // フォーカスの表示: ほかのフォーカスリングと同じ（2px の実線、fg、オフセット2px）。tabindex=-1 の outline:none で消えない
+      assert.deepEqual(await page.$eval('.parent-ctx', (e) => { const c = getComputedStyle(e); return [c.outlineStyle, c.outlineWidth, c.outlineColor, c.outlineOffset]; }), ['solid', '2px', 'rgb(242, 238, 230)', '2px']);
     });
     await page.locator('#f-title').fill('反撃');
     await page.getByRole('button', { name: '保存', exact: true }).click();
@@ -5343,7 +5431,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       await page.keyboard.press('Escape');
       await gone(page);
     });
-    await check(`${tag} 26g URLの直開き: 3段目の下は根の詳細へ（トースト「分岐は3段目までです」）、8個の親は「分岐は8個までです」、親がない・別キャラは一覧へ、形が不正は #/`, async () => {
+    await check(`${tag} 26g URLの直開き: 3段目の下は根の詳細へ（トースト「分岐は3段目までです」）、8個の親は「分岐は8個までです」、親がない・別キャラ・p が空・形が不正は一覧へ`, async () => {
       await gotoHash(page, '#/c/ryu/new?p=qt0');
       await waitHash(page, '#/c/ryu/r/q1');
       assert.deepEqual(await toastText(page), ['分岐は3段目までです']);
@@ -5358,7 +5446,11 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       await gotoHash(page, '#/c/ken/new?p=q1');
       await waitHash(page, '#/c/ken');
       await gotoHash(page, '#/c/ryu/new?p=%21%21');
-      await waitHash(page, '#/');
+      await waitHash(page, '#/c/ryu');
+      await gotoHash(page, '#/c/ryu/new?p=');
+      await waitHash(page, '#/c/ryu');
+      await gotoHash(page, '#/c/ken/new?p=');
+      await waitHash(page, '#/c/ken');
     });
     await page.reload();
     await check(`${tag} 26g 子のidの詳細（#/c/ryu/r/qt0）は根の詳細へ置き換え、そのノードの祖先を開いて［…］にフォーカス。戻る履歴は増えない`, async () => {
@@ -5374,33 +5466,35 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
     });
     await page.context().close();
 
-    // 保存の直前の再検査: 画面の描き直しを経ずに親が変わったとき（描き直しは redirectFor が先に移す）、保存は画面を移らず、入力を残して理由を出す。
-    // data は app.js のモジュール変数なので、配信する app.js の末尾に差し替えの口を足して再現する（アプリには入らない）
+    // 保存の直前の再検査: 他タブの書き込みが storage イベントなしで入った状態（イベントの配信前）を、同じページから localStorage に書いて再現する。
+    // 書いたページには storage イベントが届かないので、アプリは変更を知らない。1回目の保存は commit の lastSeen の比較で止まり（読み直す）、2回目は再検査が理由を出す
     const base7 = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('p1', 's1', '親', PK), ...Array.from({ length: 7 }, (_, i) => kid(`pk${i}`, 'p1', `連携${i}`, PK))] };
     for (const [label, mutate, re] of [
       ['8個になった', (d) => ({ ...d, combos: [...d.combos, kid('pk7', 'p1', 'x', PK)] }), /分岐は8個までです。ほかの分岐を消すと保存できます/],
-      ['親が消えた', (d) => ({ ...d, combos: [] }), /^つなぐ元の記録が見つかりません/],
+      ['親が消えた', (d) => ({ ...d, combos: [] }), /^つなぐ元の記録が見つかりません。他のタブで削除された可能性があります/],
     ]) {
-      const ctx = await browser.newContext({ viewport: { width, height: 740 }, serviceWorkers: 'block' });
-      await ctx.route('**/app/app.js', async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: `${await r.text()}\nwindow.__setData = (d) => { data = d; };\n` }); });
-      const page2 = await ctx.newPage();
-      await page2.goto(BASE);
-      await page2.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(base7));
-      await page2.reload();
+      const page2 = await newPage(width, base7);
       await gotoHash(page2, '#/c/ryu/new?p=p1');
       await settle(page2);
       await page2.locator('#f-title').fill('入力途中');
-      await page2.evaluate((d) => window.__setData(d), mutate(base7));
+      await page2.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(mutate(base7)));
       const before = await storedRaw(page2);
       await page2.getByRole('button', { name: '保存', exact: true }).click();
-      await check(`${tag} 26g 保存の直前の再検査（${label}）: 画面を移らず、errorBox「保存できませんでした」に理由。入力内容と保存データはそのまま`, async () => {
+      await check(`${tag} 26g 保存の直前（${label}）1回目: 他タブの書き込みを検出して止まる。画面は移らず、入力内容と保存データはそのまま`, async () => {
+        assert.equal(await page2.locator('.err h2').innerText(), '保存しませんでした');
+        assert.equal(await hash(page2), '#/c/ryu/new?p=p1');
+        assert.equal(await page2.locator('#f-title').inputValue(), '入力途中');
+        assert.equal(await storedRaw(page2), before);
+      });
+      await page2.getByRole('button', { name: '保存', exact: true }).click();
+      await check(`${tag} 26g 保存の直前の再検査（${label}）2回目: 画面を移らず、errorBox「保存できませんでした」に理由。入力内容と保存データはそのまま`, async () => {
         assert.equal(await hash(page2), '#/c/ryu/new?p=p1');
         assert.equal(await page2.locator('.err h2').innerText(), '保存できませんでした');
         assert.match(await page2.locator('.err p').innerText(), re);
         assert.equal(await page2.locator('#f-title').inputValue(), '入力途中');
         assert.equal(await storedRaw(page2), before);
       });
-      await ctx.close();
+      await page2.context().close();
     }
   }
 
@@ -5639,10 +5733,18 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       await settle(page);
       assert.equal(await page.locator('#f-title').inputValue(), '');
     });
-    await check(`${tag} 26k 親（根）を削除しても、その子の下書き（child:...）は消さない`, async () => {
-      await gotoHash(page, '#/c/ryu/new?p=lb');
-      await settle(page);
-      await page.locator('#f-title').fill('消えない下書き');
+    await check(`${tag} 26k 根を削除すると、その根と子孫の下書き（edit:<id>・child:<削除したid>）が消える。ほかの記録の下書きは残る。取り消しで記録が戻っても下書きは戻らない`, async () => {
+      const put = (k, t, extra = {}) => page.evaluate(([key, title, ex]) => {
+        const d = JSON.parse(localStorage.getItem('sf6memo.drafts') ?? '{}');
+        d[key] = { sectionId: 's1', title, position: 'any', tokens: [], memo: '', tags: [], savedAt: 1, ...ex };
+        localStorage.setItem('sf6memo.drafts', JSON.stringify(d));
+      }, [k, t, extra]);
+      await put('child:lb', '子の新規', { parentId: 'lb' });
+      await put('edit:la1x', '孫の編集');
+      await put('edit:r1', '根の編集');
+      await put('child:la1', '分岐の新規', { parentId: 'la1' });
+      await put('edit:r0', '別の根の編集');
+      await put('child:r0', '別の根の連携の新規', { parentId: 'r0' });
       await gotoHash(page, '#/c/ryu/r/r1');
       await page.getByRole('button', { name: 'その他…' }).click();
       await page.waitForSelector('.sheet');
@@ -5650,65 +5752,46 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       await page.locator('.sheet-foot .btn.primary').click();
       await waitHash(page, '#/c/ryu');
       const d = JSON.parse(await storedRaw(page, 'sf6memo.drafts'));
-      assert.equal(d['child:lb'].title, '消えない下書き');
+      assert.deepEqual(Object.keys(d).filter((k) => k !== 'new:s1').sort(), ['child:r0', 'edit:r0']);
+      await page.locator('.toast-act').click();
+      assert.equal((await stored(page)).combos.length, 9);
+      assert.deepEqual(Object.keys(JSON.parse(await storedRaw(page, 'sf6memo.drafts'))).filter((k) => k !== 'new:s1').sort(), ['child:r0', 'edit:r0']);
+    });
+    await check(`${tag} 26k ノードを削除すると、そのノードと子孫の下書きが消える（確認なしの削除も、確認ありの削除も）`, async () => {
+      await page.evaluate(() => {
+        const d = JSON.parse(localStorage.getItem('sf6memo.drafts') ?? '{}');
+        for (const k of ['edit:la', 'edit:la1', 'edit:la1x', 'child:la', 'child:la1', 'child:lc', 'edit:lb']) d[k] = { sectionId: 's1', title: 't', position: 'any', tokens: [], memo: '', tags: [], savedAt: 1 };
+        localStorage.setItem('sf6memo.drafts', JSON.stringify(d));
+      });
+      await gotoHash(page, '#/c/ryu/r/r1');
+      await openMenu(page, 'lc'); // 子孫なし: 確認なし
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await page.waitForFunction(() => !document.querySelector('#t-lc'));
+      await gone(page);
+      await openMenu(page, 'la'); // 子孫あり: 確認シート
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await page.locator('.sheet-foot .btn.primary').click();
+      await page.waitForFunction(() => !document.querySelector('#t-la'));
+      await gone(page);
+      const left = Object.keys(JSON.parse(await storedRaw(page, 'sf6memo.drafts'))).filter((k) => k !== 'new:s1').sort();
+      assert.deepEqual(left, ['child:r0', 'edit:lb', 'edit:r0']);
+    });
+    await check(`${tag} 26k 他のタブで消えた記録の下書きは、編集画面を開くときに掃除される（記録のない edit:・親のない child:）。生きている記録の下書きは残る`, async () => {
+      await page.evaluate(() => {
+        const d = JSON.parse(localStorage.getItem('sf6memo.drafts') ?? '{}');
+        for (const k of ['edit:gone1', 'child:gone2']) d[k] = { sectionId: 's1', title: 't', position: 'any', tokens: [], memo: '', tags: [], savedAt: 1 };
+        localStorage.setItem('sf6memo.drafts', JSON.stringify(d));
+      });
+      await gotoHash(page, '#/c/ryu/new?s=s1');
+      await settle(page);
+      const left = Object.keys(JSON.parse(await storedRaw(page, 'sf6memo.drafts'))).sort();
+      assert.deepEqual(left, ['child:r0', 'edit:lb', 'edit:r0', 'new:s1']);
     });
     await page.context().close();
   }
 
-  // 26l 迷子・他タブ・書き出し/取り込み（基準12の一部）
+  // 26l 他タブ・書き出し/取り込み（基準12の一部。迷子は検証が拒否するので画面には来ない）
   {
-    const orphans = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [] };
-    seq = 0;
-    orphans.combos.push(mk('ox', 's1', '迷子の根', PK, { parentId: 'ghost' }), mk('oy', 's1', '迷子の子', PK, { parentId: 'ox' }), mk('r9', 's1', '普通のコンボ', PK));
-    // 親のない子は validateDoc が拒否するので、配信する core.js の「親がありません」「深さ」の検査だけを外して、アプリ内に迷子を置く（アプリには入らない）
-    const ctx = await browser.newContext({ viewport: { width, height: 740 }, serviceWorkers: 'block' });
-    await ctx.route('**/app/core.js', async (route) => {
-      const r = await route.fetch();
-      const src = await r.text();
-      const body = src.replace("if (!p) return bad('親がありません');", 'if (!p) continue;').replace('!byId.has(cur.parentId)) return bad(`深さは${LIMITS.depth}までで、循環もできません`);', '!byId.has(cur.parentId)) break;');
-      assert.equal(src.length - body.length, 'return bad(\'親がありません\');'.length - 'continue;'.length + 'return bad(`深さは${LIMITS.depth}までで、循環もできません`);'.length - 'break;'.length, '検査の置き換え（2箇所）');
-      await route.fulfill({ response: r, body });
-    });
-    const page = await ctx.newPage();
-    page.errors = [];
-    page.on('pageerror', (e) => page.errors.push(e.message));
-    await page.goto(BASE);
-    await page.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(orphans));
-    await page.reload();
-    await gotoHash(page, '#/c/ryu');
-    await check(`${tag} 26l 迷子（親のない子）: 一覧に根として出る（データを隠さない）。例外なし`, async () => {
-      assert.deepEqual((await page.$$eval('.item-title', (e) => e.map((x) => x.textContent))).sort(), ['普通のコンボ', '迷子の根', '迷子の子'].sort());
-      assert.equal(await page.locator('.sec-count').innerText(), '3件');
-      assert.deepEqual(page.errors, []);
-    });
-    await check(`${tag} 26l 迷子の詳細: 注意書き「つなぐ元の記録が見つからないため、コンボとして表示しています」。迷子の子は木に出る。子のid（ox の子）もリダイレクトされない。普通の根には注意書きなし`, async () => {
-      await gotoHash(page, '#/c/ryu/r/ox');
-      assert.equal(await page.locator('.d-orphan').innerText(), 'つなぐ元の記録が見つからないため、コンボとして表示しています');
-      assert.deepEqual(await nodeIds(page), ['oy']);
-      assert.equal(await page.locator('.t-sec h3').textContent(), '連携A 迷子の子');
-      await gotoHash(page, '#/c/ryu/r/oy');
-      assert.equal(await hash(page), '#/c/ryu/r/oy');
-      assert.equal(await page.locator('.d-orphan').count(), 1);
-      await gotoHash(page, '#/c/ryu/r/r9');
-      assert.equal(await page.locator('.d-orphan').count(), 0);
-      assert.deepEqual(page.errors, []);
-    });
-    await check(`${tag} 26l 迷子の下には追加できない（［＋ 追加］は無効）。保存しても parentId は書き換えない`, async () => {
-      await gotoHash(page, '#/c/ryu/r/ox');
-      assert.equal(await page.locator('[data-fk="add-link"]').getAttribute('aria-disabled'), 'true');
-      await gotoHash(page, '#/c/ryu/r/ox/edit');
-      await settle(page);
-      assert.equal(await page.locator('#f-sec').count(), 1); // 迷子は根として編集する
-      await page.locator('#f-title').fill('迷子の根（改）');
-      await page.getByRole('button', { name: '保存', exact: true }).click();
-      await waitHash(page, '#/c/ryu/r/ox');
-      const ox = (await stored(page)).combos.find((c) => c.id === 'ox');
-      assert.equal(ox.parentId, 'ghost');
-      assert.equal(ox.title, '迷子の根（改）');
-      assert.deepEqual(page.errors, []);
-    });
-    await ctx.close();
-
     // 他のタブで変わったとき描き直す（基準の「状態」）
     const seed = seed26();
     const a = await newPage(width, seed);
@@ -5755,6 +5838,221 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       assert.deepEqual(await nodeIds(dst), ['la', 'la1', 'la2', 'lb', 'lc']);
     });
     await dst.context().close();
+  }
+
+  // 26n 9個以上の兄弟（2端末のマージで起こりうる。検証は個数を縛らず、上限8個は追加時だけ）
+  {
+    seq = 0;
+    const nine = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('nr', 's1', '兄弟が9個', PK), mk('nq', 's1', '別の根', PK)] };
+    for (let i = 0; i < 9; i++) nine.combos.push(kid(`n${i}`, 'nr', `連携${i}`, PK, i === 0 ? { tags: ['a'] } : {}));
+    for (let j = 0; j < 9; j++) nine.combos.push(kid(`b${j}`, 'n0', `分岐${j}`, [SP('236', 'M', 'P')]));
+    nine.combos.push(kid('ng', 'n8', '孫', PK), kid('nq1', 'nq', '別の連携', PK));
+    const page = await newPage(width, nine);
+    await gotoHash(page, '#/c/ryu/r/nr');
+    await check(`${tag} 26n 詳細: 連携9個がすべて出る（記号 A〜I）。件数「9件」、リストの読み上げ名「連携 9件」、横スクロールなし。［…］は44×44`, async () => {
+      assert.equal(await page.locator('section.t-sec > ul.t-list.d1 > li').count(), 9);
+      assert.deepEqual(await page.$$eval('.t-no', (e) => e.map((x) => x.textContent)), ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']);
+      assert.equal(await page.locator('.t-sec-n').innerText(), '9件');
+      assert.equal(await page.locator('ul.t-list.d1').getAttribute('aria-label'), 'リュウのコンボ『兄弟が9個』の連携 9件');
+      assert.equal(await page.locator('.t-sec h3').nth(8).textContent(), '連携I 連携8');
+      assert.ok(await noHScroll(page));
+      assert.deepEqual(await page.$$eval('.t-row .icon-btn', (e) => [...new Set(e.map((x) => `${x.offsetWidth}x${x.offsetHeight}`))]), ['44x44']);
+      assert.deepEqual(page.errors, []);
+    });
+    await shot(page, '26n-detail-9', width);
+    await check(`${tag} 26n 追加は無効: ［＋ 追加］は aria-disabled でトースト「連携は1つのコンボに8個までです」。URL の直開きは根の詳細へ戻してトースト`, async () => {
+      assert.equal(await page.locator('[data-fk="add-link"]').getAttribute('aria-disabled'), 'true');
+      await page.locator('[data-fk="add-link"]').click({ force: true });
+      assert.deepEqual(await toastText(page), ['連携は1つのコンボに8個までです']);
+      assert.equal(await hash(page), '#/c/ryu/r/nr');
+      await gotoHash(page, '#/c/ryu/new?p=nr');
+      await waitHash(page, '#/c/ryu/r/nr');
+      assert.deepEqual(await toastText(page), ['分岐は8個までです']);
+    });
+    await check(`${tag} 26n 分岐が9個ある連携（n0）: 折りたたみは「分岐 9件」で、開くと9個とも出る。［…］の「分岐を追加」は無効（8個まで）`, async () => {
+      assert.equal(await page.locator('[data-fk="fold:n0"] span').innerText(), '分岐 9件');
+      assert.equal(await page.locator('#t-list-n0').getAttribute('aria-label'), '連携A『連携0』の分岐 9件');
+      assert.equal(await page.locator('#t-list-n0 > li').count(), 9);
+      assert.ok(await noHScroll(page));
+      await openMenu(page, 'n0');
+      assert.deepEqual((await menuNames(page))[1], { t: '分岐を追加（8個まで）', d: true });
+      await page.keyboard.press('Escape');
+      await gone(page);
+    });
+    await shot(page, '26n-detail-9b', width);
+    await check(`${tag} 26n 一覧: 根の行の「連携 9」（直接の子だけ。孫は数えない）。帯の件数は根の数（2件）`, async () => {
+      await gotoHash(page, '#/c/ryu');
+      assert.deepEqual(await page.$$eval('.item', (e) => e.map((x) => [x.querySelector('.item-title').textContent, x.querySelector('.lnk')?.textContent.replace(/\s+/g, ' ')])), [['別の根', '連携 1'], ['兄弟が9個', '連携 9']]); // 新しい順
+      assert.equal(await page.locator('.sec-count').innerText(), '2件');
+    });
+    await check(`${tag} 26n 削除の連動: 連携が9個の根を消すと連携・分岐19件を含めて消え（確認文は「連携・分岐 19件」）、取り消しで元と deepEqual`, async () => {
+      await gotoHash(page, '#/c/ryu/r/nr');
+      await page.getByRole('button', { name: 'その他…' }).click();
+      await page.waitForSelector('.sheet');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      assert.match(await page.locator('.sheet .note').innerText(), /このコンボの連携・分岐 19件もまとめて削除/);
+      await page.locator('.sheet-foot .btn.primary').click();
+      await waitHash(page, '#/c/ryu');
+      assert.deepEqual((await stored(page)).combos.map((c) => c.id), ['nq', 'nq1']);
+      assert.deepEqual(await toastText(page), ['『兄弟が9個』と連携・分岐19件を削除しました']);
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await stored(page), raw(nine));
+    });
+    await check(`${tag} 26n 複製の連動: 兄弟が9個の根を複製すると、連携・分岐19件を含めて複製される（新しい id、親子と兄弟の順序は元と同じ）。元は変わらない`, async () => {
+      await gotoHash(page, '#/c/ryu/r/nr');
+      await page.evaluate(() => { window.__screen = document.querySelector('.screen'); });
+      await page.getByRole('button', { name: '複製' }).click();
+      await page.waitForFunction(() => { const s = document.querySelector('.screen'); return s !== window.__screen && s.getAnimations().length === 0; });
+      assert.deepEqual(await toastText(page), ['複製しました（連携・分岐19件を含む）']);
+      const d = await stored(page);
+      const copyRoot = d.combos.find((c) => c.parentId === undefined && c.title.startsWith('兄弟が9個') && c.id !== 'nr');
+      assert.equal(d.combos.length, nine.combos.length + 20);
+      assert.equal(await hash(page), `#/c/ryu/r/${copyRoot.id}`);
+      assert.equal(await page.locator('.t-sec-n').innerText(), '9件');
+      const titles = (id) => childrenOf(d.combos, id).map((c) => c.title);
+      assert.deepEqual(titles(copyRoot.id), titles('nr'));
+      const copyN0 = childrenOf(d.combos, copyRoot.id)[0];
+      assert.deepEqual(titles(copyN0.id), titles('n0')); // 分岐9個も同じ順
+      assert.deepEqual(d.combos.slice(0, nine.combos.length), raw(nine).combos); // 元は変わらない
+      assert.equal(new Set(d.combos.map((c) => c.id)).size, d.combos.length);
+    });
+    await page.context().close();
+  }
+
+  // 26o 2タブ・取り込み・保存失敗の取り消し（レビューの指摘 L-1・L-3・M-1）
+  {
+    // L-1: 8個目の連携を別タブが先に保存したとき、移された理由のトーストが「下書きを残しました」に上書きされない
+    seq = 0;
+    const base7 = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('p1', 's1', '親', PK), ...Array.from({ length: 7 }, (_, i) => kid(`pk${i}`, 'p1', `連携${i}`, PK))] };
+    const a = await newPage(width, base7);
+    const b = await a.context().newPage();
+    await b.goto(BASE);
+    await gotoHash(a, '#/c/ryu/new?p=p1');
+    await settle(a);
+    await a.locator('#f-title').fill('Aの入力途中');
+    await gotoHash(b, '#/c/ryu/new?p=p1');
+    await settle(b);
+    await b.locator('#f-title').fill('Bの8個目');
+    await b.getByRole('button', { name: '保存', exact: true }).click();
+    await waitHash(a, '#/c/ryu/r/p1');
+    await check(`${tag} 26o 8個目を他タブが先に保存: こちらのタブは根の詳細へ移り、トーストは理由「分岐は8個までです」（「下書きを残しました」で上書きされない）`, async () => {
+      assert.deepEqual(await toastText(a), ['分岐は8個までです']);
+    });
+    await a.context().close();
+
+    // L-1: 保存で消す下書きは、保存した内容と一致するものだけ（キー child:<親id> は2タブで共有）
+    const base3 = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('p1', 's1', '親', PK), ...Array.from({ length: 3 }, (_, i) => kid(`pk${i}`, 'p1', `連携${i}`, PK))] };
+    const a2 = await newPage(width, base3);
+    const b2 = await a2.context().newPage();
+    await b2.goto(BASE);
+    await gotoHash(a2, '#/c/ryu/new?p=p1');
+    await settle(a2);
+    await a2.locator('#f-title').fill('Aが保存する');
+    await gotoHash(b2, '#/c/ryu/new?p=p1');
+    await settle(b2);
+    await b2.locator('#f-title').fill('Bの入力途中');
+    await a2.getByRole('button', { name: '保存', exact: true }).click();
+    await waitHash(a2, '#/c/ryu/r/p1');
+    await check(`${tag} 26o 先に保存したタブは、他方の入力途中の下書きを消さない（一致する下書きだけ消す）`, async () => {
+      assert.equal((await stored(a2)).combos.at(-1).title, 'Aが保存する');
+      const d = JSON.parse(await storedRaw(a2, 'sf6memo.drafts'));
+      assert.equal(d['child:p1'].title, 'Bの入力途中');
+    });
+    await check(`${tag} 26o 他方のタブは入力を保ったまま保存でき、保存した内容と一致する下書きは消える`, async () => {
+      assert.equal(await b2.locator('#f-title').inputValue(), 'Bの入力途中');
+      await b2.getByRole('button', { name: '保存', exact: true }).click();
+      await waitHash(b2, '#/c/ryu/r/p1');
+      assert.equal((await stored(b2)).combos.at(-1).title, 'Bの入力途中');
+      assert.equal(Object.hasOwn(JSON.parse(await storedRaw(b2, 'sf6memo.drafts') ?? '{}'), 'child:p1'), false);
+    });
+    await a2.context().close();
+
+    // L-3: 容量不足で取り消しが失敗したら、トーストを残して再試行できる
+    const failWrites = (pg, on) => pg.evaluate((flag) => {
+      if (!window.__origSet) {
+        window.__origSet = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (k, v) {
+          if (window.__failData && k === 'sf6memo.data') throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' });
+          return window.__origSet.call(this, k, v);
+        };
+      }
+      window.__failData = flag;
+    }, on);
+    const seed = seed26();
+    const q = await newPage(width, seed);
+    await gotoHash(q, '#/c/ryu/r/r1');
+    await openMenu(q, 'la');
+    await q.getByRole('button', { name: '削除', exact: true }).click();
+    await q.locator('.sheet-foot .btn.primary').click();
+    await gone(q);
+    await failWrites(q, true);
+    await q.locator('.toast-act').click();
+    await check(`${tag} 26o 削除の取り消しが容量不足で失敗: トーストは消えず［元に戻す］が残り、フォーカスもそこに戻る。データは削除のまま、画面に保存失敗のエラー`, async () => {
+      assert.equal(await q.locator('.toast-act').count(), 1);
+      assert.deepEqual(await toastText(q), ['『投げ重ね』と分岐3件を削除しました']);
+      assert.equal(await fk(q), 'BUTTON');
+      assert.equal(await q.evaluate(() => document.activeElement.classList.contains('toast-act')), true);
+      assert.equal((await stored(q)).combos.length, 5);
+      assert.match(await q.locator('.err').innerText(), /保存できませんでした/);
+    });
+    await failWrites(q, false);
+    await q.locator('.toast-act').click();
+    await check(`${tag} 26o 再試行すると取り消せる（元と deepEqual）。トーストは消え、エラーも消える`, async () => {
+      assert.deepEqual(await stored(q), raw(seed));
+      assert.equal(await q.locator('.toast-act').count(), 0);
+      assert.equal(await q.locator('.err').count(), 0);
+    });
+    // 根の削除（removeCombo）の取り消しも同じ
+    await q.getByRole('button', { name: 'その他…' }).click();
+    await q.waitForSelector('.sheet');
+    await q.getByRole('button', { name: '削除', exact: true }).click();
+    await q.locator('.sheet-foot .btn.primary').click();
+    await waitHash(q, '#/c/ryu');
+    await failWrites(q, true);
+    await q.locator('.toast-act').click();
+    await check(`${tag} 26o 根の削除の取り消しが容量不足で失敗: トーストが残り、再試行で全件戻る`, async () => {
+      assert.equal(await q.locator('.toast-act').count(), 1);
+      assert.equal((await stored(q)).combos.length, 2);
+      await failWrites(q, false);
+      await q.locator('.toast-act').click();
+      assert.deepEqual(await stored(q), raw(seed));
+    });
+    await q.context().close();
+
+    // M-1: 2端末のマージが混ざっても取り込める（子の sectionId は根に合わせる）。深さの競合のように本当に崩れるときは、番号のない固定文で拒否する
+    seq = 0;
+    const local = { sections: [sec('s1', 'ryu', '通常', 0), sec('s2', 'ryu', '画面端', 1)], combos: [mk('r', 's2', '根', PK, { updatedAt: T0 + 10 }), kid('c', 'r', '子', PK, { sectionId: 's2', updatedAt: T0 + 10 })] };
+    const mixed = { sections: local.sections, combos: [mk('r', 's1', '根', PK), kid('c', 'r', '子（他端末で編集）', PK, { updatedAt: T0 + 50 })] };
+    seq = 0;
+    const importText = async (pg, doc) => {
+      await gotoHash(pg, '#/settings');
+      await pg.locator('input[type=file]').setInputFiles({ name: 'in.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exportDoc(doc))) });
+    };
+    const m = await newPage(width, local);
+    await importText(m, mixed);
+    await m.waitForSelector('.sheet');
+    await check(`${tag} 26o 取り込み（根は端末で移動済み、子は他端末で編集）: 確認シートが出て（更新1件）、取り込むと子の編集が入り、sectionId は根（画面端）に合う`, async () => {
+      assert.match(await m.locator('.imp-count').first().innerText(), /更新 1件/);
+      await m.getByRole('button', { name: '取り込む', exact: true }).click();
+      await gone(m);
+      const d = await stored(m);
+      assert.deepEqual(d.combos.map((c) => [c.id, c.sectionId, c.title]), [['r', 's2', '根'], ['c', 's2', '子（他端末で編集）']]);
+    });
+    await m.context().close();
+    const chainDoc = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('a', 's1', 'a', PK), kid('b', 'a', 'b', PK), kid('c', 'b', 'c', PK)] };
+    const deepIn = { sections: chainDoc.sections, combos: [mk('z', 's1', 'z', PK), kid('y', 'z', 'y', PK), kid('a', 'y', 'a', PK, { updatedAt: T0 + 5 })] };
+    const x = await newPage(width, chainDoc);
+    const before = await storedRaw(x);
+    await importText(x, deepIn);
+    await x.waitForSelector('.set-err .err');
+    await check(`${tag} 26o 取り込みが本当に食い違う（マージ後に深さ4）: 見出し「取り込めませんでした（データは変更していません）」、理由は番号のない固定文。データは変わらない`, async () => {
+      assert.equal(await x.locator('.set-err h2').innerText(), '取り込めませんでした（データは変更していません）');
+      const why = await x.locator('.set-err p').innerText();
+      assert.equal(why, '他の端末での変更と、セクションや連携の親子関係が食い違うため取り込めません');
+      assert.doesNotMatch(why, /件目|combos|parentId/);
+      assert.equal(await storedRaw(x), before);
+    });
+    await x.context().close();
   }
 
   // 26m グレースケールと色・禁止事項（基準12）

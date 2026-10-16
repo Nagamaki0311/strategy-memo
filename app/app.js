@@ -2,7 +2,7 @@ import {
   CHARACTERS, MOVE_NAMES, neonLevel, SECTION_PRESETS, SECTION_NAME_MAX, PRESETS, MOTION_NAMES, LIMITS, describeRow, motionToArrows, tokenLabel, parseDocText, exportDoc,
   sectionsOf, addSection, renameSection, moveSection, deleteSection, validateDoc, isTime, newId,
   applyPadInput, initialPadState, pendingMotion, strengthChoices, recentTokens, tagCandidates, sanitizeDraft,
-  rootsOf, rootCount, isOrphan, childrenOf, descendantTree, countDescendants, addChildBlock, newChildCombo, deleteCombo, duplicateTree, moveCombo,
+  rootsOf, rootCount, childrenOf, descendantTree, countDescendants, addChildBlock, newChildCombo, deleteCombo, duplicateTree, moveCombo,
   specialNames, specialCandidates, specialLabel, candidateLabel, hasSpecials, sanitizeSpecialNotation, DEFAULT_SPECIAL_NOTATION,
   mergeImport, exportFilename, dateText, daysSince, snoozeUntil, shouldRemindExport,
 } from './core.js';
@@ -274,13 +274,13 @@ function saveSettings() {
 // - 保存だけ失敗した場合もメモリは変えない（画面とリロード後の内容を食い違わせない）。いずれの失敗も saveError を画面に出す。
 function commit(next) {
   if (loadError) return false;
-  dismissToast(); // 取り消しの対象は直前の1操作だけにする
   saveError = null;
   const check = validateDoc(exportDoc(next));
   if (!check.ok) { saveError = { invalid: check.reason }; return false; }
   let current;
   try { current = localStorage.getItem(KEYS.data); } catch { current = lastSeen; }
   if (current !== lastSeen) {
+    dismissToast(); // 他タブの変更を読み直したので、古いスナップショットを書き戻す取り消しは出し続けない
     loadData();
     saveError = { conflict: true };
     return false;
@@ -288,6 +288,7 @@ function commit(next) {
   const text = JSON.stringify(exportDoc(next));
   saveError = write(KEYS.data, text);
   if (saveError) return false;
+  dismissToast(); // 取り消しの対象は直前の1操作だけにする。書けなかったとき（容量不足など）は残して、取り消しをやり直せるようにする
   data = next;
   lastSeen = text;
   settings.lastChangeAt = Date.now(); // D-006: 書き出し案内の判定用
@@ -304,7 +305,7 @@ function errorBox(title, body) {
 const CHILD_ERR = {
   siblings: `分岐は${LIMITS.children}個までです。ほかの分岐を消すと保存できます（入力内容はこの画面に残っています）。`,
   depth: `分岐は${LIMITS.depth}段目までです。別の連携の下に入れ直してください（入力内容はこの画面に残っています）。`,
-  missing: 'つなぐ元の記録が見つかりません。コンボの詳細に戻って確かめてください（入力内容はこの画面に残っています）。',
+  missing: 'つなぐ元の記録が見つかりません。他のタブで削除された可能性があります（入力内容はこの画面に残っています）。',
 };
 // 画面の上部バーの下に張り付ける（スクロール位置に関係なく見える）。理由はすべて textContent で入れる。
 function banners() {
@@ -331,7 +332,7 @@ function dismissToast() {
 function showToast(msg, { label, onAction, ms = 6000 } = {}) {
   dismissToast();
   const box = h('div', 'toast', h('span', 'toast-msg', msg));
-  if (onAction) box.append(btn('toast-act', label, () => { dismissToast(); onAction(); }));
+  if (onAction) box.append(btn('toast-act', label, () => { if (onAction() !== false) dismissToast(); })); // false（取り消しの保存に失敗）ならトーストを残す
   let left = ms;
   let started = null;
   let hover = false;
@@ -446,6 +447,14 @@ function openSheet(opener, { pop = false } = {}) {
 // ===== SECTION: セクション操作の画面側 =====
 const now = () => Date.now();
 
+// 削除の取り消し: 削除前の state（prev）を書き戻して描き直す。保存に失敗したら false を返し（トーストを残して再試行できる）、［元に戻す］へフォーカスを戻す
+const undoTo = (prev, focus) => () => {
+  const ok = commit(prev);
+  render({ keepScroll: true, focus: ok ? focus : undefined });
+  if (!ok) document.querySelector('.toast-act')?.focus({ preventScroll: true });
+  return ok;
+};
+
 // 変更を確定して再描画する。undo があれば取り消しトーストを出す（元の state へ戻す）。
 // 保存に失敗した操作には取り消しを出さない（エラー表示が出る）。削除の直後は［元に戻す］へフォーカスを移す。
 function mutate(next, message, focus, undoFocus) {
@@ -453,7 +462,7 @@ function mutate(next, message, focus, undoFocus) {
   const prev = data;
   const ok = commit(next);
   const undo = ok && message;
-  if (undo) showToast(message, { label: '元に戻す', onAction: () => { commit(prev); render({ keepScroll: true, focus: undoFocus }); } });
+  if (undo) showToast(message, { label: '元に戻す', onAction: undoTo(prev, undoFocus) });
   render({ keepScroll: true, focus });
   if (undo) document.querySelector('.toast-act')?.focus();
 }
@@ -806,10 +815,8 @@ let treeOpen = new Map(); // ノードid → その子の木を開いている�
 const isOpen = (id, depth) => treeOpen.get(id) ?? depth < 2; // 初めから開くのは1段目と2段目。3段目は閉じて始める
 let focusNode = null; // 次の描画の終わりに、そのノードの［…］へフォーカスして画面の中央に出す（保存して戻ったとき、子のidの詳細を開いたとき）
 
-// 祖先（親から根の順）。根なら []、迷子なら null
+// 祖先（親から根の順）。根なら []。data は validateDoc を通った文書なので、親は必ずある
 function ancestorsOf(c) {
-  if (c.parentId === undefined) return [];
-  if (isOrphan(data.combos, c.id)) return null;
   const out = [];
   for (let p = c; p.parentId !== undefined;) { p = data.combos.find((x) => x.id === p.parentId); out.push(p); }
   return out;
@@ -817,8 +824,7 @@ function ancestorsOf(c) {
 // そのノードまで見えるよう、根を除く祖先をすべて開く
 function revealNode(id) {
   const c = data.combos.find((x) => x.id === id);
-  const anc = c && ancestorsOf(c);
-  for (const a of anc?.slice(0, -1) ?? []) treeOpen.set(a.id, true);
+  for (const a of c ? ancestorsOf(c).slice(0, -1) : []) treeOpen.set(a.id, true);
   focusNode = id;
 }
 
@@ -830,6 +836,7 @@ function confirmDelete(sh, label, what, run) {
 
 function removeNode(id, label, n) {
   mutate(deleteCombo(data, id), n ? `${label}と分岐${n}件を削除しました` : `${label}を削除しました`, undefined, [`node:${id}`]);
+  sweepDrafts();
 }
 
 // ノードの［…］のシート。depth は1〜3、i は兄弟の中の順番
@@ -868,13 +875,23 @@ function treeSection(c, cid, tree) {
       li.append(h('div', 't-meta', h('span', 't-tags', n.tags.join(' ')), ...(n.damage === undefined ? [] : [h('span', 'dmg', 'ダメージ ', h('b', '', fmtDamage.format(n.damage)))])));
     }
     if (n.memo) li.append(h('p', 't-memo', n.memo));
-    if (kids.has(n.id) && depth < LIMITS.depth) { // 3段目の下は描かない（検証が拒否する深さ。4段目以降の迷子は根として一覧に出る）
-      const open = isOpen(n.id, depth);
-      const fold = at(h('button', 't-fold', svgIcon('i-chev', open ? 90 : 0), h('span', '', `分岐 ${kids.get(n.id).length}件`)),
-        { type: 'button', 'aria-expanded': String(open), 'aria-controls': `t-list-${n.id}`, 'aria-label': `${ref}の分岐 ${kids.get(n.id).length}件`, 'data-fk': `fold:${n.id}` });
-      fold.addEventListener('click', () => { treeOpen.set(n.id, !open); render({ keepScroll: true, focus: [`fold:${n.id}`] }); });
-      li.append(fold);
-      if (open) li.append(list(n, depth + 1, ref));
+    if (kids.has(n.id) && depth < LIMITS.depth) { // 3段目の下は描かない（検証が4段目以降を拒否するので、3段目に子はない）
+      let sub = isOpen(n.id, depth) ? list(n, depth + 1, ref) : null; // 閉じた枝の ul は作らない
+      const fold = at(h('button', 't-fold', svgIcon('i-chev'), h('span', '', `分岐 ${kids.get(n.id).length}件`)),
+        { type: 'button', 'aria-label': `${ref}の分岐 ${kids.get(n.id).length}件`, 'data-fk': `fold:${n.id}` });
+      const sync = () => { // 開閉の見た目と読み上げの状態。aria-controls は ul がある（開いている）間だけ
+        fold.setAttribute('aria-expanded', String(Boolean(sub)));
+        fold.firstElementChild.style.transform = sub ? 'rotate(90deg)' : '';
+        if (sub) fold.setAttribute('aria-controls', sub.id); else fold.removeAttribute('aria-controls');
+      };
+      // 開閉は押した枝の ul を挿入・削除するだけ（render で詳細全体を作り直すと、大きな木で数秒かかる）。フォーカスはボタンに残る
+      fold.addEventListener('click', () => {
+        if (sub) { sub.remove(); sub = null; } else { sub = list(n, depth + 1, ref); li.append(sub); }
+        treeOpen.set(n.id, Boolean(sub));
+        sync();
+      });
+      sync();
+      li.append(fold, ...(sub ? [sub] : []));
     }
     return li;
   };
@@ -903,7 +920,6 @@ function detailScreen({ cid, rid }) {
   }, { 'data-fk': 'other', 'aria-haspopup': 'dialog' });
   const main = h('div', 'detail',
     h('p', 'd-meta', [sec.name, POS[c.position], c.tags.join(' ')].filter(Boolean).join('・')),
-    ...(c.parentId !== undefined ? [h('p', 'note muted d-orphan', 'つなぐ元の記録が見つからないため、コンボとして表示しています')] : []), // 通常は起きない迷子（親がない・循環・深すぎる）。渡ってくるのは迷子だけ（redirectFor が子を根の詳細へ移す）
     ...(c.title ? [h('h2', 'd-title', c.title)] : []),
     ...(c.damage === undefined ? [] : [h('p', 'd-stat', h('span', 'd-stat-l', 'ダメージ'), h('b', 'd-stat-n', fmtDamage.format(c.damage)))]),
     h('div', 'd-cmd', renderRow(c.tokens, { size: 'L', notation, strengthLabels, onChip: chipPopup(c.tokens, cid), canTap, characterId: cid, specialNotation })),
@@ -918,7 +934,8 @@ let focusUndo = false; // 次の描画の終わりに［元に戻す］へフォ
 function removeCombo(c, n) {
   const prev = data;
   if (!commit(deleteCombo(data, c.id))) { render({ keepScroll: true }); return; }
-  showToast(n ? `『${c.title || '無題'}』と連携・分岐${n}件を削除しました` : `「${c.title || '無題'}」を削除しました`, { label: '元に戻す', onAction: () => { commit(prev); render({ keepScroll: true }); } });
+  sweepDrafts(); // 取り消しで記録が戻っても、下書きは戻さない（作り直し）
+  showToast(n ? `『${c.title || '無題'}』と連携・分岐${n}件を削除しました` : `「${c.title || '無題'}」を削除しました`, { label: '元に戻す', onAction: undoTo(prev) });
   focusUndo = true; // 一覧へ移ったあと（履歴を戻す遷移は非同期）、キーボード操作で［元に戻す］に届くようにする
   const to = `#/c/${c.characterId}`;
   if (navN > 0 && prevHash === to) history.back(); // 一覧から来たなら履歴を戻す。それ以外は詳細の履歴を一覧に置き換える
@@ -939,7 +956,7 @@ let ed = null;
 const hhmm = (t) => `${pad2(new Date(t).getHours())}:${pad2(new Date(t).getMinutes())}`;
 
 // 下書き（D-003）: sf6memo.drafts = { "edit:<記録id>" | "new:<セクションid>" | "child:<親の記録id>": { sectionId, title, position, tokens, memo, tags, savedAt, parentId? } }。
-// child: は新しい連携・分岐の下書き（中身の parentId がキーの親と一致しなければ捨てる。親が消えた下書きは残す）。
+// child: は新しい連携・分岐の下書き（中身の parentId がキーの親と一致しなければ捨てる）。記録のない edit: と親のない child: は、削除のあと・編集画面を開くときに掃除する（sweepDrafts）。
 // 読むときは sanitizeDraft を通す。キーに接頭辞を付けるのは、記録idが "__proto__" でも衝突させないため。
 function readDrafts() {
   try {
@@ -949,18 +966,37 @@ function readDrafts() {
     return {};
   }
 }
+const draftBody = () => ({ sectionId: ed.sectionId, title: ed.title, position: ed.position, tokens: ed.pad.tokens, memo: ed.memo, tags: ed.tags, damage: ed.damage, parentId: ed.parentId }); // damage・parentId が undefined なら JSON でキーごと消える
 function writeDraft() {
   const all = readDrafts();
-  all[ed.draftKey] = { sectionId: ed.sectionId, title: ed.title, position: ed.position, tokens: ed.pad.tokens, memo: ed.memo, tags: ed.tags, damage: ed.damage, parentId: ed.parentId, savedAt: now() }; // damage・parentId が undefined なら JSON でキーごと消える
+  all[ed.draftKey] = { ...draftBody(), savedAt: now() };
   return write(KEYS.drafts, JSON.stringify(all));
+}
+// 保存したあとは、保存した内容と一致する下書きだけを消す（キー child:<親id>・new:<セクションid> は2タブで共有するので、他方の入力途中を消さない）
+function removeSavedDraft() {
+  const all = readDrafts();
+  const sig = (d) => JSON.stringify({ ...sanitizeDraft(d), savedAt: 0 }); // 読み込み時と同じ整形にそろえて比べる（時刻は除く）
+  if (!Object.hasOwn(all, ed.draftKey) || sig(all[ed.draftKey]) !== sig(draftBody())) return;
+  delete all[ed.draftKey];
+  write(KEYS.drafts, JSON.stringify(all));
 }
 function removeDraft(key) {
   const all = readDrafts();
   delete all[key];
   write(KEYS.drafts, JSON.stringify(all));
 }
+// 記録のない edit:<id> と、親のない child:<id> の下書きを消す（削除した記録の分。他タブでの削除、書き込みの行き違いで残ったものも）
+function sweepDrafts() {
+  const all = readDrafts();
+  const ids = new Set(data.combos.map((c) => c.id));
+  const dead = Object.keys(all).filter((k) => /^(edit|child):/.test(k) && !ids.has(k.slice(k.indexOf(':') + 1)));
+  if (!dead.length) return;
+  for (const k of dead) delete all[k];
+  write(KEYS.drafts, JSON.stringify(all));
+}
 
 function initEdit({ cid, rid, sid, pid }, secs) {
+  sweepDrafts();
   const base = rid ? data.combos.find((c) => c.id === rid) : null;
   const parent = pid ? data.combos.find((c) => c.id === pid) : null; // 新しい連携・分岐のつなぐ元（redirectFor が、あることを保証する）
   const fresh = base
@@ -1056,10 +1092,10 @@ function editScreen(route) {
   if (!ed) ed = initEdit(route, secs);
   if (!secs.some((s) => s.id === ed.sectionId)) ed.sectionId = secs[0].id;
   const { notation, strengthLabels, specialNotation } = settings;
-  // 連携・分岐の編集か。chain は親から根までの記録（根の編集・新規は []。迷子は根として扱う）。chain.length が編集する記録の段（1＝連携、2・3＝分岐）
+  // 連携・分岐の編集か。chain は親から根までの記録（根の編集・新規は []）。chain.length が編集する記録の段（1＝連携、2・3＝分岐）
   const base = rid ? data.combos.find((c) => c.id === rid) : null;
   const newParent = route.pid ? data.combos.find((c) => c.id === route.pid) : null;
-  const chain = (base ? ancestorsOf(base) : newParent ? [newParent, ...(ancestorsOf(newParent) ?? [])] : []) ?? [];
+  const chain = base ? ancestorsOf(base) : newParent ? [newParent, ...ancestorsOf(newParent)] : [];
   const isChild = chain.length > 0;
   const kind = chain.length === 1 ? '連携' : '分岐';
   const parent = chain[0];
@@ -1322,7 +1358,7 @@ function editScreen(route) {
     }
     const savedId = base ? base.id : combos.at(-1).id;
     ed.saved = true;
-    removeDraft(ed.draftKey);
+    removeSavedDraft();
     if (isChild) { // 根の詳細へ戻り、保存したノードの［…］にフォーカスする（祖先は開く）。履歴に同じ詳細を2つ積まない（removeCombo と同じ判定）
       const to = `#/c/${cid}/r/${chain.at(-1).id}`;
       revealNode(savedId);
@@ -1591,7 +1627,7 @@ function parseRoute(hash) {
       const idOf = (k) => (/^[\w-]{1,64}$/.test(q.get(k) ?? '') ? q.get(k) : null);
       route.pid = idOf('p'); // 連携・分岐の新規作成のつなぐ元。あれば s は無視する
       route.sid = route.pid ? null : idOf('s');
-      if (q.has('p') && !route.pid) return null; // 形の合わない p は未知のhashとして扱う
+      route.badP = q.has('p') && !route.pid; // 空・形の合わない p は、親がない p と同じく一覧へ（redirectFor）
     }
     return route;
   }
@@ -1617,16 +1653,13 @@ function redirectFor(route) {
   const list = { to: `#/c/${route.cid}` };
   const c = route.rid ? data.combos.find((x) => x.id === route.rid && x.characterId === route.cid) : null;
   if (route.rid && !c) return list;
-  if (route.name === 'detail' && c.parentId !== undefined) { // 子のidの詳細は、根の詳細へ移して、そのノードを開く（迷子は根として表示するので移さない）
-    const root = ancestorsOf(c)?.at(-1);
-    return root && { to: `#/c/${route.cid}/r/${root.id}`, reveal: c.id };
-  }
+  if (route.name === 'detail' && c.parentId !== undefined) return { to: `#/c/${route.cid}/r/${ancestorsOf(c).at(-1).id}`, reveal: c.id }; // 子のidの詳細は、根の詳細へ移して、そのノードを開く
+  if (route.badP) return list;
   if (route.name === 'new' && route.pid) {
     const p = data.combos.find((x) => x.id === route.pid && x.characterId === route.cid);
     const why = p && addChildBlock(data.combos, p.id);
     if (!why) return p ? null : list;
-    const root = ancestorsOf(p)?.at(-1) ?? p; // 迷子の下には付けられない（'depth'）ので、迷子は自分を根とする
-    return { to: `#/c/${route.cid}/r/${root.id}`, toast: why === 'depth' ? `分岐は${LIMITS.depth}段目までです` : `分岐は${LIMITS.children}個までです` };
+    return { to: `#/c/${route.cid}/r/${(ancestorsOf(p).at(-1) ?? p).id}`, toast: why === 'depth' ? `分岐は${LIMITS.depth}段目までです` : `分岐は${LIMITS.children}個までです` };
   }
   if (route.name === 'new' && !sectionsOf(data, route.cid).length) return list;
   return null;
@@ -1637,9 +1670,9 @@ function render({ keepScroll = false, focus, dir = null } = {}) {
   const go = redirectFor(route);
   if (go) {
     if (go.reveal) revealNode(go.reveal);
-    if (go.toast) showToast(go.toast, { ms: 3000 });
     history.replaceState({ n: navN }, '', go.to);
     navigate();
+    if (go.toast) showToast(go.toast, { ms: 3000 }); // navigate の「下書きを残しました」より、移した理由を優先する（あとから出して置き換える）
     return;
   }
   if (route.name === 'list' && settings.recentCharacters[0] !== route.cid) {
