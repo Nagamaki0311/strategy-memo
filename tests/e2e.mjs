@@ -6,7 +6,7 @@
 //      - FAST=1 を付けると、時間のかかるトーストの一時停止の検証（約30秒）を省く。
 //      - SHOTS=<dir> を指定すると360幅（と430幅）のスクリーンショットを保存する（目視用。判定には使わない）。
 //      - Service Worker（19章）は、このファイルが立てる専用の静的サーバー（localhost、ルートとサブパス）で検証する。BASE は使わない。
-//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ、ONLY_25=1 で25章（メモの文字サイズ。360・390・430幅）だけ実行する。SHOTS は360幅と430幅を保存する（430幅は名前の末尾に -430）。
+//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ、ONLY_25=1 で25章（メモの文字サイズ。360・390・430幅）だけ、ONLY_26=1 で26章（連携・分岐。360・390・430幅）だけ実行する。SHOTS は360幅と430幅を保存する（430幅は名前の末尾に -430）。
 //      - 既存の検証は、Service Worker を無効にして動かす（browser.newContext の既定が serviceWorkers: 'block'）。
 //   3. 終わったらサーバーを止める（kill %1）。
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
@@ -17,7 +17,7 @@ import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { exportDoc, CHARACTERS } from '../app/core.js';
+import { exportDoc, CHARACTERS, neonLevel, childrenOf, descendantTree } from '../app/core.js';
 
 const BASE = process.env.BASE ?? 'http://localhost:8000/app/index.html';
 const SHOTS = process.env.SHOTS;
@@ -57,6 +57,7 @@ async function check(name, fn) {
     await fn();
   } catch (e) {
     failures.push(`${name}: ${String(e.message).split('\n').slice(0, 4).join(' / ')}`);
+    if (process.env.LIVE) console.log(`FAIL ${failures.at(-1)}`); // LIVE=1: 不合格をその場で表示する（長い章の途中経過）
   }
 }
 
@@ -167,7 +168,7 @@ const swRegs = async (page) => { await page.waitForSelector('.cell'); await page
 const cacheKeys = (page) => page.evaluate(async () => (await caches.keys()).sort());
 const pngSize = async (url) => { const r = await fetch(url); const b = Buffer.from(await r.arrayBuffer()); return [r.status, b.subarray(1, 4).toString(), b.readUInt32BE(16), b.readUInt32BE(20)]; };
 
-for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]) {
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 430]) {
   const tag = `[${width}]`;
   const root = await serveApp(SW_APP);
   const copy = mkdtempSync(path.join(tmpdir(), 'sf6-pages-'));
@@ -388,7 +389,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]
 }
 if (process.env.ONLY_SW) await finish();
 
-for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]) {
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 430]) {
   const tag = `[${width}]`;
 
   // 1. キャラ選択 -> 再読み込み -> 最近使ったキャラ
@@ -3592,7 +3593,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]
 
 // ===== SECTION: 24 必殺技の技名（T-023。D-017・D-018、design-spec-v2.2 6章の3〜13・16） =====
 // 360・390・430幅。リュウ（派生なし）・アルジュン（派生）・ケン（強さで名前が変わる派生）・ルーク（方向のない派生）・ジェイミー（複数の技が当たる）・キャミィ（最長の技名）で確かめる。
-for (const width of process.env.ONLY_25 ? [] : [360, 390, 430]) {
+for (const width of process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 390, 430]) {
   const tag = `[${width}]`;
   const NN = (stance, str, key, dir) => ({ type: 'normal', stance, key, str, ...(dir && { dir }) });
   const MV = (id) => ({ type: 'move', id });
@@ -4465,7 +4466,7 @@ for (const width of process.env.ONLY_25 ? [] : [360, 390, 430]) {
 // ===== SECTION: 25 メモの文字サイズ（T-025。D-020、design-spec-v2.3） =====
 // 360・390・430幅。設定 memoSize（l・m・s）と、メモの内容（詳細・編集・一覧のコマンド列、メモ本文・ダメージ）だけが縮むこと、それ以外が動かないこと。
 // 段階の寸法の期待値は design-spec-v2.3 の表を直接書く（styles.css から読まない）。
-for (const width of [360, 390, 430]) {
+for (const width of process.env.ONLY_26 ? [] : [360, 390, 430]) {
   const tag = `[${width}]`;
   const SIZES = ['l', 'm', 's'];
   // コマンド列の寸法（design-spec-v2.3 2章）。dot=丸（幅・高さ）、arrow=矢印、chipH=システム技の高さ（chip-h）、tagH=注記の高さ（tag-h）、fs=Jの文字、ov=ODの重なり（左マージン）、conn=▶の幅×高さ
@@ -4869,6 +4870,941 @@ for (const width of [360, 390, 430]) {
       });
       await page.context().close();
     }
+  }
+}
+
+// ===== SECTION: 26 連携・分岐（T-027。D-021・D-022、design-spec-v2.4 7章の基準1〜12） =====
+// 360・390・430幅。木の表示・折りたたみ・追加編集・上限・削除と取り消し・複製と移動・件数・下書き・迷子・グレースケール・色。
+// 期待値は design-spec-v2.4 の表と文言を直接書く（app.js・styles.css から読まない）。
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390, 430].filter((w) => !process.env.WIDTH || Number(process.env.WIDTH) === w)) { // WIDTH=360 で1つの幅だけ
+  const tag = `[${width}]`;
+  let seq = 0;
+  // createdAt は作った順（兄弟の順序の根拠）。T0 より前の固定値から1ずつ進める
+  const mk = (id, sectionId, title, tokens, extra = {}) => ({
+    id, characterId: 'ryu', controlType: 'classic', sectionId, title, position: 'any', tokens, memo: '', tags: [], favorite: false,
+    createdAt: T0 - 5000 + seq++, updatedAt: T0, ...extra,
+  });
+  const kid = (id, parentId, title, tokens, extra = {}) => mk(id, 's1', title, tokens, { parentId, ...extra });
+  const PK = [N('stand', 'L', 'P'), N('stand', 'L', 'K')];
+  const seed26 = () => {
+    seq = 0;
+    return {
+      sections: [sec('s1', 'ryu', '通常', 0), sec('s2', 'ryu', '画面端', 1)],
+      combos: [
+        mk('r0', 's1', '連携なし', [N('crouch', 'M', 'K'), SP('236', 'H', 'P')]),
+        mk('r1', 's1', '起き攻めループ', [N('crouch', 'M', 'K'), SP('236', 'H', 'P'), { type: 'system', id: 'CDR' }], { damage: 3200, memo: '中足から始める。', tags: ['基本'] }),
+        kid('la', 'r1', '投げ重ね', PK, { memo: '投げ抜けされたら下がる', damage: 1200, tags: ['投げ'] }),
+        kid('la1', 'la', 'ガード時', [SP('236', 'M', 'P')]),
+        kid('la2', 'la', '', [SP('623', 'OD', 'P')], { tags: ['画面端'] }),
+        kid('la1x', 'la1', 'ヒット時', [N('crouch', 'L', 'P')], { memo: '3段目のメモ' }),
+        kid('lb', 'r1', '', [{ type: 'note', id: 'CH' }, N('stand', 'H', 'P')]),
+        kid('lc', 'r1', '打撃重ね', []),
+        mk('r2', 's2', '別セクション', PK),
+      ],
+    };
+  };
+  const ids26 = (d) => d.combos.map((c) => c.id);
+  const raw = (d) => JSON.parse(JSON.stringify(exportDoc(d)));
+  // hash を変えた直後は、描き直し（hashchange は非同期）を2フレーム待ってから、出現アニメーションの終わりを待つ
+  const settle = async (page) => {
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.waitForFunction(() => { const s = document.querySelector('.screen'); return s && s.getAnimations().length === 0; });
+  };
+  const nodeBtn = (page, id) => page.locator(`[data-fk="node:${id}"]`);
+  const nodeIds = (page) => page.$$eval('.t-node', (els) => els.map((e) => e.id.slice(2)));
+  const toastText = (page) => page.locator('#toast .toast-msg').allInnerTexts();
+  const fk = (page) => page.evaluate(() => document.activeElement?.dataset?.fk ?? document.activeElement?.tagName);
+  const waitHash = (page, h) => page.waitForFunction((x) => location.hash === x, h);
+  const rect = (page, sel) => page.$eval(sel, (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, r: r.right, b: r.bottom }; });
+  const setSettings = async (page, obj) => { await page.evaluate((o) => localStorage.setItem('sf6memo.settings', JSON.stringify(o)), obj); await page.reload(); };
+  const openMenu = async (page, id) => { await nodeBtn(page, id).click(); await page.waitForSelector('.sheet'); };
+  const menuNames = (page) => page.$$eval('.sheet .menu-item', (els) => els.map((e) => ({ t: e.textContent, d: e.disabled })));
+  const gone = (page) => page.waitForSelector('.sheet', { state: 'detached' });
+  const TOKENS = ['中K', '波動 236', '強P'];
+  const tapKeys = async (page, names = TOKENS) => { for (const n of names) await page.getByRole('button', { name: n, exact: true }).click(); };
+
+  // 26a 一覧（基準1）: 根だけが行になり、連携は「連携 N」（直接の子だけ）。帯の件数は根の数
+  {
+    const page = await newPage(width, seed26());
+    await gotoHash(page, '#/c/ryu');
+    await check(`${tag} 26a 一覧: 連携・分岐は .item に出ない。行は根だけ（r1・r0・r2）で、帯の件数は根の数`, async () => {
+      assert.equal(await page.locator('.item').count(), 3);
+      assert.deepEqual(await page.$$eval('.item-title', (e) => e.map((x) => x.textContent)), ['起き攻めループ', '連携なし', '別セクション']); // 新しい順（r1 が先）
+      for (const t of ['投げ重ね', 'ガード時', 'ヒット時', '打撃重ね']) assert.equal(await page.locator('.item', { hasText: t }).count(), 0, t);
+      assert.deepEqual(await page.$$eval('.sec-count', (e) => e.map((x) => x.textContent)), ['2件', '1件']);
+      assert.ok(await noHScroll(page));
+    });
+    await check(`${tag} 26a 一覧: 連携のある行に「連携 3」（直接の子だけ。孫は数えない）。ない行には出ない。ダメージの左に並ぶ`, async () => {
+      const row1 = page.locator('.item', { hasText: '起き攻めループ' });
+      assert.equal((await row1.locator('.lnk').innerText()).replace(/\s+/g, ' '), '連携 3');
+      assert.equal(await row1.locator('.lnk b').innerText(), '3');
+      assert.equal(await page.locator('.item', { hasText: '連携なし' }).locator('.lnk').count(), 0);
+      const [l, d] = await row1.evaluate((r) => [r.querySelector('.lnk').getBoundingClientRect().right, r.querySelector('.dmg').getBoundingClientRect().left]);
+      assert.ok(l <= d, `${l} ${d}`);
+      assert.equal(await row1.locator('.item-meta').evaluate((e) => e.scrollWidth <= e.clientWidth), true);
+    });
+    await shot(page, '26a-list', width);
+    await page.context().close();
+  }
+
+  // 26b 木の構造と折りたたみ（基準2）。0件、記号、見出しの階層、状態の保持、読み上げ名
+  {
+    const page = await newPage(width, seed26());
+    await gotoHash(page, '#/c/ryu/r/r1');
+    await check(`${tag} 26b 木: section.t-sec > ul.t-list.d1 > li が3つ。見出しは h3（1段目）・h4（2段目）。[role=tree] なし。3段目は描かれない`, async () => {
+      assert.equal(await page.locator('section.t-sec > ul.t-list.d1 > li').count(), 3);
+      assert.deepEqual(await page.$$eval('.t-sec h3', (e) => e.map((x) => x.textContent)), ['連携A 投げ重ね', '連携B 見出しなし', '連携C 打撃重ね']);
+      assert.deepEqual(await page.$$eval('.t-sec h4', (e) => e.map((x) => x.textContent)), ['分岐 ガード時', '分岐2']); // 2段目の空の見出しは「分岐<順番>」
+      assert.equal(await page.locator('.t-sec h5').count(), 0);
+      assert.equal(await page.locator('[role=tree], [role=treeitem]').count(), 0);
+      assert.equal(await page.locator('li.t-node > ul.t-list > li.t-node').count(), 2); // 入れ子の ul
+      assert.deepEqual(await nodeIds(page), ['la', 'la1', 'la2', 'lb', 'lc']);
+      assert.deepEqual(await page.$$eval('.t-no', (e) => e.map((x) => x.textContent)), ['A', 'B', 'C']); // 記号は1段目だけ
+      assert.equal(await page.locator('.t-sec h2').innerText(), '連携');
+      assert.equal(await page.locator('.t-sec-n').innerText(), '3件');
+    });
+    await check(`${tag} 26b 折りたたみ: 初期は2段目の la1 だけ閉じていて（3段目なし）、押すと aria-expanded が反転して3段目が出る。フォーカスはそのボタンに残る`, async () => {
+      assert.deepEqual(await page.$$eval('.t-fold', (e) => e.map((x) => [x.dataset.fk, x.getAttribute('aria-expanded')])), [['fold:la', 'true'], ['fold:la1', 'false']]);
+      await page.locator('[data-fk="fold:la1"]').click();
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-expanded'), 'true');
+      assert.equal(await fk(page), 'fold:la1');
+      assert.deepEqual(await page.$$eval('.t-sec h5', (e) => e.map((x) => x.textContent)), ['分岐 ヒット時']);
+      assert.equal(await page.locator('.t-memo', { hasText: '3段目のメモ' }).count(), 1);
+      await page.locator('[data-fk="fold:la1"]').click();
+      assert.equal(await page.locator('.t-sec h5').count(), 0);
+      assert.equal(await fk(page), 'fold:la1');
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-expanded'), 'false');
+      await page.locator('[data-fk="fold:la"]').click(); // 1段目を閉じると2段目の ul は描かれない
+      assert.deepEqual(await nodeIds(page), ['la', 'lb', 'lc']);
+      assert.equal(await page.locator('#t-list-la').count(), 0);
+      await page.locator('[data-fk="fold:la"]').click();
+    });
+    await check(`${tag} 26b 読み上げ名: リスト・［…］・折りたたみ・［＋ 追加］、見出しの階層（h2 の下に h3）`, async () => {
+      assert.equal(await page.locator('ul.t-list.d1').getAttribute('aria-label'), `${'リュウ'}のコンボ『起き攻めループ』の連携 3件`);
+      assert.equal(await page.locator('#t-list-la').getAttribute('aria-label'), '連携A『投げ重ね』の分岐 2件');
+      assert.equal(await nodeBtn(page, 'la').getAttribute('aria-label'), '連携A『投げ重ね』の操作');
+      assert.equal(await nodeBtn(page, 'lb').getAttribute('aria-label'), '連携Bの操作');
+      assert.equal(await nodeBtn(page, 'la1').getAttribute('aria-label'), '分岐『ガード時』の操作');
+      assert.equal(await nodeBtn(page, 'la2').getAttribute('aria-label'), '分岐2の操作');
+      assert.equal(await page.locator('[data-fk="fold:la"]').getAttribute('aria-label'), '連携A『投げ重ね』の分岐 2件');
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-label'), '分岐『ガード時』の分岐 1件');
+      assert.equal(await page.locator('[data-fk="add-link"]').getAttribute('aria-label'), 'このコンボに連携を追加');
+      assert.equal(await page.locator('[data-fk="add-link"]').getAttribute('aria-disabled'), null);
+    });
+    await check(`${tag} 26b ノードの中身: コマンド列・タグ・ダメージ・メモ。0手は「コマンドなし」。お気に入り・位置は出さない`, async () => {
+      const la = page.locator('#t-la');
+      assert.equal(await la.locator('> .t-cmd .row').count(), 1);
+      assert.equal((await la.locator('> .t-meta').innerText()).replace(/\s+/g, ' '), '投げ ダメージ 1,200');
+      assert.equal(await la.locator('> .t-memo').innerText(), '投げ抜けされたら下がる');
+      assert.equal(await page.locator('#t-lc .t-cmd-none').innerText(), 'コマンドなし');
+      assert.equal(await page.locator('#t-lc > .t-meta, #t-lc > .t-memo').count(), 0); // タグ・ダメージ・メモがなければ出さない
+      assert.equal(await page.locator('.t-node .fav, .t-node [aria-label*="お気に入り"]').count(), 0);
+    });
+    await check(`${tag} 26b 木の開閉はアプリを開いている間だけ保持される（一覧へ行って戻っても、再読み込みで戻る）`, async () => {
+      await page.locator('[data-fk="fold:la1"]').click();
+      await gotoHash(page, '#/c/ryu');
+      await gotoHash(page, '#/c/ryu/r/r1');
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-expanded'), 'true');
+      assert.ok(!(await storedRaw(page)).includes('treeOpen'));
+      await page.reload();
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-expanded'), 'false');
+    });
+    await check(`${tag} 26b 連携0件の根: 見出しの行だけ（「連携」「なし」［＋ 追加］）。高さ44以上`, async () => {
+      await gotoHash(page, '#/c/ryu/r/r0');
+      assert.equal(await page.locator('.t-sec-n').innerText(), 'なし');
+      assert.equal(await page.locator('.t-sec ul, .t-sec .t-node').count(), 0);
+      assert.ok((await rect(page, '.t-sec-head')).h >= 44);
+      assert.equal(await page.locator('[data-fk="add-link"]').isVisible(), true);
+      assert.ok(await noHScroll(page));
+    });
+    await shot(page, '26b-detail-0', width);
+    await gotoHash(page, '#/c/ryu/r/r1');
+    await shot(page, '26b-detail', width);
+    await page.locator('[data-fk="fold:la1"]').click();
+    await shot(page, '26b-detail-open', width);
+    await page.context().close();
+  }
+
+  // 26c メモの文字サイズ（基準3）。.t-cmd の行だけが縮み、見出し・記号・［…］・折りたたみは固定
+  {
+    const DOT = { l: '34px', m: '29px', s: '24px' };
+    const MEMO = { l: '15px', m: '14px', s: '13px' };
+    const META = { l: '13px', m: '12px', s: '12px' };
+    for (const sz of ['l', 'm', 's']) {
+      const page = await newPage(width, seed26());
+      await setSettings(page, { memoSize: sz });
+      await gotoHash(page, '#/c/ryu/r/r1');
+      await page.locator('[data-fk="fold:la1"]').click();
+      await check(`${tag} 26c メモの文字サイズ ${sz}: .t-cmd の丸 ${DOT[sz]}、メモ ${MEMO[sz]}、メタ ${META[sz]}。見出し15px・［…］44・折りたたみ13px は固定`, async () => {
+        const cmd = await page.$$eval('.t-cmd > .row', (rows) => rows.map((r) => getComputedStyle(r).getPropertyValue('--dot').trim()));
+        assert.ok(cmd.length >= 5 && cmd.every((v) => v === DOT[sz]), JSON.stringify(cmd));
+        assert.equal(await page.$eval('#t-la > .t-cmd .dot', (e) => e.offsetWidth), parseInt(DOT[sz]));
+        assert.equal(await page.$eval('.t-memo', (e) => getComputedStyle(e).fontSize), MEMO[sz]);
+        assert.equal(await page.$eval('.t-meta', (e) => getComputedStyle(e).fontSize), META[sz]);
+        assert.deepEqual(await page.$$eval('.t-title', (e) => [...new Set(e.map((x) => getComputedStyle(x).fontSize))]), ['15px']);
+        assert.deepEqual(await page.$$eval('.t-fold', (e) => [...new Set(e.map((x) => getComputedStyle(x).fontSize))]), ['13px']);
+        assert.deepEqual(await page.$$eval('.t-row .icon-btn', (e) => [...new Set(e.map((x) => `${x.offsetWidth}x${x.offsetHeight}`))]), ['44x44']);
+        assert.equal(await page.$eval('.d-cmd > .row', (r) => getComputedStyle(r).getPropertyValue('--dot').trim()), DOT[sz]); // 根の行も同じ段階（従来どおり）
+        assert.ok(await noHScroll(page));
+      });
+      if (sz !== 'l') await shot(page, `26c-detail-${sz}`, width);
+      await page.context().close();
+    }
+  }
+
+  // 26d 幅（基準4）: 最大のデータ（連携8×分岐8×3段目8、100字の見出し、3段目にCH＋ODフーリガンコンビネーション）
+  {
+    seq = 0;
+    const long100 = 'あ'.repeat(100);
+    const HOOL = [{ type: 'note', id: 'CH' }, SP('236', 'OD', 'P'), SP('236', 'H', 'P')];
+    const MID = [N('crouch', 'M', 'K'), SP('236', 'H', 'P'), { type: 'system', id: 'CDR' }, N('stand', 'H', 'P'), SP('623', 'OD', 'P')];
+    const cm = (id, parentId, title, tokens, extra = {}) => mk(id, 'sm', title, tokens, { characterId: 'cammy', parentId, ...extra });
+    const maxDoc = { sections: [sec('sm', 'cammy', '通常', 0)], combos: [mk('mr', 'sm', long100, MID, { characterId: 'cammy', tags: ['基本', '画面端', 'あ'.repeat(30)], damage: 99999, memo: 'メモ'.repeat(40) })] };
+    for (let i = 0; i < 8; i++) {
+      maxDoc.combos.push(cm(`m${i}`, 'mr', i === 0 ? long100 : `連携${i}`, MID, { tags: ['長いタグ'.repeat(5)], damage: 12345 }));
+      for (let j = 0; j < 8; j++) {
+        maxDoc.combos.push(cm(`m${i}b${j}`, `m${i}`, i === 0 && j === 0 ? long100 : `分岐${j}`, MID));
+        for (let k = 0; k < 8; k++) maxDoc.combos.push(cm(`m${i}b${j}t${k}`, `m${i}b${j}`, `3段目${k}`, i === 0 && j === 0 && k === 0 ? HOOL : MID, { memo: '3段目のメモ' }));
+      }
+    }
+    for (const sz of ['l', 's']) {
+      const page = await newPage(width, maxDoc);
+      await setSettings(page, { specialNotation: 'name', memoSize: sz });
+      await gotoHash(page, '#/c/cammy/r/mr');
+      await check(`${tag} 26d 最大データ（${maxDoc.combos.length}件、${sz}）の初期表示: 描くのは1段目8＋2段目64。3段目は描かない。横スクロールなし`, async () => {
+        assert.equal(await page.locator('.t-node').count(), 72);
+        assert.equal(await page.locator('.t-sec h5').count(), 0);
+        assert.ok(await noHScroll(page));
+      });
+      await shot(page, `26d-max-${sz}`, width);
+      if (sz === 's') { await page.context().close(); continue; } // 全部開くのは l だけ（584ノードの描き直しを64回繰り返すので時間がかかる）
+      const t0 = Date.now();
+      await page.evaluate(() => { let b; while ((b = document.querySelector('.t-fold[aria-expanded="false"]'))) b.click(); });
+      await check(`${tag} 26d 最大データ（${sz}）を3段目まで全部開く: 584ノード。横スクロールなし。すべての .t-cmd .row で scrollWidth ≤ clientWidth、ノードの右端は画面内`, async () => {
+        assert.equal(await page.locator('.t-node').count(), 584);
+        assert.ok(await noHScroll(page));
+        const bad = await page.evaluate(() => [...document.querySelectorAll('.t-cmd .row')].filter((r) => r.scrollWidth > r.clientWidth).length);
+        assert.equal(bad, 0);
+        const over = await page.evaluate(() => [...document.querySelectorAll('.t-node, .t-title, .t-meta, .t-memo, .t-row')].filter((e) => e.getBoundingClientRect().right > innerWidth + 0.5).length);
+        assert.equal(over, 0);
+      });
+      if (sz === 'l') {
+        await check(`${tag} 26d 実測: 3段目の内容幅（設計書の手計算 360:292 / 390:322 / 430:362）と、最長のチップ（CH＋ODフーリガンコンビネーション＋▶、約283px）`, async () => {
+          const m = await page.evaluate(() => {
+            const t3 = document.querySelector('#t-m0b0t0 > .t-cmd');
+            const grp = t3.querySelector('.grp');
+            return { content: t3.clientWidth, grp: Math.ceil(grp.getBoundingClientRect().width), row: t3.querySelector('.row').scrollWidth, name: grp.textContent };
+          });
+          console.log(`e2e: 26d ${tag} 3段目の内容幅 ${m.content}px、最長の技のグループ ${m.grp}px（${m.name}）、行の scrollWidth ${m.row}px（表示時間 ${Date.now() - t0}ms）`);
+          assert.equal(m.content, { 360: 292, 390: 322, 430: 362 }[width]);
+          assert.ok(m.grp <= m.content && m.grp >= 270 && m.grp <= 300, `${m.grp}`);
+          assert.match(m.name, /ODフーリガンコンビネーション/);
+        });
+        await shot(page, '26d-max-open', width);
+      }
+      await check(`${tag} 26d 100字の見出しは折り返して省略しない（1段目・2段目）`, async () => {
+        const t = await page.$$eval('.t-title', (e) => e.map((x) => x.textContent).filter((x) => x.includes('あああ')));
+        assert.ok(t.length >= 2 && t.every((x) => x.endsWith('あ'.repeat(100))), JSON.stringify(t.map((x) => x.length)));
+        assert.equal(await page.$eval('#t-m0 .t-title', (e) => e.scrollHeight <= e.clientHeight + 1), true);
+      });
+      await page.context().close();
+    }
+  }
+
+  // 26e タップ領域（基準5）と、当たり領域の重なり
+  {
+    const page = await newPage(width, seed26());
+    await gotoHash(page, '#/c/ryu/r/r1');
+    await page.locator('[data-fk="fold:la1"]').click();
+    await check(`${tag} 26e タップ領域: ［…］・折りたたみ・［＋ 追加］がすべて44×44以上`, async () => {
+      const dims = await page.$$eval('.t-row .icon-btn, .t-fold, [data-fk="add-link"]', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return [e.dataset.fk, Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }));
+      assert.ok(dims.length >= 9, JSON.stringify(dims));
+      for (const [k, w, h] of dims) assert.ok(w >= 44 && h >= 44, `${k} ${w}x${h}`);
+    });
+    await check(`${tag} 26e ［…］の中心と四隅（角丸の内側、6px内側）は、重なるチップの当たり領域ではなく［…］自身が受ける（.t-row の z-index）`, async () => {
+      const bad = await page.$$eval('.t-row .icon-btn', (els) => els.flatMap((b) => {
+        b.scrollIntoView({ block: 'center' });
+        const r = b.getBoundingClientRect();
+        return [[.5, .5], [0, 0], [1, 0], [0, 1], [1, 1]].map(([fx, fy]) => [r.left + 6 + fx * (r.width - 12), r.top + 6 + fy * (r.height - 12)])
+          .filter(([x, y]) => !b.contains(document.elementFromPoint(x, y))).map(() => b.dataset.fk);
+      }));
+      assert.deepEqual(bad, []);
+    });
+    await page.context().close();
+  }
+
+  // 26f 追加の流れ（基準6）: ［＋ 追加］→ 編集画面（つなぐ元）→ 保存 → 根の詳細・そのノードの［…］にフォーカス。履歴が2重にならない
+  {
+    const page = await newPage(width, seed26());
+    await gotoHash(page, '#/c/ryu');
+    await page.locator('.item', { hasText: '起き攻めループ' }).click();
+    await page.waitForSelector('.t-sec');
+    await settle(page);
+    await page.locator('[data-fk="add-link"]').click();
+    await waitHash(page, '#/c/ryu/new?p=r1');
+    await settle(page);
+    await check(`${tag} 26f 連携の追加: h1「連携を追加」。セクションと位置の欄がなく、つなぐ元（タイトル・コマンド列）がある。入力欄は 見出し → ダメージ → タグ → メモ`, async () => {
+      assert.equal(await page.locator('.topbar h1').innerText(), '連携を追加');
+      assert.equal(await page.locator('#f-sec, fieldset.seg').count(), 0);
+      assert.equal(await page.locator('.parent-ctx').count(), 1);
+      assert.equal((await page.locator('.parent-ctx .pc-name').innerText()).replace(/\s+/g, ' '), 'つなぐ元 起き攻めループ');
+      assert.equal(await page.locator('.parent-ctx .preview .row').count(), 1);
+      assert.equal(await page.locator('.parent-ctx').getAttribute('tabindex'), '-1');
+      assert.equal(await page.locator('main > :first-child').evaluate((e) => e.classList.contains('parent-ctx')), true); // main の先頭（下書きの時刻より上）
+      assert.deepEqual(await page.$$eval('.fields .field-label', (e) => e.map((x) => x.textContent)), ['見出し（任意）', 'ダメージ（任意）', 'タグ', 'メモ']);
+      assert.equal(await page.locator('#f-title').getAttribute('placeholder'), '例: 打撃重ね／投げ重ね');
+      assert.equal(await page.getByRole('button', { name: 'コンボの詳細に戻る' }).count(), 1);
+    });
+    await check(`${tag} 26f つなぐ元の欄の実測（設計書の手計算: 高さ約63px。パッドの上端 y=326 より上）`, async () => {
+      const c = await rect(page, '.parent-ctx');
+      const pad = await rect(page, '#pad');
+      console.log(`e2e: 26f ${tag} つなぐ元の欄 y=${c.y.toFixed(1)} 高さ ${c.h.toFixed(1)}px 下端 ${c.b.toFixed(1)}、パッドの上端 y=${pad.y}`);
+      assert.ok(c.h >= 55 && c.h <= 70, `${c.h}`);
+      assert.ok(pad.y >= 326 && c.b <= pad.y, `${pad.y} ${c.b}`);
+      assert.ok(await noHScroll(page));
+    });
+    await shot(page, '26f-new-link', width);
+    const histBefore = await page.evaluate(() => history.length);
+    await tapKeys(page);
+    await page.locator('#f-title').fill('ガード後の投げ');
+    await page.locator('#f-dmg').fill('800');
+    const maxSibling = Math.max(...seed26().combos.filter((c) => c.parentId === 'r1').map((c) => c.createdAt));
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await waitHash(page, '#/c/ryu/r/r1');
+    await page.waitForSelector('.t-sec');
+    const after = await stored(page);
+    const made = after.combos.find((c) => c.title === 'ガード後の投げ');
+    await check(`${tag} 26f 保存: 新しい記録の parentId・sectionId が親と同じ。position は any、favorite は false、createdAt は兄弟の最後`, async () => {
+      assert.ok(made);
+      assert.equal(made.parentId, 'r1');
+      assert.equal(made.sectionId, 's1');
+      assert.equal(made.characterId, 'ryu');
+      assert.equal(made.position, 'any');
+      assert.equal(made.favorite, false);
+      assert.equal(made.damage, 800);
+      assert.equal(made.tokens.length, 2);
+      assert.ok(made.createdAt > maxSibling, `${made.createdAt} ${maxSibling}`);
+      assert.equal(made.updatedAt, made.createdAt);
+      assert.equal(after.combos.length, 10);
+      assert.equal(after.schemaVersion, 3);
+    });
+    await check(`${tag} 26f 保存後: 根の詳細に戻り、そのノードの［…］にフォーカス。末尾（連携D）に並び、画面内にある。トースト「保存しました」`, async () => {
+      assert.equal(await fk(page), `node:${made.id}`);
+      assert.deepEqual((await nodeIds(page)).filter((i) => ['la', 'lb', 'lc', made.id].includes(i)), ['la', 'lb', 'lc', made.id]);
+      assert.equal(await page.locator('.t-sec h3').last().textContent(), '連携D ガード後の投げ');
+      const r = await rect(page, `[data-fk="node:${made.id}"]`);
+      assert.ok(r.y >= 48 && r.b <= 740 - 56, `${r.y} ${r.b}`);
+      assert.deepEqual(await toastText(page), ['保存しました']);
+      assert.equal(await page.locator('.t-sec-n').innerText(), '4件');
+    });
+    await check(`${tag} 26f 履歴: 保存のあと戻ると一覧に着く（詳細が2重に積まれていない）。履歴の長さは変わらない`, async () => {
+      assert.equal(await page.evaluate(() => history.length), histBefore);
+      await page.goBack();
+      await waitHash(page, '#/c/ryu');
+    });
+    await page.context().close();
+
+    // URLを直接開いた場合（戻る先がない）は、詳細の履歴へ置き換える
+    const direct = await newPage(width, seed26());
+    await gotoHash(direct, '#/c/ryu/new?p=r1');
+    await direct.reload(); // 再読み込み（履歴の深さは残るが、直前の画面の記憶は消える）
+    await settle(direct);
+    const hl = await direct.evaluate(() => history.length);
+    await tapKeys(direct, ['弱P']);
+    await direct.getByRole('button', { name: '保存', exact: true }).click();
+    await waitHash(direct, '#/c/ryu/r/r1');
+    await check(`${tag} 26f 直接開いた追加の保存: 詳細へ置き換え（履歴が増えない）。フォーカスは新しいノードの［…］`, async () => {
+      assert.equal(await direct.evaluate(() => history.length), hl);
+      const made2 = (await stored(direct)).combos.find((c) => c.parentId === 'r1' && !seed26().combos.some((x) => x.id === c.id));
+      assert.equal(await fk(direct), `node:${made2.id}`);
+      assert.equal(made2.title, '');
+    });
+    await direct.context().close();
+  }
+
+  // 26f2 分岐（2段目・3段目）の追加と編集、編集画面の出し分け
+  {
+    const page = await newPage(width, seed26());
+    await gotoHash(page, '#/c/ryu/r/r1');
+    await check(`${tag} 26f2 ［…］のシート: 見出し「連携A 投げ重ね」。項目は 編集・分岐を追加・削除。2段目は「分岐 ガード時」`, async () => {
+      await openMenu(page, 'la');
+      assert.equal(await page.locator('.sheet h2').innerText(), '連携A 投げ重ね');
+      assert.deepEqual(await menuNames(page), [{ t: '編集', d: false }, { t: '分岐を追加', d: false }, { t: '削除', d: false }]);
+      await page.keyboard.press('Escape');
+      await gone(page);
+      assert.equal(await fk(page), 'node:la'); // シートを閉じたら［…］
+      await openMenu(page, 'la1');
+      assert.equal(await page.locator('.sheet h2').innerText(), '分岐 ガード時');
+      await page.keyboard.press('Escape');
+      await gone(page);
+    });
+    await openMenu(page, 'la1');
+    await page.getByRole('button', { name: '分岐を追加', exact: true }).click();
+    await waitHash(page, '#/c/ryu/new?p=la1');
+    await settle(page);
+    await check(`${tag} 26f2 分岐の追加（3段目）: h1「分岐を追加」、つなぐ元「分岐 ガード時」とそのコマンド列、placeholder が分岐用`, async () => {
+      assert.equal(await page.locator('.topbar h1').innerText(), '分岐を追加');
+      assert.equal((await page.locator('.parent-ctx .pc-name').innerText()).replace(/\s+/g, ' '), 'つなぐ元 分岐 ガード時');
+      assert.equal(await page.locator('#f-title').getAttribute('placeholder'), '例: ガード時／ヒット時');
+      assert.equal(await page.locator('.parent-ctx .preview .chip, .parent-ctx .preview .sname').count() > 0, true);
+    });
+    await check(`${tag} 26f2 ［完了］のフォーカス先: 連携・分岐は .parent-ctx（根は #f-sec）`, async () => {
+      await page.getByRole('button', { name: 'パッドを閉じて項目の入力へ' }).click();
+      assert.equal(await page.evaluate(() => document.activeElement.className), 'parent-ctx');
+    });
+    await page.locator('#f-title').fill('反撃');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await waitHash(page, '#/c/ryu/r/r1');
+    await check(`${tag} 26f2 3段目の保存: 祖先（分岐 ガード時）が開き、新しいノードの［…］にフォーカス。親の子は2つで末尾`, async () => {
+      const made = (await stored(page)).combos.find((c) => c.title === '反撃');
+      assert.equal(made.parentId, 'la1');
+      assert.equal(await fk(page), `node:${made.id}`);
+      assert.equal(await page.locator('[data-fk="fold:la1"]').getAttribute('aria-expanded'), 'true');
+      assert.deepEqual(await page.$$eval('#t-list-la1 h5', (e) => e.map((x) => x.textContent)), ['分岐 ヒット時', '分岐 反撃']);
+    });
+    await check(`${tag} 26f2 編集（1段目）: h1「連携の編集」。つなぐ元は根のタイトル。保存で sectionId・parentId・createdAt・position は変わらず、根の詳細へ戻って［…］にフォーカス`, async () => {
+      await openMenu(page, 'la');
+      await page.getByRole('button', { name: '編集', exact: true }).click();
+      await waitHash(page, '#/c/ryu/r/la/edit');
+      await settle(page);
+      assert.equal(await page.locator('.topbar h1').innerText(), '連携の編集');
+      assert.equal(await page.locator('#f-sec, fieldset.seg').count(), 0);
+      assert.equal(await page.locator('#f-title').inputValue(), '投げ重ね');
+      assert.equal(await page.locator('#f-dmg').inputValue(), '1200');
+      assert.equal((await page.locator('.parent-ctx .pc-name').innerText()).replace(/\s+/g, ' '), 'つなぐ元 起き攻めループ');
+      await page.locator('#f-title').fill('投げ重ね（改）');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await waitHash(page, '#/c/ryu/r/r1');
+      const la = (await stored(page)).combos.find((c) => c.id === 'la');
+      const was = seed26().combos.find((c) => c.id === 'la');
+      assert.equal(la.title, '投げ重ね（改）');
+      for (const k of ['parentId', 'sectionId', 'createdAt', 'position', 'favorite', 'characterId']) assert.equal(la[k], was[k], k);
+      assert.ok(la.updatedAt >= was.createdAt && la.updatedAt !== was.updatedAt);
+      assert.equal(await fk(page), 'node:la');
+      assert.equal(await page.locator('.t-sec h3').first().textContent(), '連携A 投げ重ね（改）');
+    });
+    await check(`${tag} 26f2 編集（3段目）: h1「分岐の編集」、つなぐ元は「分岐 ガード時」。取り消す前に戻るボタンは根の詳細へ`, async () => {
+      await gotoHash(page, '#/c/ryu/r/la1x/edit');
+      await settle(page);
+      assert.equal(await page.locator('.topbar h1').innerText(), '分岐の編集');
+      assert.equal((await page.locator('.parent-ctx .pc-name').innerText()).replace(/\s+/g, ' '), 'つなぐ元 分岐 ガード時');
+      await page.getByRole('button', { name: 'コンボの詳細に戻る' }).click();
+      await waitHash(page, '#/c/ryu/r/r1');
+    });
+    await check(`${tag} 26f2 根の編集: セクション・位置・タイトル欄がある。連携・分岐があるときだけ「連携・分岐 N件も一緒に移ります」（select の aria-describedby）。［完了］は #f-sec へ`, async () => {
+      await gotoHash(page, '#/c/ryu/r/r1/edit');
+      await settle(page);
+      assert.equal(await page.locator('.topbar h1').innerText(), '記録の編集');
+      assert.equal(await page.locator('.parent-ctx').count(), 0);
+      assert.equal(await page.locator('#f-sec-hint').innerText(), '連携・分岐 7件も一緒に移ります'); // la・la1・la2・la1x・lb・lc と、いま足した反撃
+      assert.equal(await page.locator('#f-sec').getAttribute('aria-describedby'), 'f-sec-hint');
+      assert.equal(await page.locator('fieldset.seg').count(), 1);
+      await page.getByRole('button', { name: 'パッドを閉じて項目の入力へ' }).click();
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'f-sec');
+      await gotoHash(page, '#/c/ryu/r/r0/edit');
+      await settle(page);
+      assert.equal(await page.locator('#f-sec-hint').count(), 0);
+      assert.equal(await page.locator('#f-sec').getAttribute('aria-describedby'), null);
+    });
+    await shot(page, '26f2-edit-child', width);
+    await page.context().close();
+  }
+
+  // 26g 子のidの詳細・上限（基準7）。URLの直開きのリダイレクト
+  {
+    seq = 0;
+    const full = { sections: [sec('s1', 'ryu', '通常', 0), sec('s2', 'ryu', '画面端', 1)], combos: [mk('q1', 's1', '満杯', PK)] };
+    for (let i = 0; i < 8; i++) full.combos.push(kid(`ql${i}`, 'q1', `連携${i}`, PK));
+    for (let j = 0; j < 8; j++) full.combos.push(kid(`qb${j}`, 'ql0', `分岐${j}`, PK));
+    full.combos.push(kid('qt0', 'qb0', '3段目', PK));
+    full.combos.push(mk('kenroot', 's1', 'ほかの根', PK));
+    const page = await newPage(width, full);
+    await gotoHash(page, '#/c/ryu/r/q1');
+    await check(`${tag} 26g 連携が8件: ［＋ 追加］は aria-disabled="true"（フォーカスは受ける）。押すとトーストが出て、画面は移らない`, async () => {
+      const add = page.locator('[data-fk="add-link"]');
+      assert.equal(await add.getAttribute('aria-disabled'), 'true');
+      assert.equal(await add.evaluate((e) => e.disabled), false); // disabled 属性は付けない（Playwright は aria-disabled を無効とみなすので、押す操作は force）
+      assert.equal(await add.evaluate((e) => Number(getComputedStyle(e).opacity)), 0.4);
+      await add.focus();
+      assert.equal(await fk(page), 'add-link');
+      await add.click({ force: true });
+      assert.deepEqual(await toastText(page), ['連携は1つのコンボに8個までです']);
+      assert.equal(await hash(page), '#/c/ryu/r/q1');
+      assert.equal(await page.locator('.t-sec-n').innerText(), '8件');
+    });
+    await check(`${tag} 26g 分岐が8個の連携: ［…］の「分岐を追加（8個まで）」は無効。3段目の「分岐を追加（3段目には付けられません）」は無効`, async () => {
+      await openMenu(page, 'ql0');
+      assert.deepEqual((await menuNames(page))[1], { t: '分岐を追加（8個まで）', d: true });
+      await page.keyboard.press('Escape');
+      await gone(page);
+      await page.locator('[data-fk="fold:qb0"]').click();
+      await openMenu(page, 'qt0');
+      assert.deepEqual((await menuNames(page))[1], { t: '分岐を追加（3段目には付けられません）', d: true });
+      await page.keyboard.press('Escape');
+      await gone(page);
+    });
+    await check(`${tag} 26g URLの直開き: 3段目の下は根の詳細へ（トースト「分岐は3段目までです」）、8個の親は「分岐は8個までです」、親がない・別キャラは一覧へ、形が不正は #/`, async () => {
+      await gotoHash(page, '#/c/ryu/new?p=qt0');
+      await waitHash(page, '#/c/ryu/r/q1');
+      assert.deepEqual(await toastText(page), ['分岐は3段目までです']);
+      await gotoHash(page, '#/c/ryu/new?p=ql0');
+      await waitHash(page, '#/c/ryu/r/q1');
+      assert.deepEqual(await toastText(page), ['分岐は8個までです']);
+      await gotoHash(page, '#/c/ryu/new?p=q1');
+      await waitHash(page, '#/c/ryu/r/q1');
+      assert.deepEqual(await toastText(page), ['分岐は8個までです']);
+      await gotoHash(page, '#/c/ryu/new?p=nothing');
+      await waitHash(page, '#/c/ryu');
+      await gotoHash(page, '#/c/ken/new?p=q1');
+      await waitHash(page, '#/c/ken');
+      await gotoHash(page, '#/c/ryu/new?p=%21%21');
+      await waitHash(page, '#/');
+    });
+    await page.reload();
+    await check(`${tag} 26g 子のidの詳細（#/c/ryu/r/qt0）は根の詳細へ置き換え、そのノードの祖先を開いて［…］にフォーカス。戻る履歴は増えない`, async () => {
+      const hl = await page.evaluate(() => history.length);
+      await gotoHash(page, '#/c/ryu/r/qt0');
+      await waitHash(page, '#/c/ryu/r/q1');
+      await page.waitForSelector('.t-sec');
+      assert.equal(await fk(page), 'node:qt0');
+      assert.equal(await page.locator('[data-fk="fold:qb0"]').getAttribute('aria-expanded'), 'true');
+      assert.equal(await page.evaluate(() => history.length), hl + 1); // 子のid自体への移動の1つだけ。リダイレクトは置き換え
+      await gotoHash(page, '#/c/ryu/r/nothing');
+      await waitHash(page, '#/c/ryu');
+    });
+    await page.context().close();
+
+    // 保存の直前の再検査: 画面の描き直しを経ずに親が変わったとき（描き直しは redirectFor が先に移す）、保存は画面を移らず、入力を残して理由を出す。
+    // data は app.js のモジュール変数なので、配信する app.js の末尾に差し替えの口を足して再現する（アプリには入らない）
+    const base7 = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [mk('p1', 's1', '親', PK), ...Array.from({ length: 7 }, (_, i) => kid(`pk${i}`, 'p1', `連携${i}`, PK))] };
+    for (const [label, mutate, re] of [
+      ['8個になった', (d) => ({ ...d, combos: [...d.combos, kid('pk7', 'p1', 'x', PK)] }), /分岐は8個までです。ほかの分岐を消すと保存できます/],
+      ['親が消えた', (d) => ({ ...d, combos: [] }), /^つなぐ元の記録が見つかりません/],
+    ]) {
+      const ctx = await browser.newContext({ viewport: { width, height: 740 }, serviceWorkers: 'block' });
+      await ctx.route('**/app/app.js', async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: `${await r.text()}\nwindow.__setData = (d) => { data = d; };\n` }); });
+      const page2 = await ctx.newPage();
+      await page2.goto(BASE);
+      await page2.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(base7));
+      await page2.reload();
+      await gotoHash(page2, '#/c/ryu/new?p=p1');
+      await settle(page2);
+      await page2.locator('#f-title').fill('入力途中');
+      await page2.evaluate((d) => window.__setData(d), mutate(base7));
+      const before = await storedRaw(page2);
+      await page2.getByRole('button', { name: '保存', exact: true }).click();
+      await check(`${tag} 26g 保存の直前の再検査（${label}）: 画面を移らず、errorBox「保存できませんでした」に理由。入力内容と保存データはそのまま`, async () => {
+        assert.equal(await hash(page2), '#/c/ryu/new?p=p1');
+        assert.equal(await page2.locator('.err h2').innerText(), '保存できませんでした');
+        assert.match(await page2.locator('.err p').innerText(), re);
+        assert.equal(await page2.locator('#f-title').inputValue(), '入力途中');
+        assert.equal(await storedRaw(page2), before);
+      });
+      await ctx.close();
+    }
+  }
+
+  // 26h 削除と取り消し（基準8）
+  {
+    const seed = seed26();
+    const page = await newPage(width, seed);
+    await gotoHash(page, '#/c/ryu/r/r1');
+    await check(`${tag} 26h 子孫3件のノードの削除: 確認シート（見出し「『投げ重ね』を削除」、本文に「3件」）→ 実行で4件が消える。トースト、フォーカスは［元に戻す］`, async () => {
+      await openMenu(page, 'la');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      assert.equal(await page.locator('.sheet h2').innerText(), '『投げ重ね』を削除');
+      assert.match(await page.locator('.sheet .note').innerText(), /この連携の下にある分岐 3件もまとめて削除/);
+      assert.match(await page.locator('.sheet .note').innerText(), /6秒間は［元に戻す］/);
+      assert.equal((await stored(page)).combos.length, 9); // まだ消えていない
+      await page.locator('.sheet-foot .btn.primary').click();
+      await gone(page);
+      assert.deepEqual((await stored(page)).combos.map((c) => c.id), ids26(seed).filter((i) => !['la', 'la1', 'la2', 'la1x'].includes(i)));
+      assert.deepEqual(await toastText(page), ['『投げ重ね』と分岐3件を削除しました']);
+      assert.equal(await page.evaluate(() => document.activeElement.classList.contains('toast-act')), true);
+    });
+    await check(`${tag} 26h 取り消し: data が元と deepEqual（子孫も全部戻る）。フォーカスは［…］へ`, async () => {
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await stored(page), raw(seed));
+      assert.equal(await fk(page), 'node:la');
+      assert.deepEqual(await nodeIds(page), ['la', 'la1', 'la2', 'lb', 'lc']);
+    });
+    await check(`${tag} 26h 子孫のないノードの削除: 確認なしで消え、トーストは「『打撃重ね』を削除しました」。見出しが空なら「連携B」。取り消しで戻る`, async () => {
+      await openMenu(page, 'lc');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await gone(page);
+      assert.deepEqual(await toastText(page), ['『打撃重ね』を削除しました']);
+      assert.equal((await stored(page)).combos.length, 8);
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await stored(page), raw(seed));
+      await openMenu(page, 'lb');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await gone(page);
+      assert.deepEqual(await toastText(page), ['連携Bを削除しました']);
+      await page.locator('.toast-act').click();
+      await openMenu(page, 'la2');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await gone(page);
+      assert.deepEqual(await toastText(page), ['分岐を削除しました']);
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await stored(page), raw(seed));
+    });
+    await check(`${tag} 26h 2段目（子1件）の削除: 「『ガード時』と分岐1件」。確認の本文は「この分岐の下にある分岐 1件」`, async () => {
+      await openMenu(page, 'la1');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      assert.match(await page.locator('.sheet .note').innerText(), /この分岐の下にある分岐 1件/);
+      await page.locator('.sheet-foot .btn.primary').click();
+      await gone(page);
+      assert.deepEqual(await toastText(page), ['『ガード時』と分岐1件を削除しました']);
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await stored(page), raw(seed));
+    });
+    await shot(page, '26h-sheet', width);
+    await check(`${tag} 26h 確認シートの［閉じる］: 何も消えない。コンボ側（根）の削除は確認シート「『起き攻めループ』を削除」、本文「このコンボの連携・分岐 6件」`, async () => {
+      await openMenu(page, 'la');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await shot(page, '26h-confirm', width);
+      await page.getByRole('button', { name: '閉じる' }).click();
+      await gone(page);
+      assert.deepEqual(await stored(page), raw(seed));
+      await page.getByRole('button', { name: 'その他…' }).click();
+      await page.waitForSelector('.sheet');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      assert.equal(await page.locator('.sheet h2').innerText(), '『起き攻めループ』を削除');
+      assert.match(await page.locator('.sheet .note').innerText(), /このコンボの連携・分岐 6件もまとめて削除/);
+    });
+    await check(`${tag} 26h 根の削除（子孫あり）: 一覧へ移り、トースト「『起き攻めループ』と連携・分岐6件を削除しました」。7件が消え、取り消しで全件が元どおり`, async () => {
+      await page.locator('.sheet-foot .btn.primary').click();
+      await waitHash(page, '#/c/ryu');
+      assert.deepEqual((await stored(page)).combos.map((c) => c.id), ['r0', 'r2']);
+      assert.deepEqual(await toastText(page), ['『起き攻めループ』と連携・分岐6件を削除しました']);
+      assert.equal(await page.evaluate(() => document.activeElement.classList.contains('toast-act')), true);
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await stored(page), raw(seed));
+      assert.equal(await page.locator('.item').count(), 3);
+    });
+    await check(`${tag} 26h 子孫のない根の削除は今のまま確認なし（子孫がなければシートを出さずに消える）`, async () => {
+      await gotoHash(page, '#/c/ryu/r/r0');
+      await page.getByRole('button', { name: 'その他…' }).click();
+      await page.waitForSelector('.sheet');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await waitHash(page, '#/c/ryu');
+      assert.deepEqual(await toastText(page), ['「連携なし」を削除しました']);
+      await page.locator('.toast-act').click();
+      assert.deepEqual(await stored(page), raw(seed));
+    });
+    await page.context().close();
+  }
+
+  // 26i 複製と移動（基準9）
+  {
+    const seed = seed26();
+    const page = await newPage(width, seed);
+    await gotoHash(page, '#/c/ryu/r/r1');
+    await page.getByRole('button', { name: '複製', exact: true }).click();
+    await page.waitForFunction(() => /#\/c\/ryu\/r\/(?!r1$)/.test(location.hash));
+    const d = await stored(page);
+    const copyId = (await hash(page)).split('/').pop();
+    await check(`${tag} 26i 複製: 子孫も複製（件数同じ）。idはすべて新しく、parentId が新しいidを指し、兄弟の順序は元と同じ。トースト「複製しました（連携・分岐6件を含む）」`, async () => {
+      assert.equal(d.combos.length, 9 + 7);
+      const old = new Set(ids26(seed));
+      const fresh = d.combos.filter((c) => !old.has(c.id));
+      assert.equal(fresh.length, 7);
+      assert.equal(new Set(d.combos.map((c) => c.id)).size, d.combos.length);
+      const copy = fresh.find((c) => c.id === copyId);
+      assert.equal(copy.parentId, undefined);
+      assert.equal(descendantTree(d.combos, copyId).length, 6);
+      for (const c of fresh) if (c.id !== copyId) assert.ok(fresh.some((p) => p.id === c.parentId), `${c.id} の親は複製の中`);
+      const titles = (rootId) => descendantTree(d.combos, rootId).map((n) => [n.depth, n.combo.title]);
+      assert.deepEqual(titles(copyId), titles('r1')); // 先行順（兄弟は childrenOf の順）が同じ
+      assert.deepEqual(childrenOf(d.combos, copyId).map((c) => c.title), childrenOf(d.combos, 'r1').map((c) => c.title));
+      for (const c of fresh.filter((x) => x.id !== copyId)) assert.equal(c.sectionId, 's1');
+      assert.deepEqual(await toastText(page), ['複製しました（連携・分岐6件を含む）']);
+      assert.equal(await page.locator('.t-sec-n').innerText(), '3件');
+      assert.equal(await page.locator('.d-title').innerText(), '起き攻めループのコピー');
+    });
+    await check(`${tag} 26i 連携のない根の複製のトーストは「複製しました」`, async () => {
+      await gotoHash(page, '#/c/ryu/r/r0');
+      await page.getByRole('button', { name: '複製', exact: true }).click();
+      await page.waitForFunction(() => !/r\/r0$/.test(location.hash));
+      assert.deepEqual(await toastText(page), ['複製しました']);
+      assert.equal((await stored(page)).combos.length, 9 + 7 + 1);
+    });
+    await page.context().close();
+
+    const page2 = await newPage(width, seed);
+    await gotoHash(page2, '#/c/ryu/r/r1/edit');
+    await settle(page2);
+    await page2.locator('#f-sec').selectOption('s2');
+    await page2.getByRole('button', { name: '保存', exact: true }).click();
+    await waitHash(page2, '#/c/ryu/r/r1');
+    await check(`${tag} 26i 根のセクションを変えて保存: 子孫の sectionId も変わる。ほかの記録は変わらない`, async () => {
+      const m = await stored(page2);
+      for (const c of m.combos) assert.equal(c.sectionId, ['r0'].includes(c.id) ? 's1' : 's2', c.id);
+      assert.equal(m.combos.length, 9);
+      assert.match(await page2.locator('.d-meta').innerText(), /^画面端/);
+      assert.equal(await page2.locator('.t-sec-n').innerText(), '3件');
+    });
+    await gotoHash(page2, '#/c/ryu');
+    await check(`${tag} 26i 一覧: 移った先の根は連携つきで出る。帯の件数は根の数（s1:1件、s2:2件）`, async () => {
+      assert.deepEqual(await page2.$$eval('.sec-count', (e) => e.map((x) => x.textContent)), ['1件', '2件']);
+      assert.equal(await page2.locator('.item', { hasText: '起き攻めループ' }).locator('.lnk').innerText(), '連携 3');
+    });
+    await page2.context().close();
+
+    // セクションの削除の移動: 連携・分岐も一緒に移る。確認の件数は根の数
+    const page3 = await newPage(width, seed);
+    await gotoHash(page3, '#/c/ryu');
+    await page3.getByRole('button', { name: '通常のメニュー' }).click();
+    await page3.waitForSelector('.sheet');
+    await page3.getByRole('button', { name: '削除', exact: true }).click();
+    await check(`${tag} 26i セクション削除の確認は根の数（「通常」には記録が2件。連携・分岐を含む全件は8件）。移動先の件数も根の数（画面端 1件）`, async () => {
+      assert.match(await page3.locator('.sheet .note').innerText(), /「通常」には記録が2件あります/);
+      assert.equal((await page3.locator('.radio .muted').innerText()).trim(), '1件');
+    });
+    await page3.locator('.radio input').check();
+    await page3.getByRole('button', { name: '移動して削除' }).click();
+    await gone(page3);
+    await check(`${tag} 26i セクション削除で根と一緒に子孫も移る。トーストは根の数（2件）`, async () => {
+      const m = await stored(page3);
+      assert.equal(m.sections.length, 1);
+      assert.ok(m.combos.every((c) => c.sectionId === 's2'));
+      assert.equal(m.combos.length, 9);
+      assert.match((await toastText(page3))[0], /2件を「画面端」へ移動しました/);
+      await page3.locator('.toast-act').click();
+      assert.deepEqual(await stored(page3), raw(seed));
+    });
+    await page3.context().close();
+  }
+
+  // 26j 件数とネオン（基準10）: キャラ選択・ネオン・読み上げ名は連携・分岐も数える
+  {
+    seq = 0;
+    const ar = (id, parentId, extra = {}) => mk(id, 'sa', '', PK, { characterId: 'arjun', ...(parentId && { parentId }), ...extra });
+    const seed = { sections: [sec('sa', 'arjun', '通常', 0)], combos: [ar('x1'), ar('x2', 'x1'), ar('x3', 'x2'), ar('x4', 'x3'), ar('x5', 'x1')] };
+    const page = await newPage(width, seed);
+    await check(`${tag} 26j キャラ選択: aria-label「アルジュン 5件」、data-lv は neonLevel(5)。見た目に件数の文字は出ない`, async () => {
+      assert.equal(await page.locator('.cell[aria-label^="アルジュン"]').getAttribute('aria-label'), 'アルジュン 5件');
+      assert.equal(await page.locator('.cell[aria-label^="アルジュン"]').getAttribute('data-lv'), String(neonLevel(5)));
+      assert.equal((await page.locator('.cell[aria-label^="アルジュン"]').innerText()).trim(), 'ARJUN');
+    });
+    await gotoHash(page, '#/c/arjun');
+    await check(`${tag} 26j 一覧: ワードマークの data-lv も neonLevel(5)。帯の件数は根の1件。「連携 2」（x2・x5。孫は数えない）`, async () => {
+      assert.equal(await page.locator('.wm').getAttribute('data-lv'), String(neonLevel(5)));
+      assert.equal(await page.locator('.sec-count').innerText(), '1件');
+      assert.equal((await page.locator('.item .lnk').innerText()).replace(/\s+/g, ' '), '連携 2');
+      assert.equal(await page.locator('.item').count(), 1);
+    });
+    await page.context().close();
+  }
+
+  // 26k 下書き（基準11）: 根の新規 new:<sid> と連携の新規 child:<pid> は別々に残り、開き直すと両方とも戻る
+  {
+    const page = await newPage(width, seed26());
+    await gotoHash(page, '#/c/ryu/new?s=s1');
+    await settle(page);
+    await page.locator('#f-title').fill('根の下書き');
+    await gotoHash(page, '#/c/ryu/new?p=r1');
+    await settle(page);
+    await page.locator('#f-title').fill('連携の下書き');
+    await gotoHash(page, '#/c/ryu/new?p=la');
+    await settle(page);
+    await page.locator('#f-title').fill('分岐の下書き');
+    await check(`${tag} 26k 下書きのキー: new:s1・child:r1・child:la が別々に残り、child の中身に parentId が入る。ほかに parentId は入らない`, async () => {
+      const d = JSON.parse(await storedRaw(page, 'sf6memo.drafts'));
+      assert.deepEqual(Object.keys(d).sort(), ['child:la', 'child:r1', 'new:s1']);
+      assert.equal(d['child:r1'].parentId, 'r1');
+      assert.equal(d['child:la'].parentId, 'la');
+      assert.equal(d['new:s1'].parentId, undefined);
+      assert.deepEqual([d['new:s1'].title, d['child:r1'].title, d['child:la'].title], ['根の下書き', '連携の下書き', '分岐の下書き']);
+    });
+    await check(`${tag} 26k 開き直すと、それぞれの下書きが戻る（通知「前回の下書きを開きました」）`, async () => {
+      for (const [h, t] of [['#/c/ryu/new?s=s1', '根の下書き'], ['#/c/ryu/new?p=r1', '連携の下書き'], ['#/c/ryu/new?p=la', '分岐の下書き']]) {
+        await gotoHash(page, h);
+        await settle(page);
+        assert.equal(await page.locator('#f-title').inputValue(), t, h);
+        assert.match(await page.locator('.notice').innerText(), /前回の下書きを開きました/);
+      }
+    });
+    await check(`${tag} 26k 中身の parentId がキーの親と一致しない下書きは捨てる（改ざん・取り違え）。親が消えた子の下書きは残る`, async () => {
+      await page.evaluate(() => {
+        const d = JSON.parse(localStorage.getItem('sf6memo.drafts'));
+        d['child:r1'].parentId = 'la';
+        d['child:la'] = { ...d['child:la'] }; delete d['child:la'].parentId; // 中身に parentId がない
+        localStorage.setItem('sf6memo.drafts', JSON.stringify(d));
+      });
+      await gotoHash(page, '#/c/ryu/new?p=r1');
+      await settle(page);
+      assert.equal(await page.locator('#f-title').inputValue(), '');
+      await gotoHash(page, '#/c/ryu/new?p=la');
+      await settle(page);
+      assert.equal(await page.locator('#f-title').inputValue(), '');
+    });
+    await check(`${tag} 26k 親（根）を削除しても、その子の下書き（child:...）は消さない`, async () => {
+      await gotoHash(page, '#/c/ryu/new?p=lb');
+      await settle(page);
+      await page.locator('#f-title').fill('消えない下書き');
+      await gotoHash(page, '#/c/ryu/r/r1');
+      await page.getByRole('button', { name: 'その他…' }).click();
+      await page.waitForSelector('.sheet');
+      await page.getByRole('button', { name: '削除', exact: true }).click();
+      await page.locator('.sheet-foot .btn.primary').click();
+      await waitHash(page, '#/c/ryu');
+      const d = JSON.parse(await storedRaw(page, 'sf6memo.drafts'));
+      assert.equal(d['child:lb'].title, '消えない下書き');
+    });
+    await page.context().close();
+  }
+
+  // 26l 迷子・他タブ・書き出し/取り込み（基準12の一部）
+  {
+    const orphans = { sections: [sec('s1', 'ryu', '通常', 0)], combos: [] };
+    seq = 0;
+    orphans.combos.push(mk('ox', 's1', '迷子の根', PK, { parentId: 'ghost' }), mk('oy', 's1', '迷子の子', PK, { parentId: 'ox' }), mk('r9', 's1', '普通のコンボ', PK));
+    // 親のない子は validateDoc が拒否するので、配信する core.js の「親がありません」「深さ」の検査だけを外して、アプリ内に迷子を置く（アプリには入らない）
+    const ctx = await browser.newContext({ viewport: { width, height: 740 }, serviceWorkers: 'block' });
+    await ctx.route('**/app/core.js', async (route) => {
+      const r = await route.fetch();
+      const src = await r.text();
+      const body = src.replace("if (!p) return bad('親がありません');", 'if (!p) continue;').replace('!byId.has(cur.parentId)) return bad(`深さは${LIMITS.depth}までで、循環もできません`);', '!byId.has(cur.parentId)) break;');
+      assert.equal(src.length - body.length, 'return bad(\'親がありません\');'.length - 'continue;'.length + 'return bad(`深さは${LIMITS.depth}までで、循環もできません`);'.length - 'break;'.length, '検査の置き換え（2箇所）');
+      await route.fulfill({ response: r, body });
+    });
+    const page = await ctx.newPage();
+    page.errors = [];
+    page.on('pageerror', (e) => page.errors.push(e.message));
+    await page.goto(BASE);
+    await page.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(orphans));
+    await page.reload();
+    await gotoHash(page, '#/c/ryu');
+    await check(`${tag} 26l 迷子（親のない子）: 一覧に根として出る（データを隠さない）。例外なし`, async () => {
+      assert.deepEqual((await page.$$eval('.item-title', (e) => e.map((x) => x.textContent))).sort(), ['普通のコンボ', '迷子の根', '迷子の子'].sort());
+      assert.equal(await page.locator('.sec-count').innerText(), '3件');
+      assert.deepEqual(page.errors, []);
+    });
+    await check(`${tag} 26l 迷子の詳細: 注意書き「つなぐ元の記録が見つからないため、コンボとして表示しています」。迷子の子は木に出る。子のid（ox の子）もリダイレクトされない。普通の根には注意書きなし`, async () => {
+      await gotoHash(page, '#/c/ryu/r/ox');
+      assert.equal(await page.locator('.d-orphan').innerText(), 'つなぐ元の記録が見つからないため、コンボとして表示しています');
+      assert.deepEqual(await nodeIds(page), ['oy']);
+      assert.equal(await page.locator('.t-sec h3').textContent(), '連携A 迷子の子');
+      await gotoHash(page, '#/c/ryu/r/oy');
+      assert.equal(await hash(page), '#/c/ryu/r/oy');
+      assert.equal(await page.locator('.d-orphan').count(), 1);
+      await gotoHash(page, '#/c/ryu/r/r9');
+      assert.equal(await page.locator('.d-orphan').count(), 0);
+      assert.deepEqual(page.errors, []);
+    });
+    await check(`${tag} 26l 迷子の下には追加できない（［＋ 追加］は無効）。保存しても parentId は書き換えない`, async () => {
+      await gotoHash(page, '#/c/ryu/r/ox');
+      assert.equal(await page.locator('[data-fk="add-link"]').getAttribute('aria-disabled'), 'true');
+      await gotoHash(page, '#/c/ryu/r/ox/edit');
+      await settle(page);
+      assert.equal(await page.locator('#f-sec').count(), 1); // 迷子は根として編集する
+      await page.locator('#f-title').fill('迷子の根（改）');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await waitHash(page, '#/c/ryu/r/ox');
+      const ox = (await stored(page)).combos.find((c) => c.id === 'ox');
+      assert.equal(ox.parentId, 'ghost');
+      assert.equal(ox.title, '迷子の根（改）');
+      assert.deepEqual(page.errors, []);
+    });
+    await ctx.close();
+
+    // 他のタブで変わったとき描き直す（基準の「状態」）
+    const seed = seed26();
+    const a = await newPage(width, seed);
+    await gotoHash(a, '#/c/ryu/r/r1');
+    const b = await a.context().newPage();
+    await b.goto(BASE);
+    const changed = { ...seed, combos: seed.combos.filter((c) => !['lb', 'lc'].includes(c.id)) };
+    await b.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(changed));
+    await check(`${tag} 26l 他のタブで連携が消えたら、この画面の木も描き直される`, async () => {
+      await a.waitForFunction(() => document.querySelectorAll('.t-sec h3').length === 1);
+      assert.equal(await a.locator('.t-sec-n').innerText(), '1件');
+    });
+    // 編集中の子が他タブで消えたら、いまの redirectFor（一覧へ）
+    await gotoHash(a, '#/c/ryu/r/la/edit');
+    await settle(a);
+    const gone2 = { ...seed, combos: seed.combos.filter((c) => !['la', 'la1', 'la2', 'la1x'].includes(c.id)) };
+    await b.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc(gone2));
+    await check(`${tag} 26l 編集中の子が他タブで消えたら一覧へ。新規作成中に親が消えたときも一覧へ`, async () => {
+      await waitHash(a, '#/c/ryu');
+      await gotoHash(a, '#/c/ryu/new?p=r1');
+      await settle(a);
+      await b.evaluate((doc) => localStorage.setItem('sf6memo.data', JSON.stringify(doc)), exportDoc({ ...seed, combos: [seed.combos.at(-1)] }));
+      await waitHash(a, '#/c/ryu');
+    });
+    await a.context().close();
+
+    // 書き出し・取り込み: parentId・createdAt が保たれ、木と順序が同じ
+    const src = await newPage(width, seed);
+    await gotoHash(src, '#/settings');
+    const [dl] = await Promise.all([src.waitForEvent('download'), src.getByRole('button', { name: 'JSONを書き出す' }).click()]);
+    const text = readFileSync(await dl.path(), 'utf8');
+    await src.context().close();
+    const dst = await newPage(width);
+    await gotoHash(dst, '#/settings');
+    await dst.locator('input[type=file]').setInputFiles({ name: 'in.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+    await dst.waitForSelector('.sheet');
+    await check(`${tag} 26l 書き出し（schemaVersion 3）→ 取り込み: 確認の件数は連携・分岐を含む（追加 9件）。木と順序が同じ`, async () => {
+      assert.equal(JSON.parse(text).schemaVersion, 3);
+      assert.match((await dst.locator('.imp-count').first().innerText()), /追加 9件/);
+      await dst.getByRole('button', { name: '取り込む', exact: true }).click();
+      await gone(dst);
+      assert.deepEqual(await stored(dst), raw(seed));
+      await gotoHash(dst, '#/c/ryu/r/r1');
+      assert.deepEqual(await nodeIds(dst), ['la', 'la1', 'la2', 'lb', 'lc']);
+    });
+    await dst.context().close();
+  }
+
+  // 26m グレースケールと色・禁止事項（基準12）
+  {
+    const page = await newPage(width, seed26());
+    await gotoHash(page, '#/c/ryu/r/r1');
+    await page.locator('[data-fk="fold:la1"]').click();
+    await check(`${tag} 26m 新しい要素の色は既存トークンの値だけ。filter・box-shadow・text-shadow・グラデーションなし（コマンド列の中は除く）`, async () => {
+      const TOKEN = new Set(['rgb(14, 15, 17)', 'rgb(23, 25, 28)', 'rgb(34, 37, 42)', 'rgb(46, 50, 56)', 'rgb(74, 80, 89)', 'rgb(107, 114, 124)', 'rgb(242, 238, 230)', 'rgb(170, 166, 157)', 'rgba(0, 0, 0, 0)']);
+      const res = await page.evaluate(() => {
+        const out = [];
+        for (const e of document.querySelectorAll('.t-sec, .t-sec-head, .t-sec-head *, .t-list, .t-node, .t-row, .t-row *, .t-no, .t-title, .t-title *, .t-cmd, .t-cmd-none, .t-meta, .t-meta *, .t-tags, .t-memo, .t-fold, .t-fold *')) {
+          const cs = getComputedStyle(e);
+          out.push([e.className.baseVal ?? e.className, cs.color, cs.backgroundColor, cs.borderTopColor, cs.borderBottomColor, cs.borderLeftColor, cs.filter, cs.boxShadow, cs.textShadow, cs.backgroundImage]);
+        }
+        return out;
+      });
+      const ownColors = new Set();
+      for (const [cls, color, bg, bt, bb, bl, filter, shadow, tshadow, img] of res) {
+        for (const [k, v] of [['color', color], ['bg', bg]]) ownColors.add(`${k}:${v}`);
+        assert.ok(TOKEN.has(color) && TOKEN.has(bg), `${cls} ${color} ${bg}`);
+        assert.equal(filter, 'none', cls); assert.equal(shadow, 'none', cls); assert.equal(tshadow, 'none', cls); assert.equal(img, 'none', cls);
+        for (const b of [bt, bb, bl]) assert.ok(TOKEN.has(b), `${cls} border ${b}`);
+      }
+      assert.ok(res.length > 40);
+      // 木の線（li の ::before・::after）は --line-strong の1px
+      const line = await page.$eval('.t-list.d1 > li', (e) => { const a = getComputedStyle(e, '::before'); const z = getComputedStyle(e, '::after'); return [a.borderLeftWidth, a.borderLeftColor, z.borderTopWidth, z.borderTopColor]; });
+      assert.deepEqual(line, ['1px', 'rgb(74, 80, 89)', '1px', 'rgb(74, 80, 89)']);
+      assert.equal(await page.$eval('.t-sec', (e) => getComputedStyle(e).borderTopColor), 'rgb(46, 50, 56)');
+    });
+    await page.addStyleTag({ content: 'html { filter: grayscale(1); }' }); // 画素を取る前にグレースケールにする（検証だけ。アプリには入れない）
+    await check(`${tag} 26m グレースケール: 階層が線・字下げ・見出しの文字で読める。木の線の画素が地と区別でき、2段目は1段目より右に字下げされる`, async () => {
+      const x = await page.evaluate(() => ({ d1: document.querySelector('#t-la').getBoundingClientRect().left, d2: document.querySelector('#t-la1').getBoundingClientRect().left, d3: document.querySelector('#t-la1x').getBoundingClientRect().left }));
+      assert.ok(x.d2 - x.d1 === 12 && x.d3 - x.d2 === 12, JSON.stringify(x)); // 字下げは1段12px
+      // 1段目の縦線（ul.d1 の左端）の列に、地より明るい画素が続く
+      const lineX = await page.$eval('.t-list.d1', (e) => Math.round(e.getBoundingClientRect().left));
+      const top = await page.$eval('#t-la', (e) => Math.round(e.getBoundingClientRect().top));
+      const png = await page.screenshot({ clip: { x: lineX - 2, y: top, width: 5, height: 120 } });
+      const col = await page.evaluate(async (b64) => {
+        const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height).data;
+        let best = 0;
+        for (let xx = 0; xx < c.width; xx++) { let n = 0; for (let y = 0; y < c.height; y++) { const i = (y * c.width + xx) * 4; if (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2] > 55) n++; } best = Math.max(best, n); }
+        return best;
+      }, png.toString('base64'));
+      assert.ok(col >= 100, `線の画素の列 ${col}/120`);
+    });
+    await page.context().close();
   }
 }
 

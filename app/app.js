@@ -787,8 +787,8 @@ function specialPop(token, info) {
 // 技・注記をタップしたときのポップオーバー。出す情報（モーションの対応表示、正式名称、技名）がある技・注記だけがボタン（通常技は表示名と読み上げ名が同じなので、ボタンにしない。派生と判定された通常技の形は技名を出す）
 const canTap = (t, info) => t.type === 'special' || fullName(t) !== null || Boolean(info?.name);
 function chipPopup(tokens, cid) {
-  const infos = specialNames(tokens, cid); // 記録ごとに単独で判定する（連携・分岐は親のコマンド列を前置きしない）
   return (index, token, chip) => {
+    const infos = specialNames(tokens, cid); // タップされたときに引く（木の描画で全ノード分を先に引かない）。記録ごとに単独で判定し、連携・分岐は親のコマンド列を前置きしない
     const sh = openSheet(chip, { pop: true });
     sh.pop(h('div', 'pop-body', ...(token.type === 'special' || infos[index]?.name ? specialPop(token, infos[index]) : [h('div', 'pop-note pop-name', fullName(token))])));
   };
@@ -972,7 +972,7 @@ function initEdit({ cid, rid, sid, pid }, secs) {
   if (parent && draft?.parentId !== pid) draft = null;
   const { tokens, ...f } = draft ? { ...fresh, damage: undefined, ...draft, sectionId: secs.some((s) => s.id === draft.sectionId) ? draft.sectionId : fresh.sectionId } : fresh;
   saveError = null;
-  return { cid, rid, draftKey, ...f, parentId: pid, pad: initialPadState(tokens), nameOn: settings.specialNotation === 'name' && hasSpecials(cid), sel: null, padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
+  return { cid, rid, draftKey, ...f, parentId: parent ? pid : undefined, pad: initialPadState(tokens), nameOn: settings.specialNotation === 'name' && hasSpecials(cid), sel: null, padHidden: false, draftLoaded: !!draft, dirty: !!draft, saved: false, draftFailed: false };
 }
 
 const PAD_DIRS = [7, 8, 9, 4, 5, 6, 1, 2, 3];
