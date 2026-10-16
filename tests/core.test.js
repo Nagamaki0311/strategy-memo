@@ -268,7 +268,7 @@ test('validateDocは不正な文書を例外なしで拒否し、意図した理
     ['schemaVersion欠落', mut((d) => { delete d.schemaVersion; }), 'schemaVersionがありません'],
     ['schemaVersion非整数', mut((d) => { d.schemaVersion = 1.5; }), 'schemaVersionが不正'],
     ['schemaVersion数値文字列', mut((d) => { d.schemaVersion = '1'; }), 'schemaVersionが不正'],
-    ['schemaVersionが新しすぎる(版3)', mut((d) => { d.schemaVersion = 3; }), '新しい版'],
+    ['schemaVersionが新しすぎる(版4)', mut((d) => { d.schemaVersion = 4; }), '新しい版'],
     ['schemaVersionが0', mut((d) => { d.schemaVersion = 0; }), 'schemaVersionが不正'],
     ['moveのidが未知', badTokens({ type: 'move', id: 'DASH' }), 'tokensが不正'],
     ['moveにキー余り', badTokens({ type: 'move', id: 'FWD_STEP', str: 'N' }), 'tokensが不正'],
@@ -765,16 +765,16 @@ test('強度なし(N): 検証・ラベル・strengthChoices・changeStrength・a
   assert.equal(applyPadInput(run([btn('OD', 'P')]), btn('N', 'P')).tokens.length, 1); // Nは必殺技でなくても確定できる（ODと違いモーション不要）
 });
 
-test('データ版: 版1と2を受け付け、版3以上を拒否。書き出しは版2', () => {
-  assert.equal(exportDoc({ sections: [], combos: [] }).schemaVersion, 2);
-  for (const v of [1, 2]) {
+test('データ版: 版1〜3を受け付け、版4以上を拒否。書き出しは版3', () => {
+  assert.equal(exportDoc({ sections: [], combos: [] }).schemaVersion, 3);
+  for (const v of [1, 2, 3]) {
     const d = sampleDoc();
     d.schemaVersion = v;
     assert.deepEqual(validateDoc(d), { ok: true }, `版${v}`);
     assert.equal(parseDocText(JSON.stringify(d)).ok, true, `版${v}`);
     assert.equal(mergeImport({ sections: [], combos: [] }, d).ok, true, `版${v}`);
   }
-  for (const v of [3, 4, 99]) {
+  for (const v of [4, 5, 99]) {
     const d = sampleDoc();
     d.schemaVersion = v;
     const r = validateDoc(d);
@@ -787,10 +787,10 @@ test('データ版: 版1と2を受け付け、版3以上を拒否。書き出し
   v1.schemaVersion = 1;
   v1.combos[0].tokens.push(MV('FWD_STEP'), N('stand', 'N', 'P'));
   assert.deepEqual(validateDoc(v1), { ok: true });
-  // 版1の文書を取り込んでも内容は変換されず、書き出すと版2になる
+  // 版1の文書を取り込んでも内容は変換されず、書き出すと版3になる
   const m = mergeImport({ sections: [], combos: [] }, v1);
   assert.deepEqual(m.doc.combos, v1.combos);
-  assert.equal(exportDoc(m.doc).schemaVersion, 2);
+  assert.equal(exportDoc(m.doc).schemaVersion, 3);
 });
 
 test('move・Nを含む文書: 書き出し→JSON→取り込みの往復で一致し、複製・下書きの整形でも保たれる', () => {
@@ -798,7 +798,7 @@ test('move・Nを含む文書: 書き出し→JSON→取り込みの往復で一
   state.combos[0].tokens.push(MV('BACK_STEP'), { type: 'note', id: 'CH' }, MV('FWD_STEP'), N('crouch', 'N', 'P'), SPc('236', 'N', 'K'));
   const r = parseDocText(JSON.stringify(exportDoc(state)));
   assert.ok(r.ok);
-  assert.equal(r.doc.schemaVersion, 2);
+  assert.equal(r.doc.schemaVersion, 3);
   assert.deepEqual(mergeImport({ sections: [], combos: [] }, r.doc).doc, state);
   assert.deepEqual(duplicateCombo(state.combos[0], 5).tokens, state.combos[0].tokens);
   // 主項目 tokens が配列でない壊れた下書きは捨てる（空の記録として復元しない）
@@ -1178,12 +1178,12 @@ test('必殺技の表記の設定: 既定はコマンド、不正な値は既定
   for (const v of [undefined, null, '', 'arrow', 'NAME', 1, {}, ['name']]) assert.equal(sanitizeSpecialNotation(v), 'cmd', String(v));
 });
 
-test('保存形式は変わらない（基準2）: 技名を保存せず、書き出し→取り込みで元と一致。schemaVersionは2', () => {
+test('保存形式は変わらない（基準2）: 技名を保存せず、書き出し→取り込みで元と一致。schemaVersionは3', () => {
   const tokens = [sp('236', 'P', 'M'), nm('P', 'N', 6), NOTE('CH'), sp('623', 'P', 'OD'), sp('46', 'P', 'H')];
   const state = { sections: [{ id: 's1', characterId: 'arjun', name: '通常', order: 0, updatedAt: T0 }],
     combos: [{ id: 'c1', characterId: 'arjun', controlType: 'classic', sectionId: 's1', title: '', position: 'any', tokens, memo: '', tags: [], favorite: false, createdAt: T0, updatedAt: T0 }] };
   const doc = exportDoc(state);
-  assert.equal(doc.schemaVersion, 2);
+  assert.equal(doc.schemaVersion, 3);
   const text = JSON.stringify(doc);
   for (const e of SPECIALS.arjun) assert.ok(!text.includes(e.name), '技名の文字列を保存しない');
   for (const w of ['追撃', '波動拳', 'derived', 'parent', '派生']) assert.ok(!text.includes(w), w);
