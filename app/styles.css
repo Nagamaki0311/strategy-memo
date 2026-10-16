@@ -193,6 +193,10 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .row:not(.S) .dot.od { box-shadow: var(--glow-od); }
 .row:not(.S) .ltr.od { text-shadow: var(--tx-od); }
 
+/* 技名のチップ（design-spec-v2.2 2章）: 強度の接頭辞＋技名の枠なしの文字。サイズ・色は .ltr（L15px／S12px、700、fg）。ODの接頭辞だけ .ltr.od */
+.sname { white-space: nowrap; }
+.sname .ltr.od { margin-inline: 0; }
+
 /* 注記CH・PC: 枠のない小さな斜めの板 */
 .tag {
   position: relative; isolation: isolate;
@@ -521,9 +525,11 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .pad :focus-visible { outline-offset: -3px; }
 .recent-keys, .sys-keys { display: flex; gap: 4px; height: 44px; overflow-x: auto; scrollbar-width: none; }
 .recent-keys { scroll-snap-type: x proximity; }
-/* R1: 直近の技（左、残り幅。360pxで280px）＋［完了］キー（右端に固定） */
+/* R1: ［技名］キー（左端に固定）＋直近の技／技名の候補（残り幅。360pxで224px）＋［完了］キー（右端に固定）（design-spec-v2.2 1章） */
 .r1 { display: flex; gap: 4px; height: 44px; }
 .r1 > .recent-keys, .r1 > .recent-empty { flex: 1; min-width: 0; }
+.name-key { flex: none; width: 52px; height: 44px; }
+.key[aria-disabled="true"] { color: var(--fg-muted); }
 .done { flex: none; width: 64px; height: 44px; gap: 0; }
 .done .ic { width: 16px; height: 16px; }
 .done-t { font: 700 14px/1.2 var(--font); }
@@ -531,7 +537,13 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .recent-keys .row { flex-wrap: nowrap; pointer-events: none; }
 .recent-empty { display: flex; align-items: center; height: 44px; padding: 0 8px; color: var(--fg-muted); font: var(--t-xs) var(--font); }
 .preset-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; height: 46px; }
-.pk-arrows { display: flex; align-items: center; gap: 1px; height: 14px; --arrow: 13px; --in: 1px; --br-sw: 4; --num: 14px; }
+.pk-arrows, .cand-cmd { display: flex; align-items: center; gap: 1px; height: 14px; --arrow: 13px; --in: 1px; --br-sw: 4; --num: 14px; }
+/* 技名の候補: 1行目に技名、2行目にコマンド（空中はJ、派生は▶）とボタンの文字 */
+.recent-keys .key.cand { flex-direction: column; min-width: 64px; padding: 0 10px; gap: 2px; }
+.cand-name { font: 700 13px/1.2 var(--font); color: var(--fg); white-space: nowrap; }
+.cand-cmd { gap: 2px; --fs: 12px; white-space: nowrap; }
+.cand-cmd .conn { margin: 0; width: 6px; height: 8px; }
+.cand-btn { font: 700 12px/1 var(--font); color: var(--fg-muted); }
 .pk-name { min-height: 14px; font: 12px/1.2 var(--font); color: var(--fg-muted); }
 .sys-keys .key { flex: none; flex-direction: row; min-width: 44px; padding: 0 6px; }
 .lower { display: grid; grid-template-columns: 140px 1fr; column-gap: 12px; height: 202px; margin-top: 4px; }
@@ -582,6 +594,7 @@ textarea.field { padding: var(--s2) var(--s3); line-height: 1.5; resize: vertica
 .set-v { font: 700 var(--t-md) var(--font); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .set-btns { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .set-err:not(:empty) { margin-top: calc(var(--s2) * -1); }
+.set-note, .set-legal { margin: var(--s2) 0 0; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .set-sample { margin-top: var(--s2); padding: var(--s3); background: var(--surface); border-radius: var(--r-key); }
 .set-foot { display: flex; flex-direction: column; gap: var(--s1); padding: var(--s5) var(--s4) var(--s6); border-top: 1px solid var(--line); color: var(--fg-muted); font: var(--t-sm) var(--font); }
 .set-foot p { margin: 0; }

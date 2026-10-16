@@ -41,6 +41,9 @@ const seedState = () => ({
   ],
 });
 
+// 設定画面の免責（D-018 の文面）
+const LEGAL = '本アプリは個人が制作した非公式のファンツールであり、株式会社カプコンおよび関係各社とは一切関係がなく、公式・公認のものではありません。『STREET FIGHTER』は株式会社カプコンの商標または登録商標です。ゲーム内の名称・技名・コマンド等に関する権利は各権利者に帰属します。本アプリは無料で、広告・課金はありません。技名・コマンドは、カプコン公式サイトの公開情報を参考に独自に整理したもので、誤りや最新バージョンとの差異がある場合があります。';
+
 const failures = [];
 let checks = 0;
 // 想定外の例外（待機のタイムアウトなど）でも、それまでの不合格を表示してから終了コード1で終わる
@@ -1057,7 +1060,7 @@ for (const width of [360, 430]) {
   {
     const page = await newPage(width, seedState());
     await gotoHash(page, '#/c/ryu/new?s=s1');
-    const chips = () => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')));
+    const chips = () => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label').split('、')[0])); // コマンド部分だけを見る（技名は24章。読み上げ名は「コマンド、技名」の順）
     const aria = (name) => page.getByRole('button', { name, exact: true });
     const radio = (name) => page.getByRole('radio', { name, exact: true });
     let clicks = 0;
@@ -1101,7 +1104,7 @@ for (const width of [360, 430]) {
       assert.equal(clicks, 9);
       assert.deepEqual(await chips(), ['屈中K', '波動 ↓↘→ 強P', 'CDR', '屈中K', '波動 ↓↘→ 強P']);
       assert.equal(await page.locator('.cmd .cmd-hint').count(), 0);
-      await page.waitForFunction(() => document.getElementById('live').textContent === '追加: 波動 ↓↘→ 強P');
+      await page.waitForFunction(() => document.getElementById('live').textContent === '追加: 波動 ↓↘→ 強P、強波動拳');
     });
     await shot(page, '23-edit-typed', width);
     const typedDom = await rowDom();
@@ -1153,7 +1156,7 @@ for (const width of [360, 430]) {
   // 13. 編集: 下書き・保存失敗・1回限りの姿勢・OD・取り消し・方向キー・直近の技・ポップオーバー
   {
     const page = await newPage(width, seedState());
-    const chips = () => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')));
+    const chips = () => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label').split('、')[0])); // コマンド部分だけを見る（技名は24章。読み上げ名は「コマンド、技名」の順）
     const aria = (name) => page.getByRole('button', { name, exact: true });
     const radio = (name) => page.getByRole('radio', { name, exact: true });
     const toastText = () => page.locator('#toast').innerText();
@@ -1162,7 +1165,7 @@ for (const width of [360, 430]) {
     await gotoHash(page, '#/c/ryu/new?s=s1');
     await check(`${tag} 13 直近の技: 最新順・重複なし・注記なし`, async () => {
       assert.deepEqual(await page.$$eval('.recent-keys .key', (els) => els.map((e) => e.getAttribute('aria-label'))),
-        ['SA3を追加', '昇龍 →↓↘ 中Pを追加', '波動 ↓↘→ 強Pを追加', '屈中Kを追加', 'CDRを追加']);
+        ['SA3を追加', '昇龍 →↓↘ 中P、中昇龍拳を追加', '波動 ↓↘→ 強P、強波動拳を追加', '屈中Kを追加', 'CDRを追加']);
     });
     await aria('中P').click();
     await aria('波動 236').click();
@@ -1299,7 +1302,7 @@ for (const width of [360, 430]) {
   {
     const page = await newPage(width, seedState());
     await gotoHash(page, '#/c/ryu/r/c1/edit');
-    const chips = () => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')));
+    const chips = () => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label').split('、')[0])); // コマンド部分だけを見る（技名は24章。読み上げ名は「コマンド、技名」の順）
     const pop = page.locator('.popover');
     const opt = (name) => pop.getByRole('button', { name, exact: true });
     await check(`${tag} 14 既存の記録の編集: 保存済みのトークンが入っている`, async () => {
@@ -1310,7 +1313,8 @@ for (const width of [360, 430]) {
     await page.locator('.cmd .chip').nth(1).click();
     await pop.waitFor();
     await check(`${tag} 14 ポップオーバー: 対応行・強度の行（OD付き）・挿入・削除、選択中チップに枠`, async () => {
-      assert.match(await pop.locator('.pop-note').innerText(), /＝ 236（波動）/);
+      assert.equal(await pop.locator('.pop-name').innerText(), '強波動拳'); // 技名はポップオーバーに常に出る（24章）
+      assert.match(await pop.locator('.pop-note').last().innerText(), /＝ 236（波動）/);
       assert.deepEqual(await pop.locator('.pop-row').first().locator('button').allInnerTexts(), ['弱', '中', '強', '', 'OD']); // 空は灰色の●（強度なし。文字なし）
       assert.equal(await opt('強').getAttribute('aria-pressed'), 'true');
       assert.equal(await opt('この前に挿入').isVisible(), true);
@@ -1947,7 +1951,7 @@ for (const width of [360, 430]) {
       });
       assert.ok(r.w >= 64 && r.h >= 44, JSON.stringify(r));
       assert.equal(r.right, r.padRight);
-      assert.equal(r.recW, width - 12 - 4 - 64); // 直近の列の見える幅（360pxで280px）
+      assert.equal(r.recW, width - 12 - 4 - 64 - 4 - 52); // 直近の列の見える幅（［技名］キー52pxが左に入るので360pxで224px。design-spec-v2.2 1章）
       assert.deepEqual([r.ic, r.rot, r.t], [[16, 16], 'rotate(90deg)', ['完了', '14px', '700']]);
       assert.deepEqual([r.label, r.ctl, r.padId, r.tabindex, r.tag, r.glow], ['パッドを閉じて項目の入力へ', 'pad', 'pad', '-1', 'BUTTON', 'none']);
       assert.equal(await page.locator('.pad-dock').isVisible(), false); // パッドが出ている間は格納バーなし
@@ -1956,7 +1960,7 @@ for (const width of [360, 430]) {
       const q = await newPage(width, { sections: [sec('s1', 'ryu', '通常', 0)], combos: [] });
       await gotoHash(q, '#/c/ryu/new?s=s1');
       const r = await q.evaluate(() => [document.querySelector('.r1 .recent-empty').getBoundingClientRect().width, document.querySelector('.r1 .done').getBoundingClientRect().width]);
-      assert.deepEqual(r, [width - 12 - 4 - 64, 64]);
+      assert.deepEqual(r, [width - 12 - 4 - 64 - 4 - 52, 64]);
       await q.context().close();
     });
     // ペンディング（↓）を作ってから［完了］
@@ -2175,7 +2179,7 @@ for (const width of [360, 430]) {
         assert.equal(await page.getByRole('button', { name: 'JSONを取り込む' }).evaluate((b) => b.classList.contains('primary')), false);
         assert.equal(await page.locator('input[type=file]').getAttribute('accept'), 'application/json,.json');
         const foot = (await page.locator('.set-foot').innerText()).split('\n').filter(Boolean);
-        assert.deepEqual(foot, ['非公式アプリです。Capcomとは関係ありません。', 'バージョン v0.1.0', '英字書体: Tilt Neon（SIL Open Font License 1.1）']);
+        assert.deepEqual(foot, ['非公式アプリです。Capcomとは関係ありません。', LEGAL, 'バージョン v0.1.0', '英字書体: Tilt Neon（SIL Open Font License 1.1）']);
         assert.equal(await page.locator('.set-font').evaluate((e) => getComputedStyle(e).fontSize), '12px');
         assert.deepEqual(await page.getByRole('radio', { name: /矢印|数字|オフ|オン/ }).evaluateAll((r) => r.map((x) => x.checked)), [true, false, true, false]);
         assert.equal(await page.getByRole('button', { name: /削除|消去|リセット|全て|すべて/ }).count(), 0);
@@ -2365,9 +2369,9 @@ for (const width of [360, 430]) {
       await gotoHash(page, '#/settings');
       await page.getByRole('radio', { name: 'オン' }).check();
       await check(`${tag} 18d 補助文字［オン］: 例示のチップに弱・中・強が出る。一覧・編集のパッドにも反映`, async () => {
-        assert.equal(await page.locator('.set-sample .row.str-labels').count(), 2);
+        assert.equal(await page.locator('.set-sample .row.str-labels').count(), 3); // 方向・必殺技・補助文字の3つの見本
         assert.equal(await page.locator('.set-sample .badge').first().isVisible(), true);
-        assert.deepEqual(await page.locator('.set-sample .row').nth(1).locator('.badge').allInnerTexts(), ['弱', '中', '強']);
+        assert.deepEqual(await page.locator('.set-sample .row').nth(2).locator('.badge').allInnerTexts(), ['弱', '中', '強']);
         assert.equal((await settingsOf(page)).strengthLabels, true);
         assert.ok(await noHScroll(page));
         await gotoHash(page, '#/c/ryu');
@@ -2592,7 +2596,7 @@ for (const width of [360, 430]) {
   // 20. T-018（D-013）: パッドの4段・前ステ/バクステ・強度なし・ヘルプマーク・データ版2
   {
     const aria = (page, name) => page.getByRole('button', { name, exact: true });
-    const chipsOf = (page) => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label')));
+    const chipsOf = (page) => page.$$eval('.cmd .chip', (els) => els.map((e) => e.getAttribute('aria-label').split('、')[0])); // コマンド部分だけを見る（技名は24章。読み上げ名は「コマンド、技名」の順）
     const draftTokens = async (page) => JSON.parse(await storedRaw(page, 'sf6memo.drafts'))['new:s1'].tokens;
     const rowDom = (page, sel = '.cmd .row') => page.$eval(sel, normRow);
 
@@ -3379,7 +3383,7 @@ for (const width of [360, 430]) {
       await gotoHash(page, '#/c/ryu/r/c1');
       await check(`${tag} 23c 詳細: 通常技のチップはボタンではなく（role=img）、必殺技・システム技はボタン`, async () => {
         assert.deepEqual(await page.$$eval('.d-cmd .chip', (cs) => cs.map((c) => [c.tagName, c.getAttribute('aria-label'), c.getAttribute('role')])),
-          [['SPAN', '屈中K', 'img'], ['BUTTON', '波動 ↓↘→ 強P', null], ['BUTTON', 'CDR', null], ['SPAN', '屈中K', 'img'], ['BUTTON', '波動 ↓↘→ 強P', null]]);
+          [['SPAN', '屈中K', 'img'], ['BUTTON', '波動 ↓↘→ 強P、強波動拳', null], ['BUTTON', 'CDR', null], ['SPAN', '屈中K', 'img'], ['BUTTON', '波動 ↓↘→ 強P、強波動拳', null]]);
       });
       const pop = page.locator('.popover');
       const popText = async (sel) => {
