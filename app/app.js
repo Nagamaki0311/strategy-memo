@@ -921,12 +921,12 @@ function buildPad(act, notation, strengthLabels, onDone, onName) {
 }
 
 // ペンディング（仮チップ）: 不透明度60%の記号＋塗りのない円。確定する技に合わせて、↓は単独のときだけ見せる。
-function pendingNode({ stance, dirs }, notation) {
+function pendingNode({ stance, dirs }, notation, picked = false) {
   const motion = dirs.join('');
   const shown = stance === 'crouch' && motion.length < 2 && motion !== '2' ? `2${motion}` : motion;
-  if (!shown && stance === 'stand') return null;
+  if (!shown && stance === 'stand' && !picked) return null; // 方向のない派生の候補を選んだ間は、空の円だけを見せる
   const sym = h('span', 'pend-sym', ...(stance === 'jump' ? [el('span', 'ltr', 'J')] : []), ...(shown ? dirNodes(shown, notation) : []));
-  return at(h('span', 'grp pending', sym, el('span', 'ghost')), { 'aria-hidden': 'true' });
+  return at(h('span', 'grp pending', ...(sym.hasChildNodes() ? [sym] : []), el('span', 'ghost')), { 'aria-hidden': 'true' });
 }
 
 // 挿入カーソルを、index がカーソル以降の最初のチップの前（技のグループの先頭なら、グループの前）に置く。なければ末尾。
@@ -967,7 +967,7 @@ function editScreen(route) {
   const updateRow = () => {
     const { tokens, cursor, pending } = ed.pad;
     const row = renderRow(tokens, { size: 'L', notation, strengthLabels, onChip: openChipMenu, characterId: cid, specialNotation });
-    const pend = pendingNode(pending, notation);
+    const pend = pendingNode(pending, notation, ed.sel !== null);
     placeAt(row, cursor, [...(pend ? [pend] : []), at(el('span', 'cursor'), { 'aria-hidden': 'true' })]);
     if (!tokens.length && !pend) row.append(el('span', 'cmd-hint', '下のパッドで技を入力'));
     if (cursor < tokens.length) row.append(btn('to-end', '末尾へ', () => act({ type: 'cursor', index: tokens.length })));

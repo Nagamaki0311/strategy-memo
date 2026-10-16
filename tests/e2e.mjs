@@ -4,9 +4,9 @@
 //   2. PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tests/e2e.mjs
 //      - Playwright は /opt/node-tools/node_modules のグローバル版（1.56.1）を使う。リポジトリには依存を足さない。`playwright install` は不要。
 //      - FAST=1 を付けると、時間のかかるトーストの一時停止の検証（約30秒）を省く。
-//      - SHOTS=<dir> を指定すると360幅のスクリーンショットを保存する（目視用。判定には使わない）。
+//      - SHOTS=<dir> を指定すると360幅（と430幅）のスクリーンショットを保存する（目視用。判定には使わない）。
 //      - Service Worker（19章）は、このファイルが立てる専用の静的サーバー（localhost、ルートとサブパス）で検証する。BASE は使わない。
-//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ実行する。
+//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ実行する。SHOTS は360幅と430幅を保存する（430幅は名前の末尾に -430）。
 //      - 既存の検証は、Service Worker を無効にして動かす（browser.newContext の既定が serviceWorkers: 'block'）。
 //   3. 終わったらサーバーを止める（kill %1）。
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
@@ -84,7 +84,7 @@ const storedRaw = (page, k = 'sf6memo.data') => page.evaluate((key) => localStor
 const hash = (page) => page.evaluate(() => location.hash);
 const names = (page) => page.$$eval('.sec-name', (els) => els.map((e) => e.textContent));
 const noHScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
-const shot = async (page, name, width) => { if (SHOTS && width === 360) await page.waitForTimeout(350); if (SHOTS && width === 360) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
+const shot = async (page, name, width) => { if (SHOTS && (width === 360 || width === 430)) { await page.waitForTimeout(350); await page.screenshot({ path: `${SHOTS}/${name}${width === 360 ? '' : `-${width}`}.png` }); } }; // 360幅は従来の名前、430幅は末尾に -430
 // hash を変え、画面が描き直される（#app の .screen が新しい要素になる）まで待つ。同じ hash なら何も起きないので待たない。
 // 固定の待ち時間ではなく描き直しを待つ（遅い環境でのゆらぎと、速い環境での無駄な待ちをなくす）
 const gotoHash = async (page, h) => {
