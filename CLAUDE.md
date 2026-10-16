@@ -52,6 +52,7 @@ Skills（`.claude/skills/`配下のSKILL.md）は、再利用可能な具体的�
 - ネオン段階（記録数→`data-lv` 0〜10。閾値 1/2/3/5/8/12/18/28/45/70、ドライブゲージの蛍光グリーン1本の軸。キャラ選択のタイルは板の縁から内側へ緑が滲む「蛍光パネル」で、件数の文字とレベルメーターは出さない（件数は `aria-label` だけ）。値の正本は docs/design-spec-v2.1.md 1章、実体は app/styles.css の「ネオンの段階」節、決定は D-016）: `--l`（段階）/ `--rgb`（発光色）/ `--nb`（板の地）/ `--np`（板の滲み。inset）/ `--nc`（タイルの英字色）/ `--tc`（ワードマーク・最近使ったキャラの文字色）/ `--ns`（文字の影）
 - メモの文字サイズ（設定 `memoSize` l/m/s。html の `data-memo-size`。メモの内容だけが縮み、パッド・仮チップ・凡例・ポップオーバー・設定の見本は固定。値の正本は docs/design-spec-v2.3.md、決定は D-020）: コマンド列は `.row` の組（詳細・編集の丸 34/29/24、一覧の丸 24/21/18、下限は一覧18px・文字12px）。`--rush`（»）/`--dp-b`・`--dp-px`（DP）/`--c`（DI面取り）/`--bo`（補助文字の板）も組に含む。文字は `--ms-meta`・`--ms-dmg`・`--ms-memo`・`--ms-ldmg`
 - 連携の木（詳細画面。値の正本は docs/design-spec-v2.4.md、決定は D-022）: 新しい色・形・発光なし。線は `--line-strong` の1px（`.t-list > li` の `::before`・`::after`）、字下げは1段 `--s3`、見出しは `15px/700`（`--t-md` に `/1.4` を付けない）、コマンド列 `.t-cmd > .row` はメモの文字サイズに追従、［…］・`.t-fold`・［＋ 追加］は44px以上。
+- 一覧のタイトル（`.item-title`。値の正本は docs/design-spec-v2.md 5.2、決定は D-023）: 新しい色・発光なし。傾いた板（`::before`、`--key`、`--skew`、左右3px内側）の左端に縦線 `--title-bar` #96F7B0（ネオン段階5の `--tc` と同じ値、内側3px）、文字は `--lit` 15px/700、padding `2px 15px 2px 17px`、板は文字幅（`fit-content`）。詳細・木・編集・キャラ選択は対象外。
 - 余白: `--s1`〜`--s6` = 4 / 8 / 12 / 16 / 24 / 32px。`--pad-h` 414px（編集パッドの高さ）
 - 角丸・形: `--r-tag` 2px、`--r-chip` 6px、`--r-key` 8px、`--r-sheet` 12px（上2角のみ）、円は●だけ。傾きは `--skew` -12deg の1種類、面取りは `--chamfer-l` 6px・`--chamfer-s` 4px
 - 時間: `--dur-key` 80ms、`--dur-chip` 120ms、`--dur-screen` 160ms、`--dur-sheet` 200ms、`--ease-out` cubic-bezier(.2,.8,.2,1)

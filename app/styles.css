@@ -15,6 +15,7 @@
   --conn: #8C8A85;
   --ink: #0E0F11;
   --lit: #EAFFF0; /* 点灯した名前の文字（蛍光グリーンの段階1以上。D-016） */
+  --title-bar: #96F7B0; /* 一覧のタイトルの縦線。ネオン段階5の --tc と同じ値（D-023） */
   /* 信号色（強度・システム） */
   --str-l: #8FD3F0;
   --str-m: #F0D870;
@@ -395,7 +396,10 @@ a { color: inherit; }
 .sec-count { margin-left: var(--s1); flex: none; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .item { display: block; box-sizing: border-box; min-height: 64px; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); text-decoration: none; }
 .item:active { background: var(--key); }
-.item-title { margin-bottom: var(--s1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--t-md) var(--font); }
+/* 一覧のタイトル（D-023）: 傾いた板（--key、キャラ選択のタイルと同じ --skew）の左端に、傾いた蛍光グリーンの縦線（3px）。板は文字幅（長いときは行いっぱいで省略）。
+   板は左右3pxだけ内側に取り、傾いて外へ出る角が overflow:hidden（省略表示）で欠けないようにする。上下の padding は2px（行は4px高くなる） */
+.item-title { position: relative; isolation: isolate; box-sizing: border-box; width: fit-content; max-width: 100%; margin-bottom: var(--s1); padding: 2px 15px 2px 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--t-md) var(--font); color: var(--lit); }
+.item-title::before { content: ''; position: absolute; inset: 0 3px; z-index: -1; background: var(--key); box-shadow: inset 3px 0 0 var(--title-bar); transform: skewX(var(--skew)); }
 .preview { height: 28px; overflow: hidden; }
 .item-meta { display: flex; gap: var(--s2); margin-top: var(--s1); font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .meta-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

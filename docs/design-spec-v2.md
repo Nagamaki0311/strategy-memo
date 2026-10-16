@@ -220,6 +220,7 @@ data URIにする理由は、Service Workerの配信リストが変わらない�
 - 上部バーのh1: `<span class="wm" aria-hidden="true">RYU</span> リュウ`。ワードマークは `--sign-m`・`--lit`＋`--tx-lit`、カナは13px・muted。h1の読み上げ名は「リュウ」。
 - セクションの帯: 番号「01」を `--sign-s`・mutedにする。その他はv1のまま。
 - 記録の行: `.item-meta` を `display:flex; gap:8px` にし、左の `.meta-t`（v1の文字列、省略表示）と、右の `.dmg`（`flex:none`。「ダメージ」12px・mutedと、数字（`Intl.NumberFormat('ja-JP')`、13px／700、fg、tabular））に分ける。ダメージが未入力なら `.dmg` を出さない。押下は `--key`。プレビュー（S）には発光を付けない。空・並べ替え・削除はv1のまま。
+- 記録のタイトル（`.item-title`。D-023）: 傾いた板に載せる。`::before` は `inset: 0 3px`・`--key`・`skewX(var(--skew))`・`box-shadow: inset 3px 0 0 var(--title-bar)`（#96F7B0。ネオン段階5の `--tc` と同じ値の縦線）。文字は `--lit`・15px／700（`--key` との比 14.7:1）。`position: relative; isolation: isolate`、`width: fit-content; max-width: 100%`、padding `2px 15px 2px 17px`。省略表示・折り返さない設定は従来のまま。タイトルのない記録は `.item-title` を出さない。詳細・木・編集・キャラ選択、メモの文字サイズでは変えない。
 
 ### 5.3 詳細 `#/c/:id/r/:rid`
 
