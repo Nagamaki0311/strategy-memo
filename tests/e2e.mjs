@@ -6,7 +6,7 @@
 //      - FAST=1 を付けると、時間のかかるトーストの一時停止の検証（約30秒）を省く。
 //      - SHOTS=<dir> を指定すると360幅（と430幅）のスクリーンショットを保存する（目視用。判定には使わない）。
 //      - Service Worker（19章）は、このファイルが立てる専用の静的サーバー（localhost、ルートとサブパス）で検証する。BASE は使わない。
-//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ、ONLY_25=1 で25章（メモの文字サイズ。360・390・430幅）だけ、ONLY_26=1 で26章（連携・分岐。360・390・430幅）だけ実行する。SHOTS は360幅と430幅を保存する（430幅は名前の末尾に -430）。
+//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ、ONLY_28=1 で28章（一覧のタイトル）だけ、ONLY_25=1 で25章（メモの文字サイズ。360・390・430幅）だけ、ONLY_26=1 で26章（連携・分岐。360・390・430幅）だけ実行する。SHOTS は360幅と430幅を保存する（430幅は名前の末尾に -430）。
 //      - 既存の検証は、Service Worker を無効にして動かす（browser.newContext の既定が serviceWorkers: 'block'）。
 //   3. 終わったらサーバーを止める（kill %1）。
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
@@ -168,7 +168,7 @@ const swRegs = async (page) => { await page.waitForSelector('.cell'); await page
 const cacheKeys = (page) => page.evaluate(async () => (await caches.keys()).sort());
 const pngSize = async (url) => { const r = await fetch(url); const b = Buffer.from(await r.arrayBuffer()); return [r.status, b.subarray(1, 4).toString(), b.readUInt32BE(16), b.readUInt32BE(20)]; };
 
-for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 430]) {
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_26 || process.env.ONLY_28 ? [] : [360, 430]) {
   const tag = `[${width}]`;
   const root = await serveApp(SW_APP);
   const copy = mkdtempSync(path.join(tmpdir(), 'sf6-pages-'));
@@ -389,7 +389,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ON
 }
 if (process.env.ONLY_SW) await finish();
 
-for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 430]) {
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_26 || process.env.ONLY_28 ? [] : [360, 430]) {
   const tag = `[${width}]`;
 
   // 1. キャラ選択 -> 再読み込み -> 最近使ったキャラ
@@ -3595,7 +3595,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ON
 
 // ===== SECTION: 24 必殺技の技名（T-023。D-017・D-018、design-spec-v2.2 6章の3〜13・16） =====
 // 360・390・430幅。リュウ（派生なし）・アルジュン（派生）・ケン（強さで名前が変わる派生）・ルーク（方向のない派生）・ジェイミー（複数の技が当たる）・キャミィ（最長の技名）で確かめる。
-for (const width of process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 390, 430]) {
+for (const width of process.env.ONLY_25 || process.env.ONLY_26 || process.env.ONLY_28 ? [] : [360, 390, 430]) {
   const tag = `[${width}]`;
   const NN = (stance, str, key, dir) => ({ type: 'normal', stance, key, str, ...(dir && { dir }) });
   const MV = (id) => ({ type: 'move', id });
@@ -4468,7 +4468,7 @@ for (const width of process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 390,
 // ===== SECTION: 25 メモの文字サイズ（T-025。D-020、design-spec-v2.3） =====
 // 360・390・430幅。設定 memoSize（l・m・s）と、メモの内容（詳細・編集・一覧のコマンド列、メモ本文・ダメージ）だけが縮むこと、それ以外が動かないこと。
 // 段階の寸法の期待値は design-spec-v2.3 の表を直接書く（styles.css から読まない）。
-for (const width of process.env.ONLY_26 ? [] : [360, 390, 430]) {
+for (const width of process.env.ONLY_26 || process.env.ONLY_28 ? [] : [360, 390, 430]) {
   const tag = `[${width}]`;
   const SIZES = ['l', 'm', 's'];
   // コマンド列の寸法（design-spec-v2.3 2章）。dot=丸（幅・高さ）、arrow=矢印、chipH=システム技の高さ（chip-h）、tagH=注記の高さ（tag-h）、fs=Jの文字、ov=ODの重なり（左マージン）、conn=▶の幅×高さ
@@ -4878,7 +4878,7 @@ for (const width of process.env.ONLY_26 ? [] : [360, 390, 430]) {
 // ===== SECTION: 26 連携・分岐（T-027。D-021・D-022、design-spec-v2.4 7章の基準1〜12） =====
 // 360・390・430幅。木の表示・折りたたみ・追加編集・上限・削除と取り消し・複製と移動・件数・下書き・2タブと取り込み・グレースケール・色。
 // 期待値は design-spec-v2.4 の表と文言を直接書く（app.js・styles.css から読まない）。
-for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390, 430].filter((w) => !process.env.WIDTH || Number(process.env.WIDTH) === w)) { // WIDTH=360 で1つの幅だけ
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_28 ? [] : [360, 390, 430].filter((w) => !process.env.WIDTH || Number(process.env.WIDTH) === w)) { // WIDTH=360 で1つの幅だけ
   const tag = `[${width}]`;
   let seq = 0;
   // createdAt は作った順（兄弟の順序の根拠）。T0 より前の固定値から1ずつ進める
@@ -6105,6 +6105,187 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 390,
       }, png.toString('base64'));
       assert.ok(col >= 100, `線の画素の列 ${col}/120`);
     });
+    await page.context().close();
+  }
+}
+
+// ===== SECTION: 28 一覧のタイトルの板と縦線（T-028、D-023） =====
+// 一覧の .item-title だけが、傾いた板（--key）＋左の傾いた縦線（蛍光グリーン3px）。詳細・木・編集・キャラ選択は変わらない。
+// ONLY_28=1 で28章だけ。BASE を、変異させた app/ のコピーを配信する別のサーバーに向けると変異テストになる。
+const rgbOf = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+const lumOf = (c) => { const [r, g, b] = rgbOf(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const ratioOf = (a, b) => { const [x, y] = [lumOf(a), lumOf(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 || process.env.ONLY_26 ? [] : [360, 390, 430].filter((w) => !process.env.WIDTH || Number(process.env.WIDTH) === w)) {
+  const tag = `[${width}]`;
+  const L45 = 'とても長いタイトルの確認用。端ループ（OD昇龍締め）からさらに続く説明が長く長く続く場合の見出し';
+  const L100 = '長い見出しの確認用文字列'.repeat(9).slice(0, 100);
+  const seed28 = () => ({
+    sections: [sec('s1', 'ryu', '通常', 0), sec('s2', 'ryu', '画面端', 1)],
+    combos: [
+      combo('t1', 's1', '起き攻めループ', [N('crouch', 'M', 'K'), SP('236', 'H', 'P')], { damage: 3200, tags: ['基本'] }),
+      combo('t2', 's1', '投げ重ね', [N('stand', 'L', 'P')], { parentId: 't1' }),
+      combo('t3', 's1', '', [N('stand', 'H', 'P')], { damage: 2400 }),
+      combo('t4', 's1', L45, [N('stand', 'L', 'P')], { damage: 4100 }),
+      combo('t5', 's1', L100, [N('stand', 'L', 'P')]),
+      combo('t6', 's1', '中足波動', [N('crouch', 'M', 'K')]),
+      combo('t7', 's2', '', [N('stand', 'M', 'P')]),
+    ],
+  });
+  const info = (page, rid) => page.evaluate((id) => {
+    const item = document.querySelector(`.item[href$="/r/${id}"]`), t = item.querySelector('.item-title'), ir = item.getBoundingClientRect();
+    if (!t) return { exists: false, itemH: ir.height, first: item.firstElementChild.className };
+    const cs = getComputedStyle(t), bs = getComputedStyle(t, '::before'), r = t.getBoundingClientRect();
+    return {
+      exists: true, display: cs.display, position: cs.position, color: cs.color, fs: cs.fontSize, fw: cs.fontWeight, ov: cs.overflow, to: cs.textOverflow, ws: cs.whiteSpace, bg: cs.backgroundColor, shadow: cs.boxShadow, filter: cs.filter, lh: parseFloat(cs.lineHeight),
+      b: { content: bs.content, bg: bs.backgroundColor, img: bs.backgroundImage, shadow: bs.boxShadow, tf: bs.transform, z: bs.zIndex, filter: bs.filter },
+      w: r.width, h: r.height, left: r.left, right: r.right, top: r.top, itemH: ir.height, itemL: ir.left, itemR: ir.right, clip: t.scrollWidth > t.clientWidth, text: t.textContent,
+    };
+  }, rid);
+  const px = async (page, x, y, w = 1) => { // 等倍の画素の並び（y の1行、x から w 個）
+    const png = await page.screenshot({ clip: { x, y, width: w, height: 1 } });
+    return page.evaluate(async (b64) => { const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode(); const c = document.createElement('canvas'); c.width = img.width; c.height = 1; const g = c.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, c.width, 1).data; return Array.from({ length: c.width }, (_, i) => [d[i * 4], d[i * 4 + 1], d[i * 4 + 2]]); }, png.toString('base64'));
+  };
+  const KEY = 'rgb(34, 37, 42)', BAR = 'rgb(150, 247, 176)', LIT = 'rgb(234, 255, 240)';
+
+  // 28a 板・縦線・色の computed style と、文字のコントラスト
+  {
+    const page = await newPage(width, seed28());
+    await gotoHash(page, '#/c/ryu');
+    const t = await info(page, 't1');
+    await check(`${tag} 28a 一覧のタイトル: 板は --key、縦線は #96F7B0 の3px、-12度の傾き。文字は --lit 15px/700、折り返さず省略表示。板は ::before だけで、タイトル自体に地・影・filter はない`, async () => {
+      assert.equal(t.exists, true);
+      assert.deepEqual([t.display, t.position, t.color, t.fs, t.fw, t.ov, t.to, t.ws], ['block', 'relative', LIT, '15px', '700', 'hidden', 'ellipsis', 'nowrap']);
+      assert.deepEqual([t.bg, t.shadow, t.filter], ['rgba(0, 0, 0, 0)', 'none', 'none']);
+      assert.deepEqual([t.b.content, t.b.bg, t.b.img, t.b.filter, t.b.z], ['""', KEY, 'none', 'none', '-1']);
+      assert.equal(t.b.shadow, `${BAR} 3px 0px 0px 0px inset`);
+      const m = t.b.tf.match(/matrix\(([^)]+)\)/)[1].split(',').map(Number);
+      assert.ok(m[0] === 1 && m[1] === 0 && m[3] === 1 && Math.abs(m[2] - Math.tan((-12 * Math.PI) / 180)) < 0.001, t.b.tf); // skewX(-12deg)
+    });
+    await check(`${tag} 28a 板（--key）の上のタイトル文字のコントラスト比は4.5:1以上（実測 ${ratioOf(LIT, KEY).toFixed(1)}:1）`, async () => {
+      assert.ok(ratioOf(t.color, t.b.bg) >= 4.5, String(ratioOf(t.color, t.b.bg)));
+    });
+    await check(`${tag} 28a 実際の画素: 縦線の中ほどは #96F7B0、板の右端近くは --key`, async () => {
+      const y = Math.round(t.top + t.h / 2); // 高さの中央は傾きによるずれが0
+      const a = await px(page, Math.floor(t.left), y, Math.ceil(t.w));
+      assert.deepEqual(a[4], [150, 247, 176]);
+      assert.deepEqual(a[Math.floor(t.w) - 8], [34, 37, 42]);
+    });
+    await check(`${tag} 28a タイトルは行全体のリンク（a.item）の中。根のタイトルありは t1・t4・t5・t6の4件`, async () => {
+      assert.equal(await page.locator('a.item > .item-title').count(), 4);
+      assert.equal(await page.locator('.item-title').count(), 4);
+    });
+    await check(`${tag} 28a 板の傾きで外へ出る角（高さの半分×tan12度）が、板の左右の内側3pxに収まる（省略表示の overflow:hidden で欠けない）`, async () => {
+      assert.ok((t.h / 2) * Math.tan((12 * Math.PI) / 180) <= 3, String(t.h));
+    });
+    await shot(page, '28-list', width);
+    await page.context().close();
+  }
+
+  // 28b 高さ・タイトルなしの行・長いタイトル・連携のある根
+  {
+    const page = await newPage(width, seed28());
+    await gotoHash(page, '#/c/ryu');
+    const I = {};
+    for (const id of ['t1', 't3', 't4', 't5', 't6', 't7']) I[id] = await info(page, id);
+    await check(`${tag} 28b タイトルなしの行（t3・t7）に .item-title は出ない。先頭は .preview のまま`, async () => {
+      for (const id of ['t3', 't7']) assert.deepEqual([I[id].exists, I[id].first], [false, 'preview']);
+    });
+    await check(`${tag} 28b 行の高さの増加: タイトル行は文字行（行高1.5×15px）に上下の padding 2px ずつを足した4px高い。行の高さはなしの行との差が、タイトル行の高さ＋下の余白4px`, async () => {
+      assert.equal(I.t6.lh, 22.5);
+      assert.equal(I.t6.h, 22.5 + 4); // 変更前のタイトル行（22.5px）に対して +4px
+      assert.equal(I.t6.itemH - I.t7.itemH, I.t6.h + 4); // t7 は同じくダメージなしでタイトルなし // 下の余白 --s1 は変更前のまま
+    });
+    await check(`${tag} 28b 短いタイトルの板は文字幅（fit-content）で、行の内側の幅より狭い。長いタイトル（45字・100字）は行いっぱいで省略表示（...）、行の外へ出ない`, async () => {
+      assert.ok(I.t6.w < I.t6.itemR - I.t6.itemL - 32 - 40 && !I.t6.clip, JSON.stringify([I.t6.w, I.t6.itemR - I.t6.itemL]));
+      for (const id of ['t4', 't5']) {
+        assert.equal(I[id].clip, true, id);
+        assert.ok(I[id].right <= I[id].itemR - 16 + 0.5 && I[id].left >= I[id].itemL + 16 - 0.5, `${id} ${I[id].left} ${I[id].right}`);
+        assert.equal(I[id].h, I.t6.h, `${id} は1行（折り返さない）`);
+      }
+      assert.equal(I.t5.text.length, 100);
+    });
+    await check(`${tag} 28b 連携のある根（t1）: 「連携 1」と板が共存し、板の右端がメタ行の「連携」「ダメージ」に重ならない。メタ・プレビューは板の下`, async () => {
+      assert.equal(await page.locator('.item[href$="/r/t1"] .lnk').innerText().then((x) => x.replace(/\s+/g, ' ')), '連携 1');
+      const r = await page.evaluate(() => { const it = document.querySelector('.item[href$="/r/t1"]'); const b = (s) => it.querySelector(s).getBoundingClientRect(); return { tb: b('.item-title').bottom, pt: b('.preview').top, pb: b('.preview').bottom, mt: b('.item-meta').top }; });
+      assert.ok(r.tb <= r.pt && r.pb <= r.mt, JSON.stringify(r));
+    });
+    await check(`${tag} 28b 横スクロールなし。ページエラーなし。タイトルの板は行の左右の余白（16px）の内側`, async () => {
+      assert.ok(await noHScroll(page));
+      assert.deepEqual(page.errors, []);
+    });
+    await check(`${tag} 28b 一覧の中のタイトル以外（コマンド列の強度色の●・メタ・帯）は変わらない: 帯の高さ44px、メタ12px、プレビューの高さ28px`, async () => {
+      const r = await page.evaluate(() => ({ head: document.querySelector('.sec-head').getBoundingClientRect().height, meta: getComputedStyle(document.querySelector('.meta-t')).fontSize, pv: document.querySelector('.preview').getBoundingClientRect().height }));
+      assert.deepEqual(r, { head: 44, meta: '12px', pv: 28 });
+    });
+    await page.context().close();
+  }
+
+  // 28c メモの文字サイズ（大・中・小）でタイトルの寸法は不変（v2.3）
+  {
+    const dims = {};
+    for (const sz of ['l', 'm', 's']) {
+      const page = await newPage(width, seed28());
+      await page.evaluate((s) => localStorage.setItem('sf6memo.settings', JSON.stringify({ memoSize: s })), sz);
+      await page.reload();
+      await gotoHash(page, '#/c/ryu');
+      const i = await info(page, 't6');
+      dims[sz] = [i.w, i.h, i.fs, i.color, i.b.bg, i.b.shadow];
+      await page.context().close();
+    }
+    await check(`${tag} 28c メモの文字サイズ 大・中・小で、タイトルの板の幅・高さ・文字・色が同じ`, async () => {
+      assert.deepEqual(dims.m, dims.l); assert.deepEqual(dims.s, dims.l);
+      assert.equal(dims.l[2], '15px');
+    });
+  }
+
+  // 28d 適用範囲: 詳細の .d-title・木の .t-title・編集・キャラ選択は変わらない
+  {
+    const page = await newPage(width, seed28());
+    const plain = (sel) => page.evaluate((s) => { const e = document.querySelector(s), c = getComputedStyle(e), b = getComputedStyle(e, '::before'); return { bg: c.backgroundColor, shadow: c.boxShadow, pad: c.padding, color: c.color, fs: c.fontSize, bc: b.content, bbg: b.backgroundColor, bsh: b.boxShadow, tf: b.transform }; }, sel);
+    await gotoHash(page, '#/c/ryu/r/t1');
+    await check(`${tag} 28d 詳細: .d-title（17px・--fg、板・縦線なし）。木の .t-title も板なし（連携の木 D-022 のまま）`, async () => {
+      assert.deepEqual(await plain('.d-title'), { bg: 'rgba(0, 0, 0, 0)', shadow: 'none', pad: '0px', color: 'rgb(242, 238, 230)', fs: '17px', bc: 'none', bbg: 'rgba(0, 0, 0, 0)', bsh: 'none', tf: 'none' });
+      assert.equal(await page.locator('.item-title').count(), 0);
+      const tt = await plain('.t-title');
+      assert.deepEqual([tt.bg, tt.shadow, tt.bc, tt.fs, tt.color], ['rgba(0, 0, 0, 0)', 'none', 'none', '15px', 'rgb(242, 238, 230)']);
+    });
+    await gotoHash(page, '#/c/ryu/r/t1/edit');
+    await check(`${tag} 28d 編集: .item-title も板もない`, async () => {
+      assert.equal(await page.locator('.item-title').count(), 0);
+      assert.ok(await noHScroll(page));
+    });
+    await gotoHash(page, '#/');
+    await check(`${tag} 28d キャラ選択: .item-title なし。タイルの傾きの板（.cell）は従来のまま`, async () => {
+      assert.equal(await page.locator('.item-title').count(), 0);
+      assert.ok(await page.locator('.cell').count() > 0);
+    });
+    await gotoHash(page, '#/c/ryu');
+    await check(`${tag} 28d キャラ選択から戻った一覧でも、板と縦線が出る（再描画後）`, async () => {
+      const t = await info(page, 't6');
+      assert.deepEqual([t.b.bg, t.b.shadow], [KEY, `${BAR} 3px 0px 0px 0px inset`]);
+    });
+    await page.context().close();
+  }
+
+  // 28e グレースケール: 色に頼らず、傾いた板の形と縦線の明度で区別できる（実際の画素。検証だけで filter を当てる）
+  {
+    const page = await newPage(width, seed28());
+    await gotoHash(page, '#/c/ryu');
+    await page.addStyleTag({ content: 'html { filter: grayscale(1); }' });
+    const t = await info(page, 't6');
+    await check(`${tag} 28e グレースケール: 縦線は地より十分に明るく（輝度差100以上）、板は地（行の右の空き）より明るい（輝度差15以上）。板の上端と下端で左端の位置がずれる（傾き）`, async () => {
+      const y = Math.round(t.top + t.h / 2), lum = ([r, g, b]) => 0.299 * r + 0.587 * g + 0.114 * b;
+      const a = await px(page, Math.floor(t.left), y, Math.ceil(t.w) + 20);
+      const bar = lum(a[4]), board = lum(a[Math.floor(t.w) - 8]), bg = lum(a[a.length - 4]);
+      assert.ok(bar - bg >= 100, `縦線 ${bar} 地 ${bg}`);
+      assert.ok(board - bg >= 15, `板 ${board} 地 ${bg}`);
+      // 上端近くと下端近くの行で、縦線（明るい画素）の左端 x が違う
+      const edge = async (yy) => { const row = await px(page, Math.floor(t.left), yy, 16); return row.findIndex((p) => lum(p) > 150); };
+      const top = await edge(Math.round(t.top) + 3), bot = await edge(Math.round(t.top + t.h) - 4);
+      assert.ok(top > bot && top - bot >= 3, `上 ${top} 下 ${bot}`);
+    });
+    await check(`${tag} 28e 横スクロールなし`, async () => { assert.ok(await noHScroll(page)); });
+    await shot(page, '28-list-gray', width);
     await page.context().close();
   }
 }
