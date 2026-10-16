@@ -2686,10 +2686,10 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]
       await page.waitForFunction(() => /^#\/c\/ryu\/r\/[0-9a-f]{32}$/.test(location.hash));
       const original = await stored(page);
       await page.reload();
-      await check(`${tag} 20b 保存→再読み込みで、詳細のコマンド列が入力直後と同じDOM。保存データは版2`, async () => {
+      await check(`${tag} 20b 保存→再読み込みで、詳細のコマンド列が入力直後と同じDOM。保存データは版3`, async () => {
         await page.waitForSelector('.d-cmd .row');
         assert.equal(await page.$eval('.d-cmd .row', normRow), typedDom);
-        assert.equal(original.schemaVersion, 2);
+        assert.equal(original.schemaVersion, 3);
         assert.equal(original.combos.find((c) => c.title === 'ステップ').tokens.length, 5);
       });
       await shot(page, '41-detail-steps', width);
@@ -2702,8 +2702,8 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]
       await page.waitForSelector('.sheet');
       await page.getByRole('button', { name: '取り込む', exact: true }).click();
       await page.waitForSelector('.sheet', { state: 'detached' });
-      await check(`${tag} 20b 書き出し（版2）→全削除→取り込みで、前ステ・バクステを含む記録が一致する`, async () => {
-        assert.equal(JSON.parse(text).schemaVersion, 2);
+      await check(`${tag} 20b 書き出し（版3）→全削除→取り込みで、前ステ・バクステを含む記録が一致する`, async () => {
+        assert.equal(JSON.parse(text).schemaVersion, 3);
         const now = await stored(page);
         assert.deepEqual(now.combos, original.combos);
         assert.deepEqual(now.sections, original.sections);
@@ -2821,7 +2821,7 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]
       await page.context().close();
     }
 
-    // 20e データの版: 版1はそのまま読めて、保存後は版2。版3は読み込みエラー（読み取り専用、既存値を上書きしない）
+    // 20e データの版: 版1はそのまま読めて、保存後は版3。版4は読み込みエラー（読み取り専用、既存値を上書きしない）
     {
       const seed = seedState();
       const v1 = { ...exportDoc(seed), schemaVersion: 1 };
@@ -2838,50 +2838,50 @@ for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]
       await page.getByLabel('タイトル（任意）').fill('版1から編集');
       await page.getByRole('button', { name: '保存', exact: true }).click();
       await page.waitForFunction(() => location.hash === '#/c/ryu/r/c1');
-      await check(`${tag} 20e 編集・保存の後は版2になり、記録は失われない`, async () => {
+      await check(`${tag} 20e 編集・保存の後は版3になり、記録は失われない`, async () => {
         const d = await stored(page);
-        assert.equal(d.schemaVersion, 2);
+        assert.equal(d.schemaVersion, 3);
         assert.equal(d.combos.length, 3);
         assert.equal(d.combos.find((c) => c.id === 'c1').title, '版1から編集');
         assert.deepEqual(d.combos.find((c) => c.id === 'c2'), seed.combos[1]);
       });
       await page.context().close();
 
-      const v3 = JSON.stringify({ ...exportDoc(seed), schemaVersion: 3 });
+      const v4 = JSON.stringify({ ...exportDoc(seed), schemaVersion: 4 });
       const p3 = await newPage(width, null);
-      await p3.evaluate((t) => localStorage.setItem('sf6memo.data', t), v3);
+      await p3.evaluate((t) => localStorage.setItem('sf6memo.data', t), v4);
       await p3.reload();
-      await check(`${tag} 20e 版3は読み込みエラー（理由を表示、読み取り専用、保存データを上書きしない）`, async () => {
+      await check(`${tag} 20e 版4は読み込みエラー（理由を表示、読み取り専用、保存データを上書きしない）`, async () => {
         const t = await p3.locator('.banners').innerText();
         assert.match(t, /保存データを読み込めませんでした/);
-        assert.match(t, /新しい版\(schemaVersion 3\)/);
+        assert.match(t, /新しい版\(schemaVersion 4\)/);
         assert.match(t, /読み取り専用/);
         await gotoHash(p3, '#/c/ryu');
         assert.equal(await p3.locator('.bottombar').count(), 0); // 記録・セクションの追加はできない
-        assert.equal(await storedRaw(p3), v3);
+        assert.equal(await storedRaw(p3), v4);
         assert.match(await p3.locator('.empty').innerText(), /記録はありません/);
       });
       await check(`${tag} 20e ページエラーなし`, async () => assert.deepEqual(p3.errors, []));
       await p3.context().close();
 
-      // 取り込み: 版1のファイルは受け付け（確認シートが開く）、版3は拒否（データ不変）
+      // 取り込み: 版1のファイルは受け付け（確認シートが開く）、版4は拒否（データ不変）
       const imp = await newPage(width, seedState());
       await gotoHash(imp, '#/settings');
       const before = await storedRaw(imp);
-      await imp.locator('input[type=file]').setInputFiles({ name: 'v3.json', mimeType: 'application/json', buffer: Buffer.from(v3) });
-      await check(`${tag} 20e 取り込み: 版3のファイルは「新しい版」で拒否され、データは変わらない`, async () => {
-        await imp.waitForFunction(() => /新しい版\(schemaVersion 3\)/.test(document.querySelector('.set-err')?.textContent ?? ''));
+      await imp.locator('input[type=file]').setInputFiles({ name: 'v4.json', mimeType: 'application/json', buffer: Buffer.from(v4) });
+      await check(`${tag} 20e 取り込み: 版4のファイルは「新しい版」で拒否され、データは変わらない`, async () => {
+        await imp.waitForFunction(() => /新しい版\(schemaVersion 4\)/.test(document.querySelector('.set-err')?.textContent ?? ''));
         assert.equal(await storedRaw(imp), before);
       });
       const extra = { ...exportDoc({ sections: [sec('x1', 'ken', '通常', 0)], combos: [] }), schemaVersion: 1 };
       await imp.locator('input[type=file]').setInputFiles({ name: 'v1.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(extra)) });
       await imp.waitForSelector('.sheet');
-      await check(`${tag} 20e 取り込み: 版1のファイルは受け付けられ、取り込み後の保存データは版2`, async () => {
+      await check(`${tag} 20e 取り込み: 版1のファイルは受け付けられ、取り込み後の保存データは版3`, async () => {
         assert.match(await imp.locator('.sheet').innerText(), /追加 1件/);
         await imp.getByRole('button', { name: '取り込む', exact: true }).click();
         await imp.waitForSelector('.sheet', { state: 'detached' });
         const d = await stored(imp);
-        assert.equal(d.schemaVersion, 2);
+        assert.equal(d.schemaVersion, 3);
         assert.equal(d.sections.some((s) => s.id === 'x1'), true);
       });
       await imp.context().close();
@@ -3752,7 +3752,7 @@ for (const width of process.env.ONLY_25 ? [] : [360, 390, 430]) {
       for (const n of ['波動拳', '昇龍拳', '竜巻旋風脚', '追撃', '大義の巨腕']) assert.ok(!raw.includes(n), n);
       const d = await stored(page);
       assert.deepEqual(d.combos.find((c) => c.id === 'c1').tokens[1], { type: 'special', motion: '236', key: 'P', str: 'M' });
-      assert.equal(d.schemaVersion, 2);
+      assert.equal(d.schemaVersion, 3);
     });
     await gotoHash(page, '#/c/ryu');
     await check(`${tag} 24b 一覧のプレビュー（S）も技名表記。S寸法は12px`, async () => {

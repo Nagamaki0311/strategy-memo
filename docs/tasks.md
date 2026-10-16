@@ -39,6 +39,8 @@
 | T-023 | 必殺技の技名の入力・表示のUI（第2段階） | 高 | 完了 | developer | 設計書v2.2の1〜4章と受け入れ基準3〜13・16。設定の「必殺技の表記」と免責（D-018）、編集パッドのR1（［技名］キーと候補・派生の候補）、各チップとポップオーバー、凡例、tests/check.html、e2e 24章（360・390・430幅、204件）。結果は docs/progress.md。「接頭辞だけに寄せて●を消す案」はT-024で実施 |
 | T-024 | 技名表記のチップから強度の●を外す（接頭辞だけで強度を示す） | 高 | 完了 | developer | ユーザー指示（2026-10-16）、D-019、docs/design-spec-v2.2.md 0・2・3・5・6章。コマンド表記・辞書にない入力は●のまま。e2e 24章・check.html を更新。結果は docs/progress.md |
 | T-025 | 設定「メモの文字サイズ」［大｜中｜小］。メモの内容（コマンド列・メモ本文・タグ・ダメージ、一覧のプレビューも）だけを段階的に縮める | 高 | 完了 | developer | ユーザー要望（2026-10-16）、D-020、docs/design-spec-v2.3.md。詳細・編集の丸 34/29/24、一覧の丸 24/21/18。初期値は大（従来と同じ見た目）。e2e 25章・check.html の段階別の行。結果は docs/progress.md |
+| T-026 | 連携（コンボ後の行動と分岐の木）のデータ層 | 高 | 完了 | developer | ユーザー要望（2026-10-16）、D-021。core.js の `parentId`・検証・取り込みの整合・削除/複製/移動の子孫連動・一覧用の関数、schemaVersion 3、tests/core.test.js。UI（app.js・styles.css）は含まない。結果は docs/progress.md |
+| T-027 | 連携のUI（一覧・詳細・編集・削除/複製/移動の切り替え） | 高 | 未着手 | designer, developer | 依存: T-026。docs/design-spec-v2.4.md ができたら着手する。T-026の関数（rootsOf・childrenOf・descendantTree・canAddChild・countDescendants・deleteCombo・duplicateTree・moveCombo）を使う |
 | T-015 | Phase 1: 受け入れの総点検 | 高 | 完了 | reviewer | 観点別3並列の敵対的レビュー（A: データ・保存、B: UI、C: PWA・APK・セキュリティ）を実施し、修正1段目（A+C、D-014）と2段目（B、D-015）を反映した。7.3の基準7（実機）はT-014でユーザー待ち。修正後の再レビューは未実施（T-020の前にユーザーが判断する） |
 
 ## バックログ（未着手・優先度未確定）
