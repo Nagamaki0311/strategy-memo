@@ -164,7 +164,7 @@ h1, h2 { word-break: auto-phrase; }
   position: relative; margin: 0; padding: 0; border: 0; border-radius: var(--r-chip); background: none; color: inherit; font: inherit; cursor: pointer;
 }
 button.chip::after { content: ''; position: absolute; inset: calc((var(--chip-h) - 44px) / 2) -5px; } /* 高さは段階の chip-h に合わせて44pxにする（l は34px→44px） */
-button.tag { margin-right: 4px; } /* 次の技との間を8pxにして、技の透明な当たり領域（左に5px）と重ならないようにする（1pxは丸めの余裕） */
+button.tag { margin-right: calc(8px - var(--in) * 2); } /* 次の技との間を8pxにして、技の透明な当たり領域（左に5px）と重ならないようにする（1pxは丸めの余裕） */
 button.tag::after { content: ''; position: absolute; inset: calc((var(--tag-h) - 44px) / 2) -2px calc((var(--tag-h) - 44px) / 2) -9px; } /* l は20px×33px → 44px×44px。高さは tag-h に合わせて44pxにする */
 button.chip:active, button.tag:active { background: var(--line-strong); }
 .chip.sel, .tag.sel { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: var(--r-chip); }

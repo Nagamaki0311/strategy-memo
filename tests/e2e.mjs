@@ -6,7 +6,7 @@
 //      - FAST=1 を付けると、時間のかかるトーストの一時停止の検証（約30秒）を省く。
 //      - SHOTS=<dir> を指定すると360幅（と430幅）のスクリーンショットを保存する（目視用。判定には使わない）。
 //      - Service Worker（19章）は、このファイルが立てる専用の静的サーバー（localhost、ルートとサブパス）で検証する。BASE は使わない。
-//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ実行する。SHOTS は360幅と430幅を保存する（430幅は名前の末尾に -430）。
+//        SW_APP=<dir> で配信する app/ を差し替えられる（変異テスト用の app/ のコピー）。ONLY_SW=1 で19章だけ、ONLY_24=1 で24章（技名。360・390・430幅）だけ、ONLY_25=1 で25章（メモの文字サイズ。360・390・430幅）だけ実行する。SHOTS は360幅と430幅を保存する（430幅は名前の末尾に -430）。
 //      - 既存の検証は、Service Worker を無効にして動かす（browser.newContext の既定が serviceWorkers: 'block'）。
 //   3. 終わったらサーバーを止める（kill %1）。
 // 終了コード0が合格。360幅・430幅の2回分を実行する（トーストの時間経過の検証は360幅のみ）。
@@ -167,7 +167,7 @@ const swRegs = async (page) => { await page.waitForSelector('.cell'); await page
 const cacheKeys = (page) => page.evaluate(async () => (await caches.keys()).sort());
 const pngSize = async (url) => { const r = await fetch(url); const b = Buffer.from(await r.arrayBuffer()); return [r.status, b.subarray(1, 4).toString(), b.readUInt32BE(16), b.readUInt32BE(20)]; };
 
-for (const width of process.env.ONLY_24 ? [] : [360, 430]) {
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]) {
   const tag = `[${width}]`;
   const root = await serveApp(SW_APP);
   const copy = mkdtempSync(path.join(tmpdir(), 'sf6-pages-'));
@@ -388,7 +388,7 @@ for (const width of process.env.ONLY_24 ? [] : [360, 430]) {
 }
 if (process.env.ONLY_SW) await finish();
 
-for (const width of process.env.ONLY_24 ? [] : [360, 430]) {
+for (const width of process.env.ONLY_24 || process.env.ONLY_25 ? [] : [360, 430]) {
   const tag = `[${width}]`;
 
   // 1. キャラ選択 -> 再読み込み -> 最近使ったキャラ
@@ -3592,7 +3592,7 @@ for (const width of process.env.ONLY_24 ? [] : [360, 430]) {
 
 // ===== SECTION: 24 必殺技の技名（T-023。D-017・D-018、design-spec-v2.2 6章の3〜13・16） =====
 // 360・390・430幅。リュウ（派生なし）・アルジュン（派生）・ケン（強さで名前が変わる派生）・ルーク（方向のない派生）・ジェイミー（複数の技が当たる）・キャミィ（最長の技名）で確かめる。
-for (const width of [360, 390, 430]) {
+for (const width of process.env.ONLY_25 ? [] : [360, 390, 430]) {
   const tag = `[${width}]`;
   const NN = (stance, str, key, dir) => ({ type: 'normal', stance, key, str, ...(dir && { dir }) });
   const MV = (id) => ({ type: 'move', id });
@@ -4459,6 +4459,358 @@ for (const width of [360, 390, 430]) {
       assert.deepEqual(await page.locator('.popover .pop-note').allInnerTexts(), ['＝ 236（波動）']);
     });
     await page.context().close();
+  }
+}
+
+// ===== SECTION: 25 メモの文字サイズ（T-025。D-020、design-spec-v2.3） =====
+// 360・390・430幅。設定 memoSize（l・m・s）と、メモの内容（詳細・編集・一覧のコマンド列、メモ本文・ダメージ）だけが縮むこと、それ以外が動かないこと。
+// 段階の寸法の期待値は design-spec-v2.3 の表を直接書く（styles.css から読まない）。
+for (const width of [360, 390, 430]) {
+  const tag = `[${width}]`;
+  const SIZES = ['l', 'm', 's'];
+  // コマンド列の寸法（design-spec-v2.3 2章）。dot=丸（幅・高さ）、arrow=矢印、chipH=システム技の高さ（chip-h）、tagH=注記の高さ（tag-h）、fs=Jの文字、ov=ODの重なり（左マージン）、conn=▶の幅×高さ
+  const DETAIL = {
+    l: { dot: [34, 34], arrow: 22, chipH: 34, tagH: 20, fs: '15px', ov: -8, conn: [8, 10] },
+    m: { dot: [29, 29], arrow: 19, chipH: 29, tagH: 18, fs: '13px', ov: -7, conn: [7, 9] },
+    s: { dot: [24, 24], arrow: 15, chipH: 24, tagH: 16, fs: '12px', ov: -6, conn: [6, 8] },
+  };
+  const PREVIEW = {
+    l: { dot: [24, 24], arrow: 15, chipH: 24, tagH: 16, fs: '12px', ov: -6, conn: [6, 8], h: 28 },
+    m: { dot: [21, 21], arrow: 14, chipH: 21, tagH: 16, fs: '12px', ov: -5, conn: [5, 7], h: 25 },
+    s: { dot: [18, 18], arrow: 12, chipH: 18, tagH: 16, fs: '12px', ov: -4, conn: [5, 7], h: 22 },
+  };
+  const TEXT = { // 詳細の .d-meta・.d-stat-n・.d-memo p、一覧の .dmg b
+    l: { meta: '13px', dmg: '20px', memo: '15px', ldmg: '13px' },
+    m: { meta: '12px', dmg: '18px', memo: '14px', ldmg: '12px' },
+    s: { meta: '12px', dmg: '16px', memo: '13px', ldmg: '12px' },
+  };
+  const NN = (stance, str, key, dir) => ({ type: 'normal', stance, key, str, ...(dir && { dir }) });
+  const ALLK = [{ type: 'note', id: 'CH' }, NN('crouch', 'M', 'K'), SP('236', 'H', 'P'), { type: 'system', id: 'CDR' }, SP('623', 'OD', 'P'), SP('[4]6', 'M', 'K'), NN('jump', 'H', 'K', 9), { type: 'system', id: 'DI' }, { type: 'system', id: 'REVERSAL' }, { type: 'sa', level: 3 }, { type: 'move', id: 'FWD_STEP' }, NN('stand', 'N', 'P')];
+  const seed25 = () => ({
+    sections: [sec('s1', 'ryu', '通常', 0)],
+    combos: [
+      combo('c1', 's1', '全部入り', ALLK, { tags: ['基本', '画面端'], damage: 3200, position: 'corner', memo: '中足から波動拳をキャンセルして、CDRで追いかける。\n最後はSA3まで入れる。' }),
+      combo('c2', 's1', '長いコンボ', LONG, { damage: 1800 }),
+      combo('c3', 's1', '1行', [{ type: 'note', id: 'CH' }, NN('crouch', 'M', 'K'), SP('236', 'H', 'P')]), // 1行に収まる（折り返すと下の行の当たり領域が重なる）
+    ],
+  });
+  const setSettings = async (page, obj) => { await page.evaluate((o) => localStorage.setItem('sf6memo.settings', JSON.stringify(o)), obj); await page.reload(); };
+  const sized = async (sz, extra = {}, seed = seed25()) => { const page = await newPage(width, seed); await setSettings(page, { memoSize: sz, ...extra }); return page; };
+  const rowDims = (page, root) => page.$eval(`${root} .row`, (row) => {
+    const cs = (e) => getComputedStyle(e);
+    const od = row.querySelectorAll('.dot.od');
+    const arrow = row.querySelector('.arrow');
+    const br = row.querySelector('.br');
+    const conn = row.querySelector('.conn');
+    const dot = row.querySelector('.dot');
+    return {
+      dot: [dot.offsetWidth, dot.offsetHeight], arrow: parseFloat(cs(arrow).width), chipH: row.querySelector('.sys-dr').offsetHeight, tagH: row.querySelector('.tag').offsetHeight,
+      fs: cs(row.querySelector('.ltr:not(.od):not(.sname):not(.neutral)')).fontSize, ov: parseFloat(cs(od[1]).marginLeft), conn: [parseFloat(cs(conn).width), parseFloat(cs(conn).height)],
+      stroke: parseFloat(cs(row).getPropertyValue('--br-sw')) * parseFloat(cs(arrow).width) / 24, brW: parseFloat(cs(br).width), brArrow: parseFloat(cs(arrow).width),
+    };
+  });
+  const same = (got, want) => { const { stroke, brW, brArrow, ...rest } = got; const { h: _h, ...w } = want; assert.deepEqual(rest, w, JSON.stringify(got)); assert.ok(stroke >= 2.4 && stroke <= 2.6, `括弧の線幅 ${stroke}`); assert.equal(brW, brArrow / 4); };
+  const settingsRaw = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('sf6memo.settings')));
+  const memoSet = (page) => page.locator('fieldset:has(legend:text("メモの文字サイズ"))');
+
+  // 25a 設定: 既定・保存・再読み込み・不正値・キー単位マージ・保存データに入らない
+  {
+    const page = await newPage(width, seed25());
+    await gotoHash(page, '#/settings');
+    await check(`${tag} 25a 設定「メモの文字サイズ」［大｜中｜小］は表示の節の最後（補助文字の次）。初期は大、html の data-memo-size は l`, async () => {
+      assert.deepEqual(await memoSet(page).locator('.seg-item').allInnerTexts(), ['大', '中', '小']);
+      assert.equal(await page.getByRole('radio', { name: '大', exact: true }).isChecked(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.memoSize), 'l');
+      assert.ok(await noHScroll(page));
+    });
+    await page.getByRole('radio', { name: '中', exact: true }).check();
+    await check(`${tag} 25a 中を選ぶと即時に保存（sf6memo.settings の memoSize）され、html の data-memo-size が m。再読み込みしても保たれる`, async () => {
+      assert.equal((await settingsRaw(page)).memoSize, 'm');
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.memoSize), 'm');
+      await page.reload();
+      assert.equal(await page.getByRole('radio', { name: '中', exact: true }).isChecked(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.memoSize), 'm');
+    });
+    await check(`${tag} 25a 保存データ（sf6memo.data）と書き出しの文書に表示設定は入らない。データは変わらない`, async () => {
+      const raw = await storedRaw(page);
+      assert.ok(!raw.includes('memoSize'));
+      assert.deepEqual(JSON.parse(raw), JSON.parse(JSON.stringify(exportDoc(seed25()))));
+    });
+    await page.getByRole('radio', { name: '小', exact: true }).check();
+    await page.reload();
+    await check(`${tag} 25a 小 → 再読み込みで保たれる。大へ戻すと l`, async () => {
+      assert.equal((await settingsRaw(page)).memoSize, 's');
+      await page.getByRole('radio', { name: '大', exact: true }).check();
+      assert.equal((await settingsRaw(page)).memoSize, 'l');
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.memoSize), 'l');
+    });
+    await page.context().close();
+
+    await check(`${tag} 25a 不正値（'x'・3・null・'M'・['m']・{}・true・''・'ｍ'）は大になり、ほかのキー（数字表記・最近のキャラ）は保たれる`, async () => {
+      for (const v of ['x', 3, null, 'M', ['m'], {}, true, '', 'ｍ']) {
+        const p = await newPage(width, seed25());
+        await setSettings(p, { memoSize: v, notation: 'numpad', recentCharacters: ['ken'] });
+        assert.equal(await p.evaluate(() => document.documentElement.dataset.memoSize), 'l', JSON.stringify(v));
+        await gotoHash(p, '#/settings');
+        assert.equal(await p.getByRole('radio', { name: '大', exact: true }).isChecked(), true, JSON.stringify(v));
+        assert.equal(await p.getByRole('radio', { name: '数字', exact: true }).isChecked(), true);
+        assert.deepEqual((await settingsRaw(p)).recentCharacters, ['ken']);
+        await p.context().close();
+      }
+      const old = await newPage(width, seed25()); // 設定が壊れた・memoSize を持たない旧い保存（D-014）
+      await setSettings(old, { notation: 'numpad' });
+      assert.equal(await old.evaluate(() => document.documentElement.dataset.memoSize), 'l');
+      await old.context().close();
+    });
+    await check(`${tag} 25a 別タブとのマージはキー単位（A が中を選ぶ → 古い B が数字へ変える → 保存は memoSize m と numpad の両方）`, async () => {
+      const a = await newPage(width, seed25());
+      const b = await a.context().newPage();
+      await b.goto(BASE);
+      await gotoHash(a, '#/settings');
+      await gotoHash(b, '#/settings');
+      await a.getByRole('radio', { name: '中', exact: true }).check();
+      await b.getByRole('radio', { name: '数字', exact: true }).check();
+      const st = await settingsRaw(a);
+      assert.equal(st.memoSize, 'm');
+      assert.equal(st.notation, 'numpad');
+      await a.context().close();
+    });
+  }
+
+  // 25b 見本: 選択中の段階のコマンド列と本文を描く。ほかの3つの見本（方向・必殺技・補助文字）は動かない
+  {
+    for (const sz of SIZES) {
+      const page = await sized(sz);
+      await gotoHash(page, '#/settings');
+      await check(`${tag} 25b 見本（${sz}）: メモの文字サイズの見本は段階の寸法（丸${DETAIL[sz].dot[0]}）と本文${TEXT[sz].memo}。ほかの3つの見本の丸は34のまま`, async () => {
+        const r = await page.evaluate(() => {
+          const fld = (l) => [...document.querySelectorAll('.fld')].find((f) => f.querySelector('legend')?.textContent === l);
+          const own = fld('メモの文字サイズ').querySelector('.set-sample');
+          return {
+            dot: own.querySelector('.d-cmd .dot').offsetWidth, memo: getComputedStyle(own.querySelector('.d-memo p')).fontSize, memoText: own.querySelector('.d-memo p').textContent.length > 10, tag: own.querySelector('.tag') !== null,
+            others: ['方向の表記', '必殺技の表記', 'ボタンの補助文字'].map((l) => fld(l).querySelector('.set-sample .dot')?.offsetWidth ?? null),
+          };
+        });
+        assert.deepEqual(r, { dot: DETAIL[sz].dot[0], memo: TEXT[sz].memo, memoText: true, tag: true, others: [34, 34, 34] });
+        assert.ok(await noHScroll(page));
+      });
+      await page.context().close();
+    }
+  }
+
+  // 25c 詳細: コマンド列・メモ本文・ダメージが段階の寸法。タイトル・見出し・ラベルは動かない
+  for (const sz of SIZES) {
+    const page = await sized(sz);
+    await gotoHash(page, '#/c/ryu/r/c1');
+    await check(`${tag} 25c 詳細（${sz}）: 丸${DETAIL[sz].dot[0]}・矢印${DETAIL[sz].arrow}・システム技の高さ${DETAIL[sz].chipH}・注記${DETAIL[sz].tagH}・J ${DETAIL[sz].fs}・ODの重なり${-DETAIL[sz].ov}・▶ ${DETAIL[sz].conn.join('×')}・括弧の線幅は約2.5px`, async () => {
+      same(await rowDims(page, '.d-cmd'), DETAIL[sz]);
+    });
+    await check(`${tag} 25c 詳細（${sz}）: 位置・タグの行 ${TEXT[sz].meta}、ダメージ ${TEXT[sz].dmg}、メモ本文 ${TEXT[sz].memo}。タイトル17px・「メモ」の見出し13px・「ダメージ」のラベル12pxは動かない`, async () => {
+      const r = await page.evaluate(() => { const f = (s) => getComputedStyle(document.querySelector(s)).fontSize; return { meta: f('.d-meta'), dmg: f('.d-stat-n'), memo: f('.d-memo p'), title: f('.d-title'), h: f('.d-memo-h'), l: f('.d-stat-l') }; });
+      assert.deepEqual(r, { meta: TEXT[sz].meta, dmg: TEXT[sz].dmg, memo: TEXT[sz].memo, title: '17px', h: '13px', l: '12px' });
+    });
+    await check(`${tag} 25c 詳細（${sz}）: 横スクロールなし。ページエラーなし`, async () => { assert.ok(await noHScroll(page)); assert.deepEqual(page.errors, []); });
+    await shot(page, `25-detail-${sz}`, width);
+    await page.context().close();
+  }
+
+  // 25d 一覧: プレビューのコマンド列・ダメージ・1行のメタ。プレビューの高さは段階に合わせる
+  for (const sz of SIZES) {
+    const page = await sized(sz);
+    await gotoHash(page, '#/c/ryu');
+    await check(`${tag} 25d 一覧（${sz}）: プレビューの丸${PREVIEW[sz].dot[0]}・矢印${PREVIEW[sz].arrow}・システム技の高さ${PREVIEW[sz].chipH}・注記${PREVIEW[sz].tagH}・ODの重なり${-PREVIEW[sz].ov}・▶ ${PREVIEW[sz].conn.join('×')}、プレビューの高さ${PREVIEW[sz].h}`, async () => {
+      const got = await rowDims(page, '.item:has(.item-title:text("全部入り")) .preview');
+      same(got, PREVIEW[sz]);
+      assert.equal(await page.locator('.item:has(.item-title:text("全部入り")) .preview').evaluate((e) => e.getBoundingClientRect().height), PREVIEW[sz].h);
+    });
+    await check(`${tag} 25d 一覧（${sz}）: ダメージの数字 ${TEXT[sz].ldmg}。メタの行（位置・タグ・手数）は12px、タイトル15px`, async () => {
+      const r = await page.evaluate(() => { const f = (s) => getComputedStyle(document.querySelector(s)).fontSize; return { dmg: f('.dmg b'), meta: f('.meta-t'), title: f('.item-title') }; });
+      assert.deepEqual(r, { dmg: TEXT[sz].ldmg, meta: '12px', title: '15px' });
+    });
+    await check(`${tag} 25d 一覧（${sz}）: 補助文字オンでもプレビューは補助文字の板を切らない（高さ ${{ l: 28, m: 26, s: 24 }[sz]}）。横スクロールなし`, async () => {
+      await setSettings(page, { memoSize: sz, strengthLabels: true });
+      const h = await page.$eval('.item:has(.item-title:text("全部入り")) .preview', (pv) => pv.getBoundingClientRect().height);
+      assert.equal(h, { l: 28, m: 26, s: 24 }[sz]);
+      // 1行目の板が切れないことは、25d のスクリーンショット（補助文字オン）の目視で確かめた（docs/design-spec-v2.3.md）
+      assert.ok(await noHScroll(page));
+    });
+    await shot(page, `25-list-${sz}`, width);
+    await page.context().close();
+  }
+
+  // 25e 編集: コマンド列（.cmd）だけが段階の寸法。入力欄・タグのpill・パッドは動かない
+  for (const sz of SIZES) {
+    const page = await sized(sz);
+    await gotoHash(page, '#/c/ryu/r/c1/edit');
+    await check(`${tag} 25e 編集（${sz}）: 行の丸${DETAIL[sz].dot[0]}・矢印${DETAIL[sz].arrow}・システム技${DETAIL[sz].chipH}・注記${DETAIL[sz].tagH}。詳細と同じ寸法`, async () => {
+      same(await rowDims(page, '.cmd'), DETAIL[sz]);
+    });
+    await check(`${tag} 25e 編集（${sz}）: 入力欄16px・タグの pill 14px・パッド414px・挿入カーソル3×34は段階に依らない`, async () => {
+      const r = await page.evaluate(() => {
+        const f = (s) => getComputedStyle(document.querySelector(s)).fontSize;
+        return { memo: f('#f-memo'), dmg: f('#f-dmg'), title: f('#f-title'), pill: f('.tag-list .pill'), pad: document.querySelector('.pad').offsetHeight, cursor: [document.querySelector('.cursor').offsetWidth, document.querySelector('.cursor').offsetHeight] };
+      });
+      assert.deepEqual([r.memo, r.dmg, r.title, r.pill, r.pad, r.cursor], ['16px', '16px', '16px', '14px', 414, [3, 34]]);
+    });
+    await check(`${tag} 25e 編集（${sz}）: 横スクロールなし`, async () => assert.ok(await noHScroll(page)));
+    await shot(page, `25-edit-${sz}`, width);
+    await page.context().close();
+  }
+
+  // 25f タップ領域: 編集の技チップ・タグ、詳細の技チップ・タグが44px以上（1行のとき）。透明の ::after が段階の寸法に追従する
+  for (const sz of SIZES) {
+    const page = await sized(sz);
+    const hits = (sel, kind) => page.$eval(sel, (c, k) => {
+      const b = c.getBoundingClientRect(), cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+      const hit = (x, y) => document.elementFromPoint(x, y)?.closest('button') === c;
+      const v = (44 - b.height) / 2;
+      const r = { h: b.height, up: hit(cx, b.top - v + 0.5), down: hit(cx, b.bottom + v - 1), outUp: !hit(cx, b.top - v - 1.5) || k === 'chip-nb' };
+      if (k === 'tag') Object.assign(r, { wide: b.width + 11 >= 44, left: hit(b.left - 8, cy), right: hit(b.right + 1.5, cy) });
+      else Object.assign(r, { left: hit(b.left - 4, cy), right: hit(b.right + 4, cy) });
+      return r;
+    }, kind);
+    await gotoHash(page, '#/c/ryu/r/c3/edit');
+    await check(`${tag} 25f 編集（${sz}）: 技チップ（見た目${DETAIL[sz].chipH}）の当たり領域は上下で44px以上`, async () => {
+      const r = await hits('.cmd button.chip', 'chip');
+      assert.equal(r.h, DETAIL[sz].chipH);
+      assert.ok(r.up && r.down && r.left && r.right, JSON.stringify(r));
+    });
+    await check(`${tag} 25f 編集（${sz}）: CH・PCのタグ（見た目${DETAIL[sz].tagH}）の当たり領域は44×44以上で、隣の技の当たり領域（左5px）とは重ならない`, async () => {
+      const r = await hits('.cmd button.tag', 'tag');
+      assert.equal(r.h, DETAIL[sz].tagH);
+      assert.ok(r.up && r.down && r.left && r.right && r.wide, JSON.stringify(r));
+      const chipLeft = await page.$eval('.cmd button.tag', (t) => { const chip = t.parentElement.querySelector('button.chip'), cb = chip.getBoundingClientRect(); return document.elementFromPoint(cb.left - 4, cb.top + cb.height / 2)?.closest('button') === chip; });
+      assert.ok(chipLeft);
+    });
+    await gotoHash(page, '#/c/ryu/r/c3');
+    await check(`${tag} 25f 詳細（${sz}）: 必殺技チップ・タグの当たり領域も44px以上`, async () => {
+      const c = await hits('.d-cmd button.chip', 'chip');
+      const t = await hits('.d-cmd button.tag', 'tag');
+      assert.ok(c.up && c.down && t.up && t.down && t.wide, JSON.stringify([c, t]));
+      assert.equal(c.h, DETAIL[sz].dot[0]);
+    });
+    await page.context().close();
+  }
+
+  // 25g 据え置き: メモの内容以外は、段階に依らず寸法が同じ（l と比べる）
+  {
+    const snap = async (sz) => {
+      const page = await sized(sz, { recentCharacters: ['ryu'] });
+      const out = {};
+      const m = (sel) => page.$$eval(sel, (es) => es.slice(0, 40).map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.width * 10) / 10, Math.round(r.height * 10) / 10]; }));
+      const fs = (sel) => page.$eval(sel, (e) => getComputedStyle(e).fontSize);
+      await gotoHash(page, '#/');
+      out.home = { cell: await m('.cell'), en: await fs('.cell-en'), top: await m('.topbar'), act: await m('.top-action'), rc: await m('.rc') };
+      await gotoHash(page, '#/c/ryu/r/c1/edit');
+      await page.getByRole('button', { name: '波動 236', exact: true }).click(); // 方向の仮チップ（ペンディング）を出す
+      out.pad = { pad: await m('.pad'), keys: await m('.pad .key'), dots: await m('.pad .dot'), recentRow: await m('.recent-keys .row'), recentDot: await m('.recent-keys .row .dot') };
+      out.pending = { ghost: await m('.cmd .pending .ghost'), arrow: await page.$$eval('.cmd .pending .arrow', (es) => es.map((e) => parseFloat(getComputedStyle(e).width))), cursor: await m('.cmd .cursor'), grp: await page.$eval('.cmd .pending', (e) => getComputedStyle(e).gap) };
+      out.fields = { title: await fs('#f-title'), memo: await fs('#f-memo'), label: await fs('.field-label'), seg: await m('.seg-item span'), sec: await m('.sec-head') };
+      await page.getByRole('button', { name: '弱P', exact: true }).click();
+      await page.locator('.cmd .chip').last().click(); // 編集のポップオーバー
+      out.edPop = { pop: await m('.popover'), opt: await m('.popover .opt'), dot: await m('.popover .opt .dot') };
+      await page.keyboard.press('Escape');
+      await gotoHash(page, '#/c/ryu/r/c1');
+      await page.locator('.d-cmd button.chip').first().click(); // 詳細のポップオーバー（モーションの対応表示）
+      out.pop = { pop: await m('.popover'), arrow: await page.$$eval('.popover .arrow', (es) => es.map((e) => parseFloat(getComputedStyle(e).width))), note: await fs('.popover .pop-note') };
+      await page.keyboard.press('Escape');
+      out.detail = { title: await fs('.d-title'), h: await fs('.d-memo-h'), stat: await fs('.d-stat-l'), bar: await m('.bottombar .btn'), top: await m('.topbar') };
+      await page.getByRole('button', { name: '複製', exact: true }).click();
+      await page.waitForSelector('.toast');
+      out.toast = { toast: await m('.toast'), fs: await fs('.toast') };
+      await gotoHash(page, '#/c/ryu');
+      out.list = { head: await m('.sec-head'), title: await fs('.item-title'), meta: await fs('.meta-t'), bar: await m('.bottombar .btn'), wm: await fs('.wm') };
+      await gotoHash(page, '#/settings');
+      out.settings = { samples: await page.evaluate(() => [...document.querySelectorAll('.fld')].filter((f) => f.querySelector('legend')?.textContent !== 'メモの文字サイズ').flatMap((f) => [...f.querySelectorAll('.set-sample .row')]).map((r) => [r.querySelector('.dot')?.offsetWidth ?? null, r.querySelector('.arrow, .num') ? parseFloat(getComputedStyle(r.querySelector('.arrow, .num')).width) : null])), seg: await m('.seg-item span'), head: await m('.set-head') };
+      await page.getByRole('button', { name: '凡例を見る' }).click();
+      await page.waitForSelector('.sheet.tall');
+      out.legend = { dots: await m('.leg .row .dot'), chips: await m('.leg .row .sys'), arrows: await page.$$eval('.leg .row .arrow', (es) => es.slice(0, 12).map((e) => parseFloat(getComputedStyle(e).width))), tags: await m('.leg .row .tag') };
+      await page.context().close();
+      return out;
+    };
+    const base = await snap('l');
+    await check(`${tag} 25g 据え置き（l）: キャラ選択のタイル54px・英字20px（360未満は16px）、パッド414px、仮チップ（丸34・矢印22）、ポップオーバー、トースト、設定の見本の丸34、凡例の丸24・システム技34`, async () => {
+      assert.equal(base.home.en, width < 360 ? '16px' : '20px');
+      assert.ok(base.home.cell.every(([, h]) => h === 54));
+      assert.deepEqual(base.pad.pad, [[width, 414]]);
+      assert.deepEqual(base.pad.recentDot.slice(0, 1), [[24, 24]]);
+      assert.deepEqual(base.pending.ghost, [[34, 34]]);
+      assert.ok(base.pending.arrow.length >= 3 && base.pending.arrow.every((w) => w === 22), JSON.stringify(base.pending.arrow));
+      assert.deepEqual(base.pending.cursor, [[3, 34]]);
+      assert.ok(base.pop.arrow.length >= 3 && base.pop.arrow.every((w) => w === 14), JSON.stringify(base.pop.arrow));
+      assert.equal(base.toast.fs, '14px');
+      assert.ok(base.settings.samples.length === 3 && base.settings.samples.every(([d]) => d === 34));
+      assert.ok(base.legend.dots.every(([w]) => w === 24 || w === 34 || w === 22), JSON.stringify(base.legend.dots));
+      assert.ok(base.legend.chips.every(([, h]) => h === 34 || h === 24), JSON.stringify(base.legend.chips));
+    });
+    for (const sz of ['m', 's']) {
+      const got = await snap(sz);
+      await check(`${tag} 25g 据え置き（${sz}）: キャラ選択・上部バー・パッドのキー・仮チップ・ポップオーバー・トースト・設定・凡例・タイトル・見出しの寸法が l と同じ`, async () => {
+        for (const k of Object.keys(base)) assert.deepEqual(got[k], base[k], `${sz} ${k}`);
+      });
+    }
+  }
+
+  // 25h 本文の最小フォントは12px以上（メモの内容の文字。補助文字の小さな板 .badge は設定オンのときだけの補助で別）。全段階
+  for (const sz of SIZES) {
+    const page = await sized(sz, { notation: 'numpad', specialNotation: 'name' });
+    const small = async (hash, sels) => { await gotoHash(page, hash); return page.evaluate((ss) => { const bad = []; for (const root of document.querySelectorAll(ss)) for (const e of [root, ...root.querySelectorAll('*')]) { if (e.closest('.badge') || ![...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue; const f = parseFloat(getComputedStyle(e).fontSize); if (f < 12) bad.push(`${e.className || e.tagName} ${f}`); } return bad; }, sels); };
+    await check(`${tag} 25h 最小フォント（${sz}）: 詳細・一覧・編集のメモの内容の文字はすべて12px以上（数字・技名表記も）`, async () => {
+      assert.deepEqual(await small('#/c/ryu/r/c1', '.d-cmd, .d-memo, .d-meta, .d-stat'), [], 'detail');
+      assert.deepEqual(await small('#/c/ryu', '.preview, .item-meta'), []);
+      assert.deepEqual(await small('#/c/ryu/r/c1/edit', '.cmd'), []);
+    });
+    await page.context().close();
+  }
+
+  // 25i 幅: 全画面・全段階で横スクロールなし（数字・技名・補助文字オン、長い行も）
+  for (const sz of SIZES) {
+    const page = await sized(sz, { notation: 'numpad', strengthLabels: true, specialNotation: 'name' });
+    await check(`${tag} 25i 横スクロールなし（${sz}、数字・補助文字・技名表記）: キャラ選択・一覧・詳細（全部入り・長いコンボ）・編集・新規・設定・凡例`, async () => {
+      for (const h of ['#/', '#/c/ryu', '#/c/ryu/r/c1', '#/c/ryu/r/c2', '#/c/ryu/r/c1/edit', '#/c/ryu/r/c2/edit', '#/c/ryu/new?s=s1', '#/settings']) {
+        await gotoHash(page, h);
+        assert.ok(await noHScroll(page), h);
+      }
+      await gotoHash(page, '#/c/ryu/r/c2');
+      await page.locator('button[aria-label="凡例を開く"]').click();
+      await page.waitForSelector('.sheet.tall');
+      assert.ok(await noHScroll(page), '凡例');
+    });
+    await check(`${tag} 25i ページエラーなし（${sz}）`, async () => assert.deepEqual(page.errors, []));
+    await page.context().close();
+  }
+
+  // 25j グレースケールで形の区別: P と K の●（同じ強度色）を実際の画素（等倍）でグレースケールにし、中の文字（ink）の画素が足りて、PとKで形が違う。強度なしの●は弱の●と明るさが違う
+  {
+    const ink = async (page, sel) => {
+      const png = await page.locator(sel).first().screenshot();
+      return page.evaluate(async (b64) => {
+        const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height).data, y = [];
+        for (let i = 0; i < d.length; i += 4) y.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+        return { w: c.width, h: c.height, y };
+      }, png.toString('base64'));
+    };
+    for (const [label, root, sz] of [...SIZES.map((s) => ['詳細', '.d-cmd', s]), ...SIZES.map((s) => ['一覧', '.preview', s])]) {
+      const page = await sized(sz, {}, { sections: [sec('s1', 'ryu', '通常', 0)], combos: [combo('c1', 's1', 'PK', [NN('stand', 'L', 'P'), NN('stand', 'L', 'K'), NN('stand', 'N', 'P')])] });
+      await gotoHash(page, label === '詳細' ? '#/c/ryu/r/c1' : '#/c/ryu');
+      await page.addStyleTag({ content: 'html { filter: grayscale(1); }' }); // 画素を取る前にグレースケールにする（検証だけ。アプリには入れない）
+      const wDot = await page.locator(`${root} .dot`).first().evaluate((e) => e.offsetWidth);
+      await check(`${tag} 25j グレースケール（${label} ${sz}、丸${wDot}px）: PとKの●は中の文字の画素が足り、形が違う（等倍）`, async () => {
+        const p = await ink(page, `${root} .dot >> nth=0`), k = await ink(page, `${root} .dot >> nth=1`);
+        assert.equal(wDot, (label === '詳細' ? DETAIL : PREVIEW)[sz].dot[0]);
+        const dark = (o) => o.y.filter((v) => v < 90).length;
+        assert.ok(dark(p) >= wDot * 1.1 && dark(k) >= wDot * 1.1, `ink 画素 P=${dark(p)} K=${dark(k)}`);
+        let diff = 0;
+        p.y.forEach((v, i) => { if (Math.abs(v - k.y[i]) > 60) diff++; });
+        assert.ok(diff >= wDot * 0.9, `PとKの違う画素 ${diff} (${wDot}px)`);
+        // 文字の線の太さ: 36の座標で4 → 丸に対して 4/36。2px以上
+        assert.ok(wDot * 4 / 36 >= 2, `線 ${wDot * 4 / 36}`);
+      });
+      await page.context().close();
+    }
   }
 }
 
