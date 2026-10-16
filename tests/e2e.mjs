@@ -2369,7 +2369,7 @@ for (const width of process.env.ONLY_24 ? [] : [360, 430]) {
       await gotoHash(page, '#/settings');
       await page.getByRole('radio', { name: 'オン' }).check();
       await check(`${tag} 18d 補助文字［オン］: 例示のチップに弱・中・強が出る。一覧・編集のパッドにも反映`, async () => {
-        assert.equal(await page.locator('.set-sample .row.str-labels').count(), 3); // 方向・必殺技・補助文字の3つの見本
+        assert.equal(await page.locator('.set-sample .row.str-labels').count(), 4); // 方向・必殺技・補助文字・メモの文字サイズの4つの見本
         assert.equal(await page.locator('.set-sample .badge').first().isVisible(), true);
         assert.deepEqual(await page.locator('.set-sample .row').nth(2).locator('.badge').allInnerTexts(), ['弱', '中', '強']);
         assert.equal((await settingsOf(page)).strengthLabels, true);
@@ -3643,8 +3643,8 @@ for (const width of [360, 390, 430]) {
   {
     const page = await newPage(width, seed24());
     await gotoHash(page, '#/settings');
-    await check(`${tag} 24a 設定の「表示」の節: 方向の表記 → 必殺技の表記［コマンド｜技名］（初期はコマンド）→ ボタンの補助文字。見本の下に注記`, async () => {
-      assert.deepEqual(await page.locator('.set-body legend').allInnerTexts(), ['方向の表記', '必殺技の表記', 'ボタンの補助文字']);
+    await check(`${tag} 24a 設定の「表示」の節: 方向の表記 → 必殺技の表記［コマンド｜技名］（初期はコマンド）→ ボタンの補助文字 → メモの文字サイズ。見本の下に注記`, async () => {
+      assert.deepEqual(await page.locator('.set-body legend').allInnerTexts(), ['方向の表記', '必殺技の表記', 'ボタンの補助文字', 'メモの文字サイズ']); // メモの文字サイズは25章（T-025）
       assert.deepEqual(await page.locator('fieldset:has(legend:text("必殺技の表記")) .seg-item').allInnerTexts(), ['コマンド', '技名']);
       assert.equal(await page.getByRole('radio', { name: 'コマンド' }).isChecked(), true);
       const sample = page.locator('.fld:has(legend:text("必殺技の表記")) .set-sample');
