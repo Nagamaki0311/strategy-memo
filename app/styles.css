@@ -106,15 +106,15 @@ h1, h2 { word-break: auto-phrase; }
   --rush: 9px; --dp-b: 1px; --dp-px: 8px; --c: var(--chamfer-s); --bo: 7px;
 }
 /* ===== メモの文字サイズ（design-spec-v2.3、D-020）=====
-   設定の data-memo-size（l／m／s。app.js render が html に付ける）で、メモの内容だけを縮める。対象はコマンド列（詳細 .d-cmd・編集 .cmd・一覧 .preview）と、メモ本文・ダメージの文字。
+   設定の data-memo-size（l／m／s。app.js render が html に付ける）で、メモの内容だけを縮める。対象はコマンド列（詳細 .d-cmd・連携の木 .t-cmd・編集 .cmd・一覧 .preview）と、メモ本文・ダメージの文字。
    l は上の L・S の組そのまま。編集パッド・仮チップ（.pending）・設定の見本・凡例・ポップオーバーは .row の既定のまま動かない。値の根拠は design-spec-v2.3 */
-[data-memo-size="m"] :is(.d-cmd, .cmd) > .row {
+[data-memo-size="m"] :is(.d-cmd, .cmd, .t-cmd) > .row {
   --dot: 29px; --arrow: 19px; --chip-h: 29px; --tag-h: 18px;
   --conn-m: 8px; --conn-w: 7px; --conn-h: 9px;
   --in: 1.5px; --br-sw: 3.2; --ov: 7px; --fs: 13px; --num: 16px; --chip-px: 9px;
   --rush: 10px; --dp-b: 2px; --dp-px: 10px; --c: 5px; --bo: 7px;
 }
-[data-memo-size="s"] :is(.d-cmd, .cmd) > .row {
+[data-memo-size="s"] :is(.d-cmd, .cmd, .t-cmd) > .row {
   --dot: 24px; --arrow: 15px; --chip-h: 24px; --tag-h: 16px;
   --conn-m: 6px; --conn-w: 6px; --conn-h: 8px;
   --in: 1px; --br-sw: 4; --ov: 6px; --fs: 12px; --num: 14px; --chip-px: 7px;
@@ -398,8 +398,8 @@ a { color: inherit; }
 .preview { height: 28px; overflow: hidden; }
 .item-meta { display: flex; gap: var(--s2); margin-top: var(--s1); font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .meta-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dmg { flex: none; white-space: nowrap; }
-.dmg b { font: 700 var(--ms-ldmg) var(--font); font-variant-numeric: tabular-nums; color: var(--fg); } /* font ショートハンドは tabular-nums を戻すので数字は個別に指定する */
+.dmg, .lnk { flex: none; white-space: nowrap; }
+.dmg b, .lnk b { font: 700 var(--ms-ldmg) var(--font); font-variant-numeric: tabular-nums; color: var(--fg); } /* font ショートハンドは tabular-nums を戻すので数字は個別に指定する */
 .empty, .placeholder { padding: var(--s5) var(--s4); }
 .empty p, .placeholder p { margin: 0 0 var(--s4); }
 .empty > .btn { margin-top: var(--s4); }
@@ -469,6 +469,34 @@ a { color: inherit; }
 .d-cmd { margin: var(--s5) 0; }
 .d-memo-h { margin: 0 0 var(--s1); font: var(--t-sm) var(--font); color: var(--fg-muted); }
 .d-memo p { margin: 0; font-size: var(--ms-memo); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.d-orphan { margin: var(--s2) 0 0; }
+
+/* ===== 連携の木（詳細画面。design-spec-v2.4、D-022）=====
+   線は --line-strong の1pxだけ。▶は使わない（i-conn はコマンド列のつなぎ）。字下げは1段12px（--s3）。動かさない（折りたたみは即時） */
+.t-sec { margin: 0 0 var(--s5); border-top: 1px solid var(--line); }
+.t-sec-head { display: flex; align-items: center; gap: var(--s2); min-height: 44px; padding-top: var(--s2); }
+.t-sec-h { margin: 0; font: var(--t-sm) var(--font); color: var(--fg-muted); }
+.t-sec-n { font: var(--t-xs) var(--font); color: var(--fg-muted); }
+.t-sec-head .btn { margin-left: auto; padding: 0 var(--s3); }
+.t-sec-head .btn[aria-disabled="true"] { opacity: .4; }
+.t-list { --gap: var(--s2); list-style: none; margin: 0; padding: 0 0 0 var(--s3); }
+.t-list.d1 { --gap: var(--s4); }
+.t-list > li { position: relative; min-width: 0; padding-top: var(--gap); }
+.t-list > li::before { content: ''; position: absolute; left: calc(-1 * var(--s3)); top: 0; bottom: 0; border-left: 1px solid var(--line-strong); }
+.t-list > li:last-child::before { bottom: auto; height: calc(var(--gap) + 22px); }
+.t-list > li::after { content: ''; position: absolute; left: calc(-1 * var(--s3)); top: calc(var(--gap) + 22px); width: var(--s2); border-top: 1px solid var(--line-strong); }
+.t-row { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: var(--s2); }
+.t-no { flex: none; padding: 11px 0; font: 400 var(--sign-s) var(--font-sign); font-synthesis: none; letter-spacing: .04em; color: var(--fg-muted); }
+.t-title { flex: 1; min-width: 0; margin: 0; padding: 11px 0; font: 700 var(--t-md)/1.4 var(--font); overflow-wrap: anywhere; }
+.t-title .none { font-weight: 400; color: var(--fg-muted); }
+.t-cmd { min-width: 0; }
+.t-cmd-none { margin: 0; font: var(--t-sm) var(--font); color: var(--fg-muted); }
+.t-meta { display: flex; gap: var(--s2); margin-top: var(--s1); font: var(--ms-meta) var(--font); color: var(--fg-muted); }
+.t-tags { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.t-memo { margin: var(--s1) 0 0; font-size: var(--ms-memo); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.t-fold { display: inline-flex; align-items: center; gap: var(--s1); min-height: 44px; min-width: 44px; padding: 0 var(--s2) 0 0; border: 0; border-radius: var(--r-key); background: none; font: var(--t-sm) var(--font); color: var(--fg-muted); cursor: pointer; }
+.t-fold .ic { width: 16px; height: 16px; color: var(--fg); }
+.t-fold:active { background: var(--line-strong); }
 
 /* ===== 編集画面 ===== */
 .screen.edit { height: 100dvh; min-height: 0; overflow: hidden; }
@@ -476,6 +504,11 @@ a { color: inherit; }
 .screen.edit .banners { position: static; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin: var(--s2) var(--s4) 0; padding: var(--s2) var(--s3); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-key); font-size: 14px; }
 .notice .btn { flex: none; white-space: nowrap; }
+.parent-ctx { margin: var(--s2) var(--s4) 0; padding-bottom: var(--s2); border-bottom: 1px solid var(--line); }
+.pc-name { display: flex; align-items: baseline; gap: var(--s2); margin: 0 0 var(--s1); min-width: 0; }
+.pc-k { flex: none; font: var(--t-xs) var(--font); color: var(--fg-muted); }
+.pc-name b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--t-sm) var(--font); }
+.f-hint { margin: var(--s1) 0 0; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .draft-time { min-height: 17px; margin: var(--s1) var(--s4) 0; text-align: right; font: var(--t-xs) var(--font); color: var(--fg-muted); }
 .cmd { box-sizing: border-box; min-height: 96px; padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }
 .cursor { flex: none; width: 3px; height: 34px; border-radius: 1.5px; background: var(--fg); }
