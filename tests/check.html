@@ -78,7 +78,7 @@ const CASES = [
   ...['L', 'S'].flatMap((sz) => [
     [`技名 ${sz}（リュウ。中波動拳・強昇龍拳・OD竜巻旋風脚・波動拳・弱空中竜巻旋風脚・中電刃錬気、最後の360は辞書にないのでコマンド）`, NAME_RYU, { size: sz, characterId: 'ryu', specialNotation: 'name' }, `name:ryu:${sz}`],
     [`コマンド ${sz}（同じ列。発光する要素の数の比較用）`, NAME_RYU, { size: sz, characterId: 'ryu' }, `cmd:ryu:${sz}`],
-    [`技名と他の種別の比較 ${sz}（技名・DR・DI・DP・SA・移動・注記・灰色の●）`, NAME_MIX, { size: sz, characterId: 'ryu', specialNotation: 'name' }, `name:mix:${sz}`],
+    [`技名と他の種別の比較 ${sz}（枠のない文字だけの技名と、DR・DI・DP・SA・移動・注記・通常技の●）`, NAME_MIX, { size: sz, characterId: 'ryu', specialNotation: 'name' }, `name:mix:${sz}`],
     [`コマンド ${sz}（比較列と同じ。発光する要素の数の比較用）`, NAME_MIX, { size: sz, characterId: 'ryu' }, `cmd:mix:${sz}`],
     [`技名 ${sz}（アルジュンの派生。弱大義の巨腕 ▶ 追撃 ▶ OD大義の巨腕 ▶ 追撃、最後の6Pは追撃の次なので派生にならずコマンド）`, NAME_ARJUN, { size: sz, characterId: 'arjun', specialNotation: 'name' }, `name:arjun:${sz}`],
     [`コマンド ${sz}（アルジュン）`, NAME_ARJUN, { size: sz, characterId: 'arjun' }, `cmd:arjun:${sz}`],
@@ -226,13 +226,23 @@ for (const e of document.querySelectorAll('.row.S, .row.S *')) if (glows(e)) pro
       if (cs.fontSize !== (size === 'S' ? '12px' : '15px') || cs.fontWeight !== '700' || cs.color !== fgBody || cs.backgroundColor !== 'rgba(0, 0, 0, 0)' || cs.borderTopWidth !== '0px' || cs.whiteSpace !== 'nowrap') problems.push(`${id}: 技名の文字の体裁が違う ${cs.fontSize} ${cs.fontWeight} ${cs.color}`);
       const chip = n.closest('.chip');
       if (chip.querySelector('.arrow, .cw, .num, .charge, .neutral')) problems.push(`${id}: 技名のチップに矢印・数字が残っている`);
-      if (!chip.querySelector('.dot')) problems.push(`${id}: 技名のチップに●がない`);
+      if (chip.querySelector('.dot, .badge')) problems.push(`${id}: 技名のチップに●が出ている（D-019）`);
+      if ([n, ...n.querySelectorAll('*')].some(glows)) problems.push(`${id}: 技名の文字に発光がある（ODも発光しない。D-019）`);
+      const ccs = getComputedStyle(chip);
+      if (ccs.backgroundColor !== 'rgba(0, 0, 0, 0)' || ccs.borderTopWidth !== '0px' || ccs.boxShadow !== 'none') problems.push(`${id}: 技名のチップに枠・塗り・影がある`);
       const lbl = chip.getAttribute('aria-label');
       if (!lbl.startsWith(n.textContent)) problems.push(`${id}: aria-label が技名で始まらない ${lbl}`);
     }
     const c = rowOf[id.replace('name:', 'cmd:')];
     const count = (r) => [r, ...r.querySelectorAll('*')].filter(glows).length;
-    if (count(c) !== count(row)) problems.push(`${id}: 技名表記とコマンド表記で発光する要素の数が違う ${count(row)} != ${count(c)}`);
+    // 発光はコマンド表記のOD●●と橙の「OD」に付いていたもの。技名表記は文字だけなので、同じ以下（D-019）
+    if (count(row) > count(c)) problems.push(`${id}: 技名表記のほうが発光する要素が多い ${count(row)} > ${count(c)}`);
+    // コマンド表記の同じ位置のチップは●を出し続ける。技名のないチップ（辞書にない360・通常技）は技名表記でも●が残る
+    row.querySelectorAll('.chip').forEach((chip, i) => {
+      const cc = c.querySelectorAll('.chip')[i];
+      if (chip.querySelector('.sname') && !cc.querySelector('.dot')) problems.push(`${id}: コマンド表記のチップ${i}に●がない`);
+      if (!chip.querySelector('.sname') && !chip.classList.contains('sys') && chip.querySelectorAll('.dot').length !== cc.querySelectorAll('.dot').length) problems.push(`${id}: 技名のないチップ${i}の●がコマンド表記と違う`);
+    });
     if (c.querySelectorAll('.chip').length !== row.querySelectorAll('.chip').length) problems.push(`${id}: チップの数が違う`);
   }
   const got = [...rowOf['name:ryu:L'].querySelectorAll('.sname')].map((n) => n.textContent).join(',');

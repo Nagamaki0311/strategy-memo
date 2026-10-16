@@ -63,23 +63,15 @@ function dirNodes(motion, notation) {
   });
 }
 
-// 技名のチップに強度の●を残すか。消す案が通ったら false の1行で済む（design-spec-v2.2 2章）
-const NAME_WITH_DOT = true;
-
 // 強度の●（ODは橙の●●、強度なしは灰色の●）
 const strDots = (token) => (token.str === 'OD' ? [dot(token.key, 'od'), dot(token.key, 'od')] : [dot(token.key, STR_CLASS[token.str], token.str)]);
 
-// 強度の接頭辞＋技名の1つの文字列。ODの接頭辞だけは橙の .ltr.od のまま（コマンド表記と発光する要素の数を同じにする）
-function nameNode({ name, base }) {
-  const prefix = name.slice(0, name.length - base.length);
-  const n = el('span', 'ltr sname');
-  n.append(...(prefix === 'OD' ? [el('span', 'ltr od', 'OD')] : prefix ? [prefix] : []), base);
-  return n;
-}
+// 強度の接頭辞＋技名の1つの文字列。技名表記のチップは強度の●を出さない（接頭辞が強度を示す。D-019）。ODの橙・発光も付けない
+const nameNode = ({ name }) => el('span', 'ltr sname', name);
 
 // named: 技名で表示するときの specialNames の要素（なければコマンド表示）
 function chipNodes(token, label, notation, named = null) {
-  if (named) return [nameNode(named), ...(NAME_WITH_DOT ? strDots(token) : [])];
+  if (named) return [nameNode(named)];
   switch (token.type) {
     case 'normal': {
       const dirs = `${token.stance === 'crouch' ? '2' : ''}${token.dir ?? ''}`;

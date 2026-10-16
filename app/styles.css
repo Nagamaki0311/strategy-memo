@@ -193,9 +193,8 @@ button.chip:active, button.tag:active { background: var(--line-strong); }
 .row:not(.S) .dot.od { box-shadow: var(--glow-od); }
 .row:not(.S) .ltr.od { text-shadow: var(--tx-od); }
 
-/* 技名のチップ（design-spec-v2.2 2章）: 強度の接頭辞＋技名の枠なしの文字。サイズ・色は .ltr（L15px／S12px、700、fg）。ODの接頭辞だけ .ltr.od */
+/* 技名のチップ（design-spec-v2.2 2章）: 強度の接頭辞＋技名の枠なしの文字だけ（●・発光なし）。サイズ・色は .ltr（L15px／S12px、700、fg） */
 .sname { white-space: nowrap; }
-.sname .ltr.od { margin-inline: 0; }
 
 /* 注記CH・PC: 枠のない小さな斜めの板 */
 .tag {
