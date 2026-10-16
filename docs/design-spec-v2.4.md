@@ -10,7 +10,7 @@ Designerの設計（2026-10-16）にManager側の確定事項を反映したも�
   2. 兄弟の並べ替えは作らない。兄弟の順序は `createdAt` の昇順、同じなら `id` の順（`childrenOf`）。新しい連携の `createdAt` は `nextChildCreatedAt` で、必ず兄弟の最後に並ぶ。複製は子孫の `createdAt` を元のまま保つので順序が保たれる。既存の `position` は画面位置（any・corner・midscreen）の列挙なので、順序には使わない。子の `position` は 'any' 固定（`newChildCombo`）。
   3. セクションの帯の件数は、見えている行（根）の数にする。削除シートのラジオの件数も根の数。キャラ選択・ネオン・読み上げ名の件数は全件（連携・分岐を含む）。
   4. 子孫のある根を消すときも、確認シートを出す（取り消しも出す）。子孫のない根は今のまま確認なし。
-  5. 子の位置・セクションは、編集画面に出さない。新規作成時に親の `sectionId` を写し、`position` は兄弟の最後にする。
+  5. 子の位置・セクションは、編集画面に出さない。新規作成時に親の `sectionId` を写し、`createdAt` を兄弟の最後にする（`position` は 'any' のまま）。
   6. 迷子（親が見つからない・循環・深すぎる記録）は、`validateDoc` が拒否するので通常は起きない。画面側の防御として、迷子は根として一覧に出す（データを隠さない）最小の処理を入れる。
   7. 初めから開くのは1段目と2段目。3段目は閉じて始める。
   8. 一覧の「連携 N」は直接の子（連携）だけを数える。
@@ -41,14 +41,14 @@ Designerの設計（2026-10-16）にManager側の確定事項を反映したも�
 ```
 section.t-sec
   div.t-sec-head  h2「連携」 span「3件」 button［＋ 追加］
-  ul.t-list.d1  aria-label="アルジュンのコンボ「起き攻めループ」の連携 3件"
+  ul.t-list.d1  aria-label="アルジュンのコンボ『起き攻めループ』の連携 3件"
     li.t-node#t-<id>
       div.t-row   span.t-no「A」  h3.t-title（sr-only「連携」＋「A 」＋見出し）  button.icon-btn［…］
       div.t-cmd   renderRow(L)    ← 0手なら p.t-cmd-none「コマンドなし」
       div.t-meta  span.t-tags  span.dmg「ダメージ <b>1,200</b>」   ← どちらもなければ出さない
       p.t-memo                     ← メモがなければ出さない
       button.t-fold［▾ 分岐 2件］   ← 子があるときだけ
-      ul.t-list  aria-label="連携A「投げ重ね」の分岐 2件"   ← 開いているときだけ描く
+      ul.t-list  aria-label="連携A『投げ重ね』の分岐 2件"   ← 開いているときだけ描く
         li.t-node … h4（2段目）… ul.t-list … li.t-node … h5（3段目）
 ```
 - 兄弟の順序は 0章2の規則。1段目の記号は順番どおり A〜H（`String.fromCharCode(65+i)`、Tilt Neon 15px、muted）。2・3段目は記号なし（数字表記の設定でコマンドの「1」と見間違えるため、数字も使わない）。
@@ -87,7 +87,7 @@ section.t-sec
 .t-list > li::after { content:''; position:absolute; left:calc(-1 * var(--s3)); top:calc(var(--gap) + 22px); width:var(--s2); border-top:1px solid var(--line-strong); }
 .t-row { position:relative; z-index:1; display:flex; align-items:flex-start; gap:var(--s2); }
 .t-no { flex:none; padding:11px 0; font:400 var(--sign-s) var(--font-sign); font-synthesis:none; letter-spacing:.04em; color:var(--fg-muted); }
-.t-title { flex:1; min-width:0; margin:0; padding:11px 0; font:700 var(--t-md)/1.4 var(--font); overflow-wrap:anywhere; }
+.t-title { flex:1; min-width:0; margin:0; padding:11px 0; font:700 15px/1.4 var(--font); overflow-wrap:anywhere; } /* --t-md は「15px/1.5」なので、/1.4 を変数の後ろに書くと font 全体が無効になる */
 .t-title .none { font-weight:400; color:var(--fg-muted); }
 .t-cmd { min-width:0; }
 .t-cmd-none { margin:0; font:var(--t-sm) var(--font); color:var(--fg-muted); }
@@ -123,7 +123,7 @@ section.t-sec
 
 ### 3.2 編集画面（`editScreen` を再利用。パッド・R1・［完了］・格納バーは変えない）
 - 上部バーの h1: 新規は、親が根なら「連携を追加」、親が1・2段目なら「分岐を追加」。編集は、1段目なら「連携の編集」、2・3段目なら「分岐の編集」。戻るボタンの `aria-label="コンボの詳細に戻る"`、戻り先は根の詳細。
-- **「つなぐ元」の欄 `.parent-ctx`**（`main` の先頭、下書きの時刻の上、`tabindex="-1"`）: 1行目に「つなぐ元」（12px、muted）＋親の名前（13px/700、fg、1行で省略。根ならタイトル（空なら「無題のコンボ」）、1段目なら「連携A 投げ重ね」、2段目なら「分岐 ガード時」）。2行目に親のコマンド列を `.preview`（S寸法、1行、段階に追従）。CSS: `margin: var(--s2) var(--s4) 0; padding-bottom: var(--s2); border-bottom: 1px solid var(--line);`。高さ約63px。360×740でパッドの上端326より上に収まる（要実測）。
+- **「つなぐ元」の欄 `.parent-ctx`**（`main` の先頭、下書きの時刻の上、`tabindex="-1"`）: 1行目に「つなぐ元」（12px、muted）＋親の名前（13px/700、fg、1行で省略。根ならタイトル（空なら「無題のコンボ」）、1段目なら「連携A 投げ重ね」、2段目なら「分岐 ガード時」）。2行目に親のコマンド列を `.preview`（S寸法、1行、段階に追従）。CSS: `margin: var(--s2) var(--s4) 0; padding-bottom: var(--s2); border-bottom: 1px solid var(--line);`。高さは実測59.8px（手計算は約63px）。360×740でパッドの上端326より上に収まる（欄の下端は y=115.8）。
 - 入力欄（子のとき）: 見出し → ダメージ → タグ → メモ。セクションと位置は出さない。見出しのラベル「見出し（任意）」（`id="f-title"`、上限100字）、placeholder は連携「例: 打撃重ね／投げ重ね」、分岐「例: ガード時／ヒット時」。新規作成は `newChildCombo` を使う（`sectionId`・`characterId`・`controlType` は親の値、`position` は 'any'、`favorite` は false、`createdAt` は兄弟の最後）。
 - ［完了］のフォーカス先: 根は今の `#f-sec`、子は `.parent-ctx`。
 - 根の編集画面: 子孫があるときだけ、セクションのセレクトの下に「連携・分岐 5件も一緒に移ります」（12px、muted、`id="f-sec-hint"`、セレクトの `aria-describedby`）。
@@ -186,5 +186,7 @@ section.t-sec
 11. 下書き: 同じセクションで、根の新規作成（`new:<sid>`）と連携の新規作成（`child:<pid>`）の下書きが別々に残り、開き直すと両方とも戻る。
 12. 迷子・グレースケール・色: 親のない子を含む文書をアプリ内に直接置いたとき（取り込みは拒否されるので、localStorage を直接書き換える）、その記録が一覧に出て、詳細に注意書きが出る（例外なし）。`?gray=1` で階層が読める。新しい要素の色がすべて既存トークンの値で、`filter`・`box-shadow`・`text-shadow` がない（L寸法のDR・ODを除く）。
 
-## 8. 未確認（実装後に実測する）
-手計算の値（3段目の内容幅292px、最長のチップ約283px、編集画面の「つなぐ元」の高さ約63px、パッドとの位置関係）は、実装後に受け入れ基準4・6で実測する。スクリーンショットでの確認は未実施。
+## 8. 実測（T-027、tests/e2e.mjs 26d・26f）
+- 3段目の内容幅: 360・390・430で 292・322・362px（手計算どおり）。最長の技（CH＋ODフーリガンコンビネーション＋▶）のグループは282px（手計算の約283px）で、すべての幅で3段目に収まる。
+- 編集画面の「つなぐ元」の欄: 高さ59.8px（手計算の約63pxより小さい）。欄の下端は y=115.8で、パッドの上端 y=326より上。360・390・430とも同じ。
+- 最大データ（連携8×分岐8×3段目8の584ノード）をすべて開いた1回の描き直しは約1秒（デスクトップのヘッドレスChromium、CPU制限なし）。描画の中身は主に584行のL寸法コマンド列のレイアウトで、初期表示の72ノードは約0.2秒。仮想化は作らない（2.7章）。
