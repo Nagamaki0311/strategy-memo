@@ -227,6 +227,7 @@ for (const e of document.querySelectorAll('.row.S, .row.S *')) if (glows(e)) pro
       const chip = n.closest('.chip');
       if (chip.querySelector('.arrow, .cw, .num, .charge, .neutral')) problems.push(`${id}: 技名のチップに矢印・数字が残っている`);
       if (chip.querySelector('.dot, .badge')) problems.push(`${id}: 技名のチップに●が出ている（D-019）`);
+      if ([n, ...n.querySelectorAll('*')].some(glows)) problems.push(`${id}: 技名の文字に発光がある（ODも発光しない。D-019）`);
       const ccs = getComputedStyle(chip);
       if (ccs.backgroundColor !== 'rgba(0, 0, 0, 0)' || ccs.borderTopWidth !== '0px' || ccs.boxShadow !== 'none') problems.push(`${id}: 技名のチップに枠・塗り・影がある`);
       const lbl = chip.getAttribute('aria-label');
