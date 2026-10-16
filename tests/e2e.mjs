@@ -4535,6 +4535,13 @@ for (const width of [360, 390, 430]) {
       const raw = await storedRaw(page);
       assert.ok(!raw.includes('memoSize'));
       assert.deepEqual(JSON.parse(raw), JSON.parse(JSON.stringify(exportDoc(seed25()))));
+      await gotoHash(page, '#/c/ryu/r/c1'); // 保存（複製）のあとも、データに memoSize は入らず、設定に残る
+      await page.getByRole('button', { name: '複製', exact: true }).click();
+      await page.waitForSelector('.toast');
+      assert.equal((await stored(page)).combos.length, 4);
+      assert.ok(!(await storedRaw(page)).includes('memoSize'));
+      assert.equal((await settingsRaw(page)).memoSize, 'm');
+      await gotoHash(page, '#/settings');
     });
     await page.getByRole('radio', { name: '小', exact: true }).check();
     await page.reload();
